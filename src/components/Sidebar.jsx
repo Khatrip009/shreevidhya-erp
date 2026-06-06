@@ -132,7 +132,7 @@ export default function Sidebar({ onClose }) {
       </button>
       {financeOpen && (
         <div className="ml-8 space-y-1">
-          {[["/fees","Fees"],["/receipts","Receipts"],["/income","Income"],["/expenses","Expenses"],["/salary-payments","Salary Payments"]].map(([to,label]) => (
+          {[["/fees/structures", "Fee Structures"],["/fees","Fees"],["/receipts","Receipts"],["/income","Income"],["/expenses","Expenses"],["/salary-payments","Salary Payments"]].map(([to,label]) => (
             <NavLink key={to} to={to} className={({ isActive }) => `block py-2 transition ${isActive ? "text-white font-medium" : "text-secondary-light hover:text-white"}`}>{label}</NavLink>
           ))}
         </div>

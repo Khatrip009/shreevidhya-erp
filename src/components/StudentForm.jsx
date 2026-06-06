@@ -1,13 +1,17 @@
-import { useState } from "react";
-import { X, User, Phone, Mail, MapPin, School, Calendar, Hash, Upload } from "lucide-react";
+import { useState, useEffect } from "react";
+import {
+  X, User, Phone, Mail, MapPin, School, Calendar, Hash, Upload, Plus, Search, Trash2
+} from "lucide-react";
 import toast from "react-hot-toast";
 import { supabase } from "../api/supabase";
 import { useOrgDarkLogo } from "../hooks/useOrgDarkLogo";
+import ParentForm from "./ParentForm"; // assuming ParentForm is in the same folder
 
 export default function StudentForm({ onSubmit, onClose, initialData = {} }) {
   const isEdit = !!initialData.id;
   const darkLogo = useOrgDarkLogo();
 
+  // ---- Student fields ----
   const [form, setForm] = useState({
     admission_no: initialData.admission_no || "",
     first_name: initialData.first_name || "",
@@ -28,9 +32,65 @@ export default function StudentForm({ onSubmit, onClose, initialData = {} }) {
     status: initialData.status || "active",
   });
 
+  // ---- Parent linking ----
+  const [allParents, setAllParents] = useState([]);
+  const [linkedParents, setLinkedParents] = useState([]);
+  const [parentSearch, setParentSearch] = useState("");
+  const [showAddParentModal, setShowAddParentModal] = useState(false);
+
   const [photoFile, setPhotoFile] = useState(null);
   const [uploading, setUploading] = useState(false);
 
+  // Load all parents for search
+  useEffect(() => {
+    supabase
+      .from("parents")
+      .select("*")
+      .order("father_name")
+      .then(({ data }) => setAllParents(data || []));
+  }, []);
+
+  // Load already linked parents when editing
+  useEffect(() => {
+    if (isEdit && initialData.id) {
+      supabase
+        .from("student_parents")
+        .select("parent_id, relation, parents(*)")
+        .eq("student_id", initialData.id)
+        .then(({ data }) => {
+          if (data) {
+            setLinkedParents(data.map((item) => item.parents));
+          }
+        });
+    }
+  }, [isEdit, initialData.id]);
+
+  // Filter parents based on search
+  const filteredParents = allParents.filter((p) => {
+    const term = parentSearch.toLowerCase();
+    return (
+      p.father_name?.toLowerCase().includes(term) ||
+      p.mother_name?.toLowerCase().includes(term) ||
+      p.mobile?.includes(term)
+    );
+  });
+
+  function addExistingParent(parent) {
+    if (linkedParents.find((lp) => lp.id === parent.id)) return;
+    setLinkedParents((prev) => [...prev, parent]);
+  }
+
+  function removeLinkedParent(parentId) {
+    setLinkedParents((prev) => prev.filter((p) => p.id !== parentId));
+  }
+
+  function handleNewParentCreated(newParent) {
+    setAllParents((prev) => [newParent, ...prev]);
+    setLinkedParents((prev) => [...prev, newParent]);
+    setShowAddParentModal(false);
+  }
+
+  // ---- Form handlers ----
   function handleChange(e) {
     const { name, value } = e.target;
     setForm((prev) => ({ ...prev, [name]: value }));
@@ -51,7 +111,7 @@ export default function StudentForm({ onSubmit, onClose, initialData = {} }) {
       try {
         const fileExt = photoFile.name.split(".").pop();
         const fileName = `${Date.now()}-${Math.random().toString(36).substring(2)}.${fileExt}`;
-        const filePath = `student-photos/students/${fileName}`; // folder inside bucket
+        const filePath = `student-photos/students/${fileName}`;
 
         const { error: uploadError } = await supabase.storage
           .from("ShreeVidhya_Academy")
@@ -75,12 +135,13 @@ export default function StudentForm({ onSubmit, onClose, initialData = {} }) {
       }
     }
 
-    // Sanitize date fields to avoid PostgreSQL errors
+    // Sanitize date fields
     const payload = {
       ...form,
       photo_url: photoUrl,
       dob: form.dob || null,
       joining_date: form.joining_date || null,
+      _parent_ids: linkedParents.map((p) => p.id), // pass parent IDs
     };
 
     try {
@@ -381,6 +442,67 @@ export default function StudentForm({ onSubmit, onClose, initialData = {} }) {
             </select>
           </div>
 
+          {/* ---------- Parents Section ---------- */}
+          <div className="col-span-1 sm:col-span-2">
+            <h3 className="text-lg font-righteous text-primary-dark mb-3 flex items-center gap-2">
+              <User size={18} /> Parents / Guardians
+            </h3>
+
+            {/* Already linked parents */}
+            <div className="flex flex-wrap gap-2 mb-3">
+              {linkedParents.map((p) => (
+                <span
+                  key={p.id}
+                  className="inline-flex items-center gap-2 bg-primary-bg text-primary px-3 py-1.5 rounded-full text-sm"
+                >
+                  {p.father_name || p.mother_name || p.mobile}
+                  <button
+                    type="button"
+                    onClick={() => removeLinkedParent(p.id)}
+                    className="text-red-500 hover:text-red-700"
+                  >
+                    <X size={14} />
+                  </button>
+                </span>
+              ))}
+            </div>
+
+            {/* Search & select existing parent */}
+            <div className="relative mb-3">
+              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-secondary" />
+              <input
+                type="text"
+                placeholder="Search existing parent..."
+                value={parentSearch}
+                onChange={(e) => setParentSearch(e.target.value)}
+                className="w-full border border-secondary-light rounded-lg pl-10 pr-4 py-2.5 text-sm focus:ring-1 focus:ring-primary outline-none"
+              />
+            </div>
+
+            {parentSearch && (
+              <div className="max-h-32 overflow-y-auto border border-secondary-light rounded-lg mb-3">
+                {filteredParents.slice(0, 5).map((p) => (
+                  <div
+                    key={p.id}
+                    className="px-4 py-2 text-sm hover:bg-primary-bg cursor-pointer flex justify-between items-center"
+                    onClick={() => addExistingParent(p)}
+                  >
+                    <span>{p.father_name || p.mother_name} – {p.mobile}</span>
+                    <Plus size={16} className="text-primary" />
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={() => setShowAddParentModal(true)}
+              className="text-primary hover:underline text-sm flex items-center gap-1"
+            >
+              <Plus size={16} /> Add New Parent
+            </button>
+          </div>
+
           {/* Buttons */}
           <div className="col-span-1 sm:col-span-2 flex flex-col sm:flex-row justify-end gap-3 mt-4">
             <button
@@ -399,6 +521,14 @@ export default function StudentForm({ onSubmit, onClose, initialData = {} }) {
             </button>
           </div>
         </form>
+
+        {/* Add Parent Modal */}
+        {showAddParentModal && (
+          <ParentForm
+            onSubmit={(parentPayload) => handleNewParentCreated(parentPayload)}
+            onClose={() => setShowAddParentModal(false)}
+          />
+        )}
       </div>
     </div>
   );
