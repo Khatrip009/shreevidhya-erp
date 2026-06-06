@@ -1,4 +1,4 @@
-const CACHE_NAME = 'shreevidhya-v3';
+const CACHE_NAME = 'shreevidhya-v4';
 
 self.addEventListener('install', (event) => {
   self.skipWaiting();
@@ -13,8 +13,15 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
+  // Do not cache API calls or Supabase storage requests
+  const url = new URL(event.request.url);
+  if (url.pathname.startsWith('/rest/v1/') || url.pathname.startsWith('/storage/v1/')) {
+    return;
+  }
+
   event.respondWith(
-    fetch(event.request)
-      .catch(() => caches.match(event.request))
+    caches.match(event.request)
+      .then((cachedResponse) => cachedResponse || fetch(event.request))
+      .catch(() => new Response('Offline'))
   );
 });
