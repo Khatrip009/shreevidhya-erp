@@ -1,0 +1,314 @@
+import React, { useState, useRef } from "react";
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQueryClient,
+} from "@tanstack/react-query";
+import toast from "react-hot-toast";
+import {
+  Search,
+  Plus,
+  Edit3,
+  Trash2,
+  Filter,
+  Download,
+  Upload,
+  X,
+  Users,
+} from "lucide-react";
+import Papa from "papaparse";
+import AdminLayout from "../layouts/AdminLayout";
+import ParentForm from "../components/ParentForm";
+import {
+  getParents,
+  createParent,
+  updateParent,
+  deleteParent,
+  getAllParentsForExport,
+} from "../services/parentService";
+
+export default function Parents() {
+  const queryClient = useQueryClient();
+
+  // Search & filters
+  const [search, setSearch] = useState("");
+  const [showFilters, setShowFilters] = useState(false);
+  const allFilters = { search };
+
+  // UI state
+  const [showForm, setShowForm] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const fileInputRef = useRef(null);
+
+  // Infinite query
+  const {
+    data,
+    isLoading,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useInfiniteQuery({
+    queryKey: ["parents", allFilters],
+    queryFn: ({ pageParam = 0 }) => getParents({ pageParam, filters: allFilters }),
+    getNextPageParam: (lastPage, allPages) => {
+      const totalFetched = allPages.reduce((sum, page) => sum + page.data.length, 0);
+      if (lastPage.count && totalFetched < lastPage.count) {
+        return allPages.length;
+      }
+      return undefined;
+    },
+    initialPageParam: 0,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const parents = data?.pages.flatMap((page) => page.data) || [];
+
+  // Mutations
+  const createMutation = useMutation({
+    mutationFn: createParent,
+    onSuccess: () => {
+      toast.success("Parent created");
+      queryClient.invalidateQueries({ queryKey: ["parents"] });
+      setShowForm(false);
+    },
+    onError: () => toast.error("Failed to create parent"),
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, payload }) => updateParent(id, payload),
+    onSuccess: () => {
+      toast.success("Parent updated");
+      queryClient.invalidateQueries({ queryKey: ["parents"] });
+      setEditing(null);
+    },
+    onError: () => toast.error("Failed to update parent"),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: deleteParent,
+    onSuccess: () => {
+      toast.success("Parent deleted");
+      queryClient.invalidateQueries({ queryKey: ["parents"] });
+    },
+    onError: () =>
+      toast.error("Deletion failed. The parent may be linked to students."),
+  });
+
+  // CSV Import
+  async function handleCSVImport(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: async (results) => {
+        let successCount = 0;
+        for (const row of results.data) {
+          try {
+            const payload = {
+              father_name: row.father_name || null,
+              mother_name: row.mother_name || null,
+              mobile: row.mobile,
+              whatsapp: row.whatsapp || null,
+              email: row.email || null,
+              occupation: row.occupation || null,
+              address: row.address || null,
+            };
+            await createParent(payload);
+            successCount++;
+          } catch (err) {
+            console.error(err);
+          }
+        }
+        toast.success(`${successCount} parents imported`);
+        queryClient.invalidateQueries({ queryKey: ["parents"] });
+      },
+      error: () => toast.error("CSV parsing error"),
+    });
+  }
+
+  // CSV Export
+  async function handleCSVExport() {
+    try {
+      const allData = await getAllParentsForExport(allFilters);
+      const csv = Papa.unparse(allData);
+      const blob = new Blob([csv], { type: "text/csv" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "parents.csv";
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      toast.error("Export failed");
+    }
+  }
+
+  // Handlers
+  function handleCreate(payload) {
+    createMutation.mutate(payload);
+  }
+
+  function handleUpdate(payload) {
+    updateMutation.mutate({ id: editing.id, payload });
+  }
+
+  function handleDelete(id) {
+    if (!window.confirm("Delete this parent?")) return;
+    deleteMutation.mutate(id);
+  }
+
+  return (
+    <AdminLayout>
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
+        <div>
+          <h1 className="text-3xl font-righteous text-primary-dark">Parents</h1>
+          <p className="text-sm text-secondary-dark font-montserrat mt-1">
+            Manage parent records
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={() => setShowForm(true)}
+            className="bg-primary hover:bg-primary-light text-white px-5 py-2.5 rounded-lg transition font-montserrat text-sm flex items-center gap-2"
+          >
+            <Plus size={18} /> Add Parent
+          </button>
+          <button
+            onClick={handleCSVExport}
+            className="border border-secondary-light px-4 py-2.5 rounded-lg text-secondary-dark hover:bg-secondary-bg font-montserrat text-sm flex items-center gap-2"
+          >
+            <Download size={18} /> Export
+          </button>
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="border border-secondary-light px-4 py-2.5 rounded-lg text-secondary-dark hover:bg-secondary-bg font-montserrat text-sm flex items-center gap-2"
+          >
+            <Upload size={18} /> Import
+          </button>
+          <input
+            type="file"
+            ref={fileInputRef}
+            className="hidden"
+            accept=".csv"
+            onChange={handleCSVImport}
+          />
+        </div>
+      </div>
+
+      {/* Search */}
+      <div className="relative mb-6 max-w-md">
+        <Search
+          size={18}
+          className="absolute left-3 top-1/2 -translate-y-1/2 text-secondary"
+        />
+        <input
+          type="text"
+          placeholder="Search by name, mobile, or email..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="w-full border border-secondary-light rounded-lg pl-10 pr-4 py-2.5 text-sm focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light"
+        />
+      </div>
+
+      {/* Table */}
+      <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[700px]">
+            <thead className="bg-slate-100 border-b border-secondary-light">
+              <tr>
+                <th className="p-3 text-left text-sm font-montserrat text-secondary-dark">Father</th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">Mother</th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">Mobile</th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">WhatsApp</th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">Email</th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {isLoading ? (
+                <tr>
+                  <td colSpan={6} className="p-6 text-center text-secondary">
+                    Loading parents…
+                  </td>
+                </tr>
+              ) : parents.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="p-6 text-center text-secondary">
+                    <div className="flex flex-col items-center gap-2">
+                      <Users size={32} className="text-secondary-light" />
+                      <span>No parents found</span>
+                      <span className="text-xs text-secondary-light">
+                        {search
+                          ? "Try adjusting your search"
+                          : "Add a new parent to get started"}
+                      </span>
+                    </div>
+                  </td>
+                </tr>
+              ) : (
+                parents.map((parent) => (
+                  <tr
+                    key={parent.id}
+                    className="border-b border-secondary-light hover:bg-primary-bg transition"
+                  >
+                    <td className="p-3 text-sm">{parent.father_name || "-"}</td>
+                    <td className="text-sm">{parent.mother_name || "-"}</td>
+                    <td className="text-sm">{parent.mobile || "-"}</td>
+                    <td className="text-sm">{parent.whatsapp || "-"}</td>
+                    <td className="text-sm">{parent.email || "-"}</td>
+                    <td className="text-sm">
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => setEditing(parent)}
+                          className="text-blue-600 hover:underline"
+                        >
+                          <Edit3 size={15} />
+                        </button>
+                        <button
+                          onClick={() => handleDelete(parent.id)}
+                          className="text-red-600 hover:underline"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Load More */}
+      {hasNextPage && (
+        <div className="flex justify-center mt-6">
+          <button
+            onClick={() => fetchNextPage()}
+            disabled={isFetchingNextPage}
+            className="bg-primary hover:bg-primary-light text-white px-6 py-2.5 rounded-lg font-montserrat text-sm transition disabled:opacity-60"
+          >
+            {isFetchingNextPage ? "Loading more…" : "Load More"}
+          </button>
+        </div>
+      )}
+
+      {/* Modals */}
+      {showForm && (
+        <ParentForm
+          onSubmit={handleCreate}
+          onClose={() => setShowForm(false)}
+        />
+      )}
+      {editing && (
+        <ParentForm
+          initialData={editing}
+          onSubmit={handleUpdate}
+          onClose={() => setEditing(null)}
+        />
+      )}
+    </AdminLayout>
+  );
+}

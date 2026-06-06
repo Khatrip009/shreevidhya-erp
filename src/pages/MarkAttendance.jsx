@@ -1,0 +1,240 @@
+import { useEffect, useState } from "react";
+import { useParams, useNavigate } from "react-router-dom";
+import toast from "react-hot-toast";
+import {
+  ArrowLeft,
+  Save,
+  User,
+  Hash,
+  Calendar,
+  Layers,
+  FileText,
+  CheckCircle,
+} from "lucide-react";
+import AdminLayout from "../layouts/AdminLayout";
+import {
+  getStudentsByBatch,
+  getMarkedAttendance,
+  saveAttendance,
+} from "../services/attendanceService";
+import { supabase } from "../api/supabase";
+
+export default function MarkAttendance() {
+  const { sessionId } = useParams();
+  const navigate = useNavigate();
+
+  const [students, setStudents] = useState([]);
+  const [attendance, setAttendance] = useState({});
+  const [remarks, setRemarks] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [sessionInfo, setSessionInfo] = useState(null);
+
+  useEffect(() => {
+    loadData();
+  }, [sessionId]);
+
+  async function loadData() {
+    setLoading(true);
+    try {
+      const { data: session } = await supabase
+        .from("attendance_sessions")
+        .select("id, attendance_date, topic_covered, batch_id, batches(batch_name)")
+        .eq("id", sessionId)
+        .single();
+
+      if (!session) {
+        toast.error("Session not found");
+        navigate("/attendance");
+        return;
+      }
+      setSessionInfo(session);
+
+      const studentList = await getStudentsByBatch(session.batch_id);
+      setStudents(studentList);
+
+      const marked = await getMarkedAttendance(sessionId);
+      const initialAttendance = {};
+      const initialRemarks = {};
+      marked.forEach((m) => {
+        initialAttendance[m.student_id] = m.status;
+        initialRemarks[m.student_id] = m.remarks || "";
+      });
+      setAttendance(initialAttendance);
+      setRemarks(initialRemarks);
+    } catch (err) {
+      toast.error("Failed to load attendance data");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function handleStatusChange(studentId, status) {
+    setAttendance((prev) => ({ ...prev, [studentId]: status }));
+  }
+
+  function handleRemarkChange(studentId, value) {
+    setRemarks((prev) => ({ ...prev, [studentId]: value }));
+  }
+
+  function markAllPresent() {
+    const newAttendance = {};
+    students.forEach((s) => (newAttendance[s.student_id] = "Present"));
+    setAttendance(newAttendance);
+  }
+
+  async function handleSave() {
+    const records = students.map((s) => ({
+      student_id: s.student_id,
+      status: attendance[s.student_id] || "Absent",
+      remarks: remarks[s.student_id] || "",
+    }));
+
+    setSaving(true);
+    try {
+      await saveAttendance(sessionId, records);
+      toast.success("Attendance saved");
+      navigate("/attendance");
+    } catch (err) {
+      toast.error("Failed to save attendance");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <AdminLayout>
+        <div className="p-8 text-center text-secondary font-montserrat">
+          Loading attendance sheet…
+        </div>
+      </AdminLayout>
+    );
+  }
+
+  return (
+    <AdminLayout>
+      {/* Back button & Header */}
+      <div className="mb-6">
+        <button
+          onClick={() => navigate("/attendance")}
+          className="flex items-center gap-2 text-secondary hover:text-primary-dark mb-2 font-montserrat text-sm transition"
+        >
+          <ArrowLeft size={18} />
+          Back to Sessions
+        </button>
+        <h1 className="text-3xl font-righteous text-primary-dark">Mark Attendance</h1>
+        {sessionInfo && (
+          <div className="flex flex-wrap gap-2 mt-2 text-sm text-secondary-dark font-montserrat">
+            <span className="flex items-center gap-1 bg-primary-bg text-primary px-3 py-1 rounded-full">
+              <Layers size={14} /> {sessionInfo.batches?.batch_name}
+            </span>
+            <span className="flex items-center gap-1 bg-primary-bg text-primary px-3 py-1 rounded-full">
+              <Calendar size={14} /> {sessionInfo.attendance_date}
+            </span>
+            {sessionInfo.topic_covered && (
+              <span className="flex items-center gap-1 bg-primary-bg text-primary px-3 py-1 rounded-full">
+                <FileText size={14} /> {sessionInfo.topic_covered}
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Students Table */}
+      <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+        <div className="p-4 border-b border-secondary-light flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+          <h2 className="text-lg font-righteous text-primary-dark flex items-center gap-2">
+            <User size={18} />
+            Students ({students.length})
+          </h2>
+          <button
+            onClick={markAllPresent}
+            className="bg-green-100 text-green-700 px-4 py-2 rounded-lg text-sm font-montserrat hover:bg-green-200 transition flex items-center gap-2"
+          >
+            <CheckCircle size={16} />
+            Mark All Present
+          </button>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[600px]">
+            <thead className="bg-slate-50 border-b border-secondary-light">
+              <tr>
+                <th className="text-left p-3 text-sm font-montserrat text-secondary-dark">
+                  <Hash size={14} className="inline mr-1" />
+                  Admission No
+                </th>
+                <th className="text-left p-3 text-sm font-montserrat text-secondary-dark">
+                  <User size={14} className="inline mr-1" />
+                  Name
+                </th>
+                <th className="text-center p-3 text-sm font-montserrat text-secondary-dark w-40">
+                  Status
+                </th>
+                <th className="text-left p-3 text-sm font-montserrat text-secondary-dark w-48">
+                  Remarks
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {students.map((student) => (
+                <tr
+                  key={student.student_id}
+                  className="border-b border-secondary-light hover:bg-primary-bg transition"
+                >
+                  <td className="p-3 text-sm">{student.admission_no}</td>
+                  <td className="p-3 text-sm font-medium">
+                    {student.first_name} {student.last_name}
+                  </td>
+                  <td className="p-3 text-center">
+                    <select
+                      value={attendance[student.student_id] || "Absent"}
+                      onChange={(e) =>
+                        handleStatusChange(student.student_id, e.target.value)
+                      }
+                      className="border border-secondary-light rounded p-2 text-sm focus:ring-1 focus:ring-primary focus:border-primary outline-none"
+                    >
+                      <option value="Present">Present</option>
+                      <option value="Absent">Absent</option>
+                      <option value="Late">Late</option>
+                    </select>
+                  </td>
+                  <td className="p-3">
+                    <input
+                      type="text"
+                      placeholder="Reason..."
+                      value={remarks[student.student_id] || ""}
+                      onChange={(e) =>
+                        handleRemarkChange(student.student_id, e.target.value)
+                      }
+                      className="border border-secondary-light rounded p-2 w-full text-sm focus:ring-1 focus:ring-primary focus:border-primary outline-none"
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Action Buttons */}
+        <div className="p-4 border-t border-secondary-light flex flex-col sm:flex-row justify-end gap-3">
+          <button
+            onClick={() => navigate("/attendance")}
+            className="w-full sm:w-auto px-5 py-2.5 border border-secondary-light rounded-lg text-secondary-dark hover:bg-secondary-bg font-montserrat text-sm transition"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="w-full sm:w-auto px-6 py-2.5 bg-primary hover:bg-primary-light text-white rounded-lg font-montserrat text-sm transition disabled:opacity-50 flex items-center justify-center gap-2"
+          >
+            <Save size={18} />
+            {saving ? "Saving..." : "Save Attendance"}
+          </button>
+        </div>
+      </div>
+    </AdminLayout>
+  );
+}
