@@ -1,12 +1,16 @@
-const CACHE_NAME = 'shreevidhya-v1';
+const BASE_PATH = '/shreevidhya-erp';   // GitHub Pages subdirectory
+const CACHE_NAME = 'shreevidhya-v2';
+
+// Precached resources (use the base path)
 const urlsToCache = [
-  '/',
-  '/index.html',
-  '/ShreeVidhyalight.png',
-  '/ShreeVidhyaDark.png',
-  // Add other static assets if needed
+  `${BASE_PATH}/`,
+  `${BASE_PATH}/index.html`,
+  `${BASE_PATH}/ShreeVidhyalight.png`,
+  `${BASE_PATH}/ShreeVidhyaDark.png`,
+  // Add other static assets if needed (fonts, etc.)
 ];
 
+// Install event – precache the above URLs
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME)
@@ -15,6 +19,7 @@ self.addEventListener('install', (event) => {
   );
 });
 
+// Activate event – clean up old caches
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((cacheNames) =>
@@ -30,9 +35,13 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
+// Fetch event – serve cached files, fallback to network
 self.addEventListener('fetch', (event) => {
   event.respondWith(
     caches.match(event.request)
-      .then((response) => response || fetch(event.request))
+      .then((cachedResponse) => {
+        // Return cached response if found, otherwise fetch from network
+        return cachedResponse || fetch(event.request);
+      })
   );
 });
