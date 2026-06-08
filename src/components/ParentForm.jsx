@@ -9,6 +9,7 @@ import {
   MapPin,
 } from "lucide-react";
 import { useOrgDarkLogo } from "../hooks/useOrgDarkLogo";
+import { createParent } from "../services/parentService";   // <-- add this import
 
 export default function ParentForm({ onSubmit, onClose, initialData = {} }) {
   const darkLogo = useOrgDarkLogo();
@@ -37,9 +38,13 @@ export default function ParentForm({ onSubmit, onClose, initialData = {} }) {
       return;
     }
     try {
-      await onSubmit(form);
+      // 1. Actually create the parent in the database
+      const createdParent = await createParent(form);
+      // 2. Pass the full parent object back to the student form
+      onSubmit(createdParent);
+      toast.success("Parent created and linked");
     } catch (err) {
-      toast.error(err.message || "Something went wrong");
+      toast.error(err.message || "Failed to create parent");
     }
   }
 
