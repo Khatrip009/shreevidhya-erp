@@ -1,11 +1,11 @@
 import { useState, useEffect } from "react";
 import {
-  X, User, Phone, Mail, MapPin, School, Calendar, Hash, Upload, Plus, Search, Trash2
-} from "lucide-react";
+  X, User, Phone, Mail, MapPin, School, Calendar, Hash, Upload, Plus, Search, Lock
+} from "lucide-react";   // ← added "Lock"
 import toast from "react-hot-toast";
 import { supabase } from "../api/supabase";
 import { useOrgDarkLogo } from "../hooks/useOrgDarkLogo";
-import ParentForm from "./ParentForm"; // assuming ParentForm is in the same folder
+import ParentForm from "./ParentForm";
 
 export default function StudentForm({ onSubmit, onClose, initialData = {} }) {
   const isEdit = !!initialData.id;
@@ -31,6 +31,11 @@ export default function StudentForm({ onSubmit, onClose, initialData = {} }) {
     joining_date: initialData.joining_date || new Date().toISOString().split("T")[0],
     status: initialData.status || "active",
   });
+
+  // ---- NEW: Login account fields ----
+  const [createLogin, setCreateLogin] = useState(false);
+  const [loginEmail, setLoginEmail] = useState(initialData.email || "");
+  const [loginPassword, setLoginPassword] = useState("student123");
 
   // ---- Parent linking ----
   const [allParents, setAllParents] = useState([]);
@@ -104,6 +109,11 @@ export default function StudentForm({ onSubmit, onClose, initialData = {} }) {
       return;
     }
 
+    if (createLogin && !loginEmail) {
+      toast.error("Login email is required when creating an account");
+      return;
+    }
+
     let photoUrl = initialData.photo_url || null;
 
     if (photoFile) {
@@ -135,13 +145,17 @@ export default function StudentForm({ onSubmit, onClose, initialData = {} }) {
       }
     }
 
-    // Sanitize date fields
+    // Sanitize date fields and include login info
     const payload = {
       ...form,
       photo_url: photoUrl,
       dob: form.dob || null,
       joining_date: form.joining_date || null,
-      _parent_ids: linkedParents.map((p) => p.id), // pass parent IDs
+      _parent_ids: linkedParents.map((p) => p.id),
+      // NEW: login account details
+      _create_login: createLogin,
+      _login_email: loginEmail,
+      _login_password: loginPassword,
     };
 
     try {
@@ -440,6 +454,55 @@ export default function StudentForm({ onSubmit, onClose, initialData = {} }) {
               <option value="inactive">Inactive</option>
               <option value="graduated">Graduated</option>
             </select>
+          </div>
+
+          {/* ---------- NEW: Create Login Account Section ---------- */}
+          <div className="col-span-1 sm:col-span-2 border-t border-secondary-light pt-5">
+            <h3 className="text-lg font-righteous text-primary-dark mb-3 flex items-center gap-2">
+              <Lock size={18} /> Create Login Account
+            </h3>
+            <label className="flex items-center gap-2 text-sm font-montserrat text-secondary-dark mb-3">
+              <input
+                type="checkbox"
+                checked={createLogin}
+                onChange={(e) => setCreateLogin(e.target.checked)}
+                className="rounded accent-primary h-4 w-4"
+              />
+              Create a login account for this student
+            </label>
+
+            {createLogin && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-montserrat text-secondary-dark mb-1">
+                    <Mail size={14} className="inline mr-1" /> Login Email *
+                  </label>
+                  <input
+                    type="email"
+                    value={loginEmail}
+                    onChange={(e) => setLoginEmail(e.target.value)}
+                    placeholder="student@example.com"
+                    className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary outline-none"
+                    required={createLogin}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-montserrat text-secondary-dark mb-1">
+                    <Lock size={14} className="inline mr-1" /> Password
+                  </label>
+                  <input
+                    type="text"
+                    value={loginPassword}
+                    onChange={(e) => setLoginPassword(e.target.value)}
+                    className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary outline-none bg-gray-100"
+                    readOnly
+                  />
+                  <p className="text-xs text-secondary-light mt-1">
+                    Default password is “student123”. Student will be forced to change it on first login.
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* ---------- Parents Section ---------- */}
