@@ -21,21 +21,17 @@ import AdminLayout from "../layouts/AdminLayout";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../api/supabase";
 
-// Helper
 const formatCurrency = (amount) => `₹${Number(amount).toLocaleString("en-IN")}`;
 
 export default function StudentProfile() {
-  const { id } = useParams();           // from /students/:id (admin)
-  const { user } = useAuth();           // current logged-in user
+  const { id } = useParams();
+  const { user } = useAuth();
 
-  // Determine the actual student ID we need to display
+  // Resolve student ID (from URL or from logged-in student)
   const { data: resolvedStudentId, isLoading: resolving } = useQuery({
     queryKey: ["resolve-student-id", id, user?.id],
     queryFn: async () => {
-      // If URL has an ID, use it directly (admin view)
       if (id) return id;
-
-      // Otherwise, find the student linked to the current auth user
       if (!user?.id) return null;
       const { data } = await supabase
         .from("students")
@@ -68,7 +64,7 @@ export default function StudentProfile() {
     enabled: !!targetId,
   });
 
-  // 2. Parents
+  // 2. Parents – with null safety
   const { data: parents = [] } = useQuery({
     queryKey: ["student-parents", targetId],
     queryFn: async () => {
@@ -77,7 +73,10 @@ export default function StudentProfile() {
         .select("relation, parents(*)")
         .eq("student_id", targetId);
       if (error) throw error;
-      return data?.map((item) => item.parents) || [];
+      // Filter out any null parents entries
+      return (data || [])
+        .filter((item) => item.parents !== null)
+        .map((item) => item.parents);
     },
     enabled: !!targetId,
   });
@@ -303,11 +302,13 @@ export default function StudentProfile() {
             <ul className="space-y-4">
               {parents.map((p, idx) => (
                 <li key={idx} className="border-b pb-2 last:border-0">
-                  <p className="font-medium text-sm">{p.father_name || "-"} / {p.mother_name || "-"}</p>
+                  <p className="font-medium text-sm">
+                    {p?.father_name || "-"} / {p?.mother_name || "-"}
+                  </p>
                   <div className="text-xs text-secondary mt-1 space-y-1">
-                    {p.mobile && <p className="flex items-center gap-1"><Phone size={12} /> {p.mobile}</p>}
-                    {p.email && <p className="flex items-center gap-1"><Mail size={12} /> {p.email}</p>}
-                    {p.occupation && <p><strong>Occ:</strong> {p.occupation}</p>}
+                    {p?.mobile && <p className="flex items-center gap-1"><Phone size={12} /> {p.mobile}</p>}
+                    {p?.email && <p className="flex items-center gap-1"><Mail size={12} /> {p.email}</p>}
+                    {p?.occupation && <p><strong>Occ:</strong> {p.occupation}</p>}
                   </div>
                 </li>
               ))}
