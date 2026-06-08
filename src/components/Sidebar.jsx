@@ -56,6 +56,7 @@ export default function Sidebar({ onClose }) {
       <NavLink to="/student/homework" className="block py-2 ml-8 text-secondary-light hover:text-white">Homework</NavLink>
       <NavLink to="/student/results" className="block py-2 ml-8 text-secondary-light hover:text-white">Results</NavLink>
       <NavLink to="/student/certificates" className="block py-2 ml-8 text-secondary-light hover:text-white">Certificates</NavLink>
+      <NavLink to="/student/timetable" className="block py-2 ml-8 text-secondary-light hover:text-white">Timetable</NavLink>
       <NavLink to="/settings" className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-lg transition ${isActive ? "bg-primary-light" : "hover:bg-primary-light"}`}>
         <Settings size={18} /> Settings
       </NavLink>
@@ -63,37 +64,40 @@ export default function Sidebar({ onClose }) {
   );
 
   // ---------- Teacher links ----------
-  const teacherLinks = (
-    <>
-      <NavLink to="/teacher" end className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-lg transition ${isActive ? "bg-primary-light" : "hover:bg-primary-light"}`}>
-        <LayoutDashboard size={18} /> Dashboard
-      </NavLink>
-      <button onClick={() => setAcademicOpen(!academicOpen)} className="w-full flex justify-between items-center px-4 py-3 rounded-lg hover:bg-primary-light transition">
-        <span className="flex items-center gap-3"><GraduationCap size={18} />Academics</span>
-        <ChevronDown size={16} className={`transition ${academicOpen ? "rotate-180" : ""}`} />
-      </button>
-      {academicOpen && (
-        <div className="ml-8 space-y-1">
-          <NavLink to="/attendance" className="block py-2 text-secondary-light hover:text-white">Attendance</NavLink>
-          <NavLink to="/homework" className="block py-2 text-secondary-light hover:text-white">Homework</NavLink>
-          <NavLink to="/exams" className="block py-2 text-secondary-light hover:text-white">Exams</NavLink>
-          <NavLink to="/results" className="block py-2 text-secondary-light hover:text-white">Results</NavLink>
-        </div>
-      )}
-      <NavLink to="/teacher/salary" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-primary-light transition">
-        <Wallet size={18} /> My Salary
-      </NavLink>
-      <NavLink to="/teacher/leaves" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-primary-light transition">
-        <CalendarClock size={18} /> My Leaves
-      </NavLink>
-      <NavLink to="/teacher/profile" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-primary-light transition">
-        <BookOpen size={18} /> My Profile
-      </NavLink>
-      <NavLink to="/settings" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-primary-light transition">
-        <Settings size={18} /> Settings
-      </NavLink>
-    </>
-  );
+ const teacherLinks = (
+  <>
+    <NavLink to="/teacher" end className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-lg transition ${isActive ? "bg-primary-light" : "hover:bg-primary-light"}`}>
+      <LayoutDashboard size={18} /> Dashboard
+    </NavLink>
+    <button onClick={() => setAcademicOpen(!academicOpen)} className="w-full flex justify-between items-center px-4 py-3 rounded-lg hover:bg-primary-light transition">
+      <span className="flex items-center gap-3"><GraduationCap size={18} />Academics</span>
+      <ChevronDown size={16} className={`transition ${academicOpen ? "rotate-180" : ""}`} />
+    </button>
+    {academicOpen && (
+      <div className="ml-8 space-y-1">
+        <NavLink to="/attendance" className="block py-2 text-secondary-light hover:text-white">Attendance</NavLink>
+        <NavLink to="/homework" className="block py-2 text-secondary-light hover:text-white">Homework</NavLink>
+        <NavLink to="/exams" className="block py-2 text-secondary-light hover:text-white">Exams</NavLink>
+        <NavLink to="/results" className="block py-2 text-secondary-light hover:text-white">Results</NavLink>
+      </div>
+    )}
+    <NavLink to="/teacher/salary" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-primary-light transition">
+      <Wallet size={18} /> My Salary
+    </NavLink>
+    <NavLink to="/teacher/leaves" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-primary-light transition">
+      <CalendarClock size={18} /> My Leaves
+    </NavLink>
+    <NavLink to="/teacher/profile" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-primary-light transition">
+      <BookOpen size={18} /> My Profile
+    </NavLink>
+    <NavLink to="/teacher/timetable" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-primary-light transition">
+      <CalendarClock size={18} /> My Timetable
+    </NavLink>
+    <NavLink to="/settings" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-primary-light transition">
+      <Settings size={18} /> Settings
+    </NavLink>
+  </>
+);
 
   // ---------- Admin / Super Admin full links ----------
   const adminLinks = (
@@ -120,7 +124,7 @@ export default function Sidebar({ onClose }) {
       </button>
       {academicOpen && (
         <div className="ml-8 space-y-1">
-          {[["/courses","Courses"],["/subjects","Subjects"],["/batches","Batches"],["/attendance","Attendance"],["/attendance/reports","Attendance Reports"],["/progress","Progress"],["/student-progress","Progress Report"],["/homework","Homework"],["/exams","Exams"],["/results","Results"]].map(([to,label]) => (
+          {[["/courses","Courses"],["/subjects","Subjects"],["/batches","Batches"],["/attendance","Attendance"],["/attendance/reports","Attendance Reports"],["/progress","Progress"],["/student-progress","Progress Report"],["/homework","Homework"],["/exams","Exams"],["/results","Results"],["/calendar", "Class Calendar"]].map(([to,label]) => (
             <NavLink key={to} to={to} className={({ isActive }) => `block py-2 transition ${isActive ? "text-white font-medium" : "text-secondary-light hover:text-white"}`}>{label}</NavLink>
           ))}
         </div>

@@ -1,13 +1,13 @@
 import { useState, useEffect } from "react";
 import {
   X, User, Phone, Mail, MapPin, School, Calendar, Hash, Upload, Plus, Search, Lock
-} from "lucide-react";   // ← added "Lock"
+} from "lucide-react";
 import toast from "react-hot-toast";
 import { supabase } from "../api/supabase";
 import { useOrgDarkLogo } from "../hooks/useOrgDarkLogo";
 import ParentForm from "./ParentForm";
 
-export default function StudentForm({ onSubmit, onClose, initialData = {} }) {
+export default function StudentForm({ onSuccess, onClose, initialData = {} }) {
   const isEdit = !!initialData.id;
   const darkLogo = useOrgDarkLogo();
 
@@ -32,7 +32,7 @@ export default function StudentForm({ onSubmit, onClose, initialData = {} }) {
     status: initialData.status || "active",
   });
 
-  // ---- NEW: Login account fields ----
+  // ---- Login account fields ----
   const [createLogin, setCreateLogin] = useState(false);
   const [loginEmail, setLoginEmail] = useState(initialData.email || "");
   const [loginPassword, setLoginPassword] = useState("student123");
@@ -45,6 +45,52 @@ export default function StudentForm({ onSubmit, onClose, initialData = {} }) {
 
   const [photoFile, setPhotoFile] = useState(null);
   const [uploading, setUploading] = useState(false);
+  const [loadingAdmission, setLoadingAdmission] = useState(!isEdit && !initialData.admission_no);
+
+  // ----------------------------------------------------------------------
+  // Auto-generate admission number for new students (format: SRA-00001)
+  // ----------------------------------------------------------------------
+  useEffect(() => {
+    if (isEdit || initialData.admission_no) return; // editing or already has admission no
+
+    async function generateAdmissionNo() {
+      try {
+        // Fetch the latest admission number from students table
+        const { data, error } = await supabase
+          .from("students")
+          .select("admission_no")
+          .order("admission_no", { ascending: false })
+          .limit(1);
+
+        if (error) throw error;
+
+        let nextNumber = 1;
+        if (data && data.length > 0 && data[0].admission_no) {
+          const last = data[0].admission_no;
+          const match = last.match(/SRA-(\d+)/);
+          if (match && match[1]) {
+            nextNumber = parseInt(match[1], 10) + 1;
+          } else {
+            // fallback: if format is different, try to extract any number
+            const numMatch = last.match(/\d+/);
+            if (numMatch) nextNumber = parseInt(numMatch[0], 10) + 1;
+          }
+        }
+        const padded = String(nextNumber).padStart(5, "0");
+        const newAdmissionNo = `SRA-${padded}`;
+        setForm((prev) => ({ ...prev, admission_no: newAdmissionNo }));
+      } catch (err) {
+        console.error("Failed to generate admission number:", err);
+        // fallback: use timestamp
+        const fallback = `SRA-${Date.now()}`;
+        setForm((prev) => ({ ...prev, admission_no: fallback }));
+      } finally {
+        setLoadingAdmission(false);
+      }
+    }
+
+    generateAdmissionNo();
+  }, [isEdit, initialData.admission_no]);
 
   // Load all parents for search
   useEffect(() => {
@@ -55,7 +101,7 @@ export default function StudentForm({ onSubmit, onClose, initialData = {} }) {
       .then(({ data }) => setAllParents(data || []));
   }, []);
 
-  // Load already linked parents when editing
+  // Load already linked parents when editing – FILTER OUT NULL PARENTS
   useEffect(() => {
     if (isEdit && initialData.id) {
       supabase
@@ -64,24 +110,27 @@ export default function StudentForm({ onSubmit, onClose, initialData = {} }) {
         .eq("student_id", initialData.id)
         .then(({ data }) => {
           if (data) {
-            setLinkedParents(data.map((item) => item.parents));
+            const validParents = data
+              .map((item) => item.parents)
+              .filter((parent) => parent !== null);
+            setLinkedParents(validParents);
           }
         });
     }
   }, [isEdit, initialData.id]);
 
-  // Filter parents based on search
+  // Filter parents based on search (safe access)
   const filteredParents = allParents.filter((p) => {
     const term = parentSearch.toLowerCase();
     return (
-      p.father_name?.toLowerCase().includes(term) ||
-      p.mother_name?.toLowerCase().includes(term) ||
-      p.mobile?.includes(term)
+      p?.father_name?.toLowerCase().includes(term) ||
+      p?.mother_name?.toLowerCase().includes(term) ||
+      p?.mobile?.includes(term)
     );
   });
 
   function addExistingParent(parent) {
-    if (linkedParents.find((lp) => lp.id === parent.id)) return;
+    if (!parent || linkedParents.find((lp) => lp.id === parent.id)) return;
     setLinkedParents((prev) => [...prev, parent]);
   }
 
@@ -95,12 +144,12 @@ export default function StudentForm({ onSubmit, onClose, initialData = {} }) {
     setShowAddParentModal(false);
   }
 
-  // ---- Form handlers ----
   function handleChange(e) {
     const { name, value } = e.target;
     setForm((prev) => ({ ...prev, [name]: value }));
   }
 
+  // ---------- Main Submit: Create auth user first, then student ----------
   async function handleSubmit(e) {
     e.preventDefault();
 
@@ -114,76 +163,162 @@ export default function StudentForm({ onSubmit, onClose, initialData = {} }) {
       return;
     }
 
-    let photoUrl = initialData.photo_url || null;
+    // Validate email format if creating login
+    if (createLogin && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(loginEmail)) {
+      toast.error("Please enter a valid email address");
+      return;
+    }
 
-    if (photoFile) {
-      setUploading(true);
-      try {
+    setUploading(true);
+
+    try {
+      // ------------------------------
+      // STEP 1: Create auth user (if needed)
+      // ------------------------------
+      let authUserId = null;
+      if (createLogin) {
+        const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+          email: loginEmail,
+          password: loginPassword,
+          options: {
+            data: {
+              full_name: `${form.first_name} ${form.last_name}`,
+              role: "student",
+            },
+          },
+        });
+
+        if (signUpError) {
+          if (signUpError.message.includes("already registered")) {
+            toast.error("This email is already registered. Please use a different email or uncheck 'Create login account'.");
+          } else {
+            toast.error(`Sign-up failed: ${signUpError.message}`);
+          }
+          setUploading(false);
+          return;
+        }
+        authUserId = signUpData?.user?.id;
+        if (!authUserId) throw new Error("Auth user creation returned no ID");
+      }
+
+      // ------------------------------
+      // STEP 2: Upload photo (if any)
+      // ------------------------------
+      let photoUrl = initialData.photo_url || null;
+      if (photoFile) {
         const fileExt = photoFile.name.split(".").pop();
         const fileName = `${Date.now()}-${Math.random().toString(36).substring(2)}.${fileExt}`;
         const filePath = `student-photos/students/${fileName}`;
-
         const { error: uploadError } = await supabase.storage
           .from("ShreeVidhya_Academy")
-          .upload(filePath, photoFile, {
-            cacheControl: "3600",
-            upsert: false,
-          });
-
+          .upload(filePath, photoFile, { cacheControl: "3600", upsert: false });
         if (uploadError) throw uploadError;
-
         const { data: publicUrlData } = supabase.storage
           .from("ShreeVidhya_Academy")
           .getPublicUrl(filePath);
         photoUrl = publicUrlData.publicUrl;
-      } catch (err) {
-        toast.error(`Photo upload failed: ${err.message || "Unknown error"}`);
-        setUploading(false);
-        return;
-      } finally {
-        setUploading(false);
       }
-    }
 
-    // Sanitize date fields and include login info
-    const payload = {
-      ...form,
-      photo_url: photoUrl,
-      dob: form.dob || null,
-      joining_date: form.joining_date || null,
-      _parent_ids: linkedParents.map((p) => p.id),
-      // NEW: login account details
-      _create_login: createLogin,
-      _login_email: loginEmail,
-      _login_password: loginPassword,
-    };
+      // ------------------------------
+      // STEP 3: Create/update student record
+      // ------------------------------
+      const studentData = {
+        admission_no: form.admission_no || null,
+        first_name: form.first_name,
+        last_name: form.last_name,
+        gender: form.gender || null,
+        dob: form.dob || null,
+        mobile: form.mobile,
+        whatsapp: form.whatsapp || null,
+        email: form.email || null,
+        address: form.address || null,
+        city: form.city || null,
+        state: form.state || null,
+        pincode: form.pincode || null,
+        school_name: form.school_name || null,
+        board: form.board || null,
+        standard: form.standard || null,
+        joining_date: form.joining_date || null,
+        status: form.status,
+        photo_url: photoUrl,
+      };
 
-    try {
-      await onSubmit(payload);
+      let studentId = initialData.id;
+
+      if (isEdit) {
+        const { error } = await supabase
+          .from("students")
+          .update(studentData)
+          .eq("id", studentId);
+        if (error) throw error;
+        toast.success("Student updated successfully");
+      } else {
+        const { data, error } = await supabase
+          .from("students")
+          .insert(studentData)
+          .select("id")
+          .single();
+        if (error) throw error;
+        studentId = data.id;
+        toast.success("Student added successfully");
+      }
+
+      // ------------------------------
+      // STEP 4: Update auth user's metadata with student_id (optional)
+      // ------------------------------
+      if (authUserId && studentId) {
+        // Note: Cannot update another user's metadata from client; skip.
+        // The trigger on public.users will already create a row.
+      }
+
+      // ------------------------------
+      // STEP 5: Handle parent linking
+      // ------------------------------
+      if (studentId) {
+        await supabase.from("student_parents").delete().eq("student_id", studentId);
+        if (linkedParents.length) {
+          const links = linkedParents.map((p) => ({
+            student_id: studentId,
+            parent_id: p.id,
+            relation: "guardian",
+          }));
+          const { error: linkError } = await supabase.from("student_parents").insert(links);
+          if (linkError) throw linkError;
+        }
+      }
+
+      // ------------------------------
+      // STEP 6: Done
+      // ------------------------------
+      if (createLogin) {
+        toast.success("Student and login account created successfully");
+      } else {
+        toast.success("Student saved successfully");
+      }
+
+      if (onSuccess) onSuccess();
+      onClose();
     } catch (err) {
-      toast.error(err.message || "Submission failed");
+      console.error(err);
+      toast.error(err.message || "Operation failed");
+    } finally {
+      setUploading(false);
     }
   }
 
+  // ---------- Render ----------
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto shadow-xl">
         {/* Header with logo */}
         <div className="sticky top-0 bg-white border-b border-secondary-light px-6 py-4 flex items-center justify-between rounded-t-xl z-10">
           <div className="flex items-center gap-3">
-            <img
-              src={darkLogo}
-              alt="ShreeVidhya Academy"
-              className="h-10 w-auto"
-            />
+            <img src={darkLogo} alt="ShreeVidhya Academy" className="h-10 w-auto" />
             <h2 className="text-xl font-righteous text-primary-dark">
               {isEdit ? "Edit Student" : "Add New Student"}
             </h2>
           </div>
-          <button
-            onClick={onClose}
-            className="p-2 hover:bg-secondary-bg rounded-lg transition"
-          >
+          <button onClick={onClose} className="p-2 hover:bg-secondary-bg rounded-lg transition">
             <X size={20} className="text-secondary-dark" />
           </button>
         </div>
@@ -200,9 +335,11 @@ export default function StudentForm({ onSubmit, onClose, initialData = {} }) {
                 name="admission_no"
                 value={form.admission_no}
                 onChange={handleChange}
-                placeholder="Auto or manual"
+                placeholder="Auto-generated"
                 className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light"
+                disabled={loadingAdmission}
               />
+              {loadingAdmission && <p className="text-xs text-secondary-light mt-1">Generating...</p>}
             </div>
             <div className="md:col-span-2">
               <label className="block text-sm font-montserrat text-secondary-dark mb-1">
@@ -236,7 +373,7 @@ export default function StudentForm({ onSubmit, onClose, initialData = {} }) {
               value={form.first_name}
               onChange={handleChange}
               required
-              className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light"
+              className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
               placeholder="First name"
             />
           </div>
@@ -250,16 +387,14 @@ export default function StudentForm({ onSubmit, onClose, initialData = {} }) {
               value={form.last_name}
               onChange={handleChange}
               required
-              className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light"
+              className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
               placeholder="Last name"
             />
           </div>
 
           {/* Gender & DOB */}
           <div>
-            <label className="block text-sm font-montserrat text-secondary-dark mb-1">
-              Gender
-            </label>
+            <label className="block text-sm font-montserrat text-secondary-dark mb-1">Gender</label>
             <select
               name="gender"
               value={form.gender}
@@ -297,7 +432,7 @@ export default function StudentForm({ onSubmit, onClose, initialData = {} }) {
               value={form.mobile}
               onChange={handleChange}
               required
-              className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light"
+              className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
               placeholder="Phone number"
             />
           </div>
@@ -310,7 +445,7 @@ export default function StudentForm({ onSubmit, onClose, initialData = {} }) {
               name="whatsapp"
               value={form.whatsapp}
               onChange={handleChange}
-              className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light"
+              className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
               placeholder="WhatsApp number"
             />
           </div>
@@ -326,12 +461,12 @@ export default function StudentForm({ onSubmit, onClose, initialData = {} }) {
               name="email"
               value={form.email}
               onChange={handleChange}
-              className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light"
+              className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
               placeholder="Email address"
             />
           </div>
 
-          {/* Address */}
+          {/* Address, City, State, Pincode */}
           <div className="col-span-1 sm:col-span-2">
             <label className="block text-sm font-montserrat text-secondary-dark mb-1">
               <MapPin size={14} className="inline mr-1" />
@@ -342,45 +477,37 @@ export default function StudentForm({ onSubmit, onClose, initialData = {} }) {
               value={form.address}
               onChange={handleChange}
               rows={2}
-              className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light resize-none"
+              className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none resize-none"
               placeholder="Street address"
             />
           </div>
-
-          {/* City, State, Pincode */}
           <div>
-            <label className="block text-sm font-montserrat text-secondary-dark mb-1">
-              City
-            </label>
+            <label className="block text-sm font-montserrat text-secondary-dark mb-1">City</label>
             <input
               name="city"
               value={form.city}
               onChange={handleChange}
-              className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light"
+              className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
               placeholder="City"
             />
           </div>
           <div>
-            <label className="block text-sm font-montserrat text-secondary-dark mb-1">
-              State
-            </label>
+            <label className="block text-sm font-montserrat text-secondary-dark mb-1">State</label>
             <input
               name="state"
               value={form.state}
               onChange={handleChange}
-              className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light"
+              className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
               placeholder="State"
             />
           </div>
           <div>
-            <label className="block text-sm font-montserrat text-secondary-dark mb-1">
-              Pincode
-            </label>
+            <label className="block text-sm font-montserrat text-secondary-dark mb-1">Pincode</label>
             <input
               name="pincode"
               value={form.pincode}
               onChange={handleChange}
-              className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light"
+              className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
               placeholder="Pincode"
             />
           </div>
@@ -396,32 +523,28 @@ export default function StudentForm({ onSubmit, onClose, initialData = {} }) {
                 name="school_name"
                 value={form.school_name}
                 onChange={handleChange}
-                className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light"
+                className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
                 placeholder="School name"
               />
             </div>
             <div>
-              <label className="block text-sm font-montserrat text-secondary-dark mb-1">
-                Board
-              </label>
+              <label className="block text-sm font-montserrat text-secondary-dark mb-1">Board</label>
               <input
                 name="board"
                 value={form.board}
                 onChange={handleChange}
                 placeholder="GSEB, CBSE, etc."
-                className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light"
+                className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
               />
             </div>
             <div>
-              <label className="block text-sm font-montserrat text-secondary-dark mb-1">
-                Standard
-              </label>
+              <label className="block text-sm font-montserrat text-secondary-dark mb-1">Standard</label>
               <input
                 name="standard"
                 value={form.standard}
                 onChange={handleChange}
                 placeholder="e.g., 10"
-                className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light"
+                className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
               />
             </div>
           </div>
@@ -441,9 +564,7 @@ export default function StudentForm({ onSubmit, onClose, initialData = {} }) {
             />
           </div>
           <div>
-            <label className="block text-sm font-montserrat text-secondary-dark mb-1">
-              Status
-            </label>
+            <label className="block text-sm font-montserrat text-secondary-dark mb-1">Status</label>
             <select
               name="status"
               value={form.status}
@@ -456,7 +577,7 @@ export default function StudentForm({ onSubmit, onClose, initialData = {} }) {
             </select>
           </div>
 
-          {/* ---------- NEW: Create Login Account Section ---------- */}
+          {/* Create Login Account Section */}
           <div className="col-span-1 sm:col-span-2 border-t border-secondary-light pt-5">
             <h3 className="text-lg font-righteous text-primary-dark mb-3 flex items-center gap-2">
               <Lock size={18} /> Create Login Account
@@ -465,12 +586,16 @@ export default function StudentForm({ onSubmit, onClose, initialData = {} }) {
               <input
                 type="checkbox"
                 checked={createLogin}
-                onChange={(e) => setCreateLogin(e.target.checked)}
+                onChange={(e) => {
+                  setCreateLogin(e.target.checked);
+                  if (e.target.checked && !loginEmail && form.email) {
+                    setLoginEmail(form.email);
+                  }
+                }}
                 className="rounded accent-primary h-4 w-4"
               />
               Create a login account for this student
             </label>
-
             {createLogin && (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
@@ -505,20 +630,18 @@ export default function StudentForm({ onSubmit, onClose, initialData = {} }) {
             )}
           </div>
 
-          {/* ---------- Parents Section ---------- */}
+          {/* Parents Section */}
           <div className="col-span-1 sm:col-span-2">
             <h3 className="text-lg font-righteous text-primary-dark mb-3 flex items-center gap-2">
               <User size={18} /> Parents / Guardians
             </h3>
-
-            {/* Already linked parents */}
             <div className="flex flex-wrap gap-2 mb-3">
               {linkedParents.map((p) => (
                 <span
                   key={p.id}
                   className="inline-flex items-center gap-2 bg-primary-bg text-primary px-3 py-1.5 rounded-full text-sm"
                 >
-                  {p.father_name || p.mother_name || p.mobile}
+                  {p?.father_name || p?.mother_name || p?.mobile || "Unknown Parent"}
                   <button
                     type="button"
                     onClick={() => removeLinkedParent(p.id)}
@@ -529,8 +652,6 @@ export default function StudentForm({ onSubmit, onClose, initialData = {} }) {
                 </span>
               ))}
             </div>
-
-            {/* Search & select existing parent */}
             <div className="relative mb-3">
               <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-secondary" />
               <input
@@ -541,7 +662,6 @@ export default function StudentForm({ onSubmit, onClose, initialData = {} }) {
                 className="w-full border border-secondary-light rounded-lg pl-10 pr-4 py-2.5 text-sm focus:ring-1 focus:ring-primary outline-none"
               />
             </div>
-
             {parentSearch && (
               <div className="max-h-32 overflow-y-auto border border-secondary-light rounded-lg mb-3">
                 {filteredParents.slice(0, 5).map((p) => (
@@ -550,13 +670,12 @@ export default function StudentForm({ onSubmit, onClose, initialData = {} }) {
                     className="px-4 py-2 text-sm hover:bg-primary-bg cursor-pointer flex justify-between items-center"
                     onClick={() => addExistingParent(p)}
                   >
-                    <span>{p.father_name || p.mother_name} – {p.mobile}</span>
+                    <span>{p?.father_name || p?.mother_name} – {p?.mobile}</span>
                     <Plus size={16} className="text-primary" />
                   </div>
                 ))}
               </div>
             )}
-
             <button
               type="button"
               onClick={() => setShowAddParentModal(true)}
@@ -577,15 +696,14 @@ export default function StudentForm({ onSubmit, onClose, initialData = {} }) {
             </button>
             <button
               type="submit"
-              disabled={uploading}
+              disabled={uploading || loadingAdmission}
               className="w-full sm:w-auto px-5 py-2.5 bg-primary hover:bg-primary-light text-white rounded-lg font-montserrat transition disabled:opacity-50 flex items-center justify-center gap-2"
             >
-              {uploading ? "Uploading..." : isEdit ? "Update Student" : "Add Student"}
+              {uploading ? "Processing..." : isEdit ? "Update Student" : "Add Student"}
             </button>
           </div>
         </form>
 
-        {/* Add Parent Modal */}
         {showAddParentModal && (
           <ParentForm
             onSubmit={(parentPayload) => handleNewParentCreated(parentPayload)}

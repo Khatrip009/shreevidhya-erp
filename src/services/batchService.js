@@ -15,7 +15,6 @@ export async function getBatches({ pageParam = 0, filters = {} } = {}) {
     .order("id", { ascending: false })
     .range(from, to);
 
-  // Apply filters
   if (filters.search) {
     query = query.ilike("batch_name", `%${filters.search}%`);
   }
@@ -45,29 +44,58 @@ export async function getAllBatchesForExport(filters = {}) {
   return data || [];
 }
 
-// CRUD
+// CRUD with teacher‑junction sync
 export async function createBatch(payload) {
-  const { data, error } = await supabase
+  const { teacher_id, ...batchData } = payload;
+
+  // 1. Insert the batch (keeping teacher_id for direct column if needed)
+  const { data: batch, error } = await supabase
     .from("batches")
-    .insert([payload])
+    .insert([{ ...batchData, teacher_id }])
     .select()
     .single();
   if (error) throw error;
-  return data;
+
+  // 2. Sync to batch_teachers junction
+  if (teacher_id) {
+    const { error: linkError } = await supabase
+      .from("batch_teachers")
+      .insert({ batch_id: batch.id, teacher_id });
+    if (linkError) throw linkError;
+  }
+
+  return batch;
 }
 
 export async function updateBatch(id, payload) {
-  const { data, error } = await supabase
+  const { teacher_id, ...batchData } = payload;
+
+  // 1. Update the batch row
+  const { data: batch, error } = await supabase
     .from("batches")
-    .update(payload)
+    .update({ ...batchData, teacher_id })
     .eq("id", id)
     .select()
     .single();
   if (error) throw error;
-  return data;
+
+  // 2. Replace the teacher assignment in the junction table
+  if (teacher_id !== undefined) {
+    await supabase.from("batch_teachers").delete().eq("batch_id", id);
+    if (teacher_id) {
+      const { error: linkError } = await supabase
+        .from("batch_teachers")
+        .insert({ batch_id: id, teacher_id });
+      if (linkError) throw linkError;
+    }
+  }
+
+  return batch;
 }
 
 export async function deleteBatch(id) {
+  // Clean up junction table first (if CASCADE is not set)
+  await supabase.from("batch_teachers").delete().eq("batch_id", id);
   const { error } = await supabase
     .from("batches")
     .delete()

@@ -35,7 +35,7 @@ import StudentProgressReport from "./pages/StudentProgressReport";
 import StudentDashboard from "./pages/StudentDashboard";
 import Login from "./pages/Login";
 import OrganizationSettings from "./pages/OrganizationSettings";
-
+import TeacherWeeklyTimetable from "./components/TeacherWeeklyTimetable";
 
 // Student pages
 import StudentFeesPage from "./pages/StudentFeesPage";
@@ -44,6 +44,7 @@ import StudentAttendancePage from "./pages/StudentAttendancePage";
 import StudentHomeworkPage from "./pages/StudentHomeworkPage";
 import StudentResultsPage from "./pages/StudentResultsPage";
 import StudentCertificatesPage from "./pages/StudentCertificatesPage";
+import PersonalTimetable from "./components/PersonalTimetable";
 
 // Teacher & HR pages
 import TeacherDashboard from "./pages/TeacherDashboard";
@@ -72,12 +73,15 @@ function App() {
         <Route path="/student/results" element={<ProtectedRoute><StudentResultsPage /></ProtectedRoute>} />
         <Route path="/student/certificates" element={<ProtectedRoute><StudentCertificatesPage /></ProtectedRoute>} />
         <Route path="/student/profile" element={<ProtectedRoute><StudentProfile /></ProtectedRoute>} />
+        <Route path="/student/timetable" element={<ProtectedRoute><PersonalTimetable /></ProtectedRoute>} />
 
         {/* Teacher routes */}
         <Route path="/teacher" element={<ProtectedRoute><TeacherDashboard /></ProtectedRoute>} />
         <Route path="/teacher/salary" element={<ProtectedRoute><MySalary /></ProtectedRoute>} />
         <Route path="/teacher/leaves" element={<ProtectedRoute><MyLeaves /></ProtectedRoute>} />
         <Route path="/teacher/profile" element={<ProtectedRoute><TeacherProfile /></ProtectedRoute>} />
+        <Route path="/teacher/calendar" element={<ProtectedRoute><TeacherWeeklyTimetable /></ProtectedRoute>}/>
+        <Route path="/teacher/timetable" element={<ProtectedRoute><PersonalTimetable /></ProtectedRoute>} />
 
         {/* Admin/Teacher shared routes (RLS will restrict data) */}
         <Route path="/students" element={<ProtectedRoute><Students /></ProtectedRoute>} />

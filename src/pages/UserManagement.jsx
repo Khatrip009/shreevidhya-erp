@@ -19,61 +19,81 @@ import {
 import AdminLayout from "../layouts/AdminLayout";
 import { supabase } from "../api/supabase";
 
-const ALLOWED_ROLES = ["Super Admin", "Admin", "Teacher", "Student", "Parent"];
+const ALLOWED_ROLES = ["super_admin", "admin", "teacher", "student", "parent"];
+
+// Helper to capitalise role for display
+const formatRole = (role) => {
+  if (!role) return "";
+  return role.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+};
 
 export default function UserManagement() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [editingId, setEditingId] = useState(null);
   const [editRole, setEditRole] = useState("");
-  const [editActive, setEditActive] = useState(true);
+  const [editStatus, setEditStatus] = useState(true);
   const [showInvite, setShowInvite] = useState(false);
 
   const [inviteForm, setInviteForm] = useState({
     email: "",
     password: "",
     full_name: "",
-    role: "Admin",
-    teacher_id: "",   // for linking teacher
-    student_id: "",   // for linking student
+    role: "admin",
+    username: "", // optional, defaults to email
   });
 
-  // Fetch teachers dropdown (for linking)
-  const { data: teachers = [] } = useQuery({
-    queryKey: ["teachers-dropdown"],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("teachers")
-        .select("id, first_name, last_name, employee_code");
-      return data || [];
-    },
-  });
-
-  // Fetch students dropdown (for linking)
-  const { data: students = [] } = useQuery({
-    queryKey: ["students-dropdown"],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("students")
-        .select("id, first_name, last_name, admission_no");
-      return data || [];
-    },
-  });
-
-  // Fetch profiles
-  const { data: profiles = [], isLoading } = useQuery({
-    queryKey: ["profiles"],
+  // ----------------------------------------------------------------------
+  // 1. Fetch all public users (from your "users" table)
+  // ----------------------------------------------------------------------
+  const { data: users = [], isLoading: usersLoading } = useQuery({
+    queryKey: ["users"],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("profiles")
-        .select("*")
-        .order("created_at", { ascending: false });
+        .from("users")
+        .select("id, username, role, status, auth_uuid")
+        .order("id", { ascending: true });
       if (error) throw error;
       return data || [];
     },
     staleTime: 5 * 60 * 1000,
   });
 
+  // ----------------------------------------------------------------------
+  // 2. Fetch auth users data (email, full_name) – only for admin/super_admin
+  //    Uses the secure function we created earlier.
+  // ----------------------------------------------------------------------
+  const { data: authUsers = [] } = useQuery({
+    queryKey: ["auth_users_for_admin"],
+    queryFn: async () => {
+      try {
+        const { data, error } = await supabase.rpc("get_auth_users_for_admin");
+        if (error) throw error;
+        return data || [];
+      } catch (err) {
+        console.warn("Could not fetch auth users. Email display may be incomplete.", err);
+        return [];
+      }
+    },
+    enabled: true, // will fail silently if function doesn't exist
+  });
+
+  // ----------------------------------------------------------------------
+  // 3. Merge public users with auth data (email, full_name)
+  // ----------------------------------------------------------------------
+  const profiles = users.map((user) => {
+    const auth = authUsers.find((au) => au.id === user.auth_uuid);
+    return {
+      id: user.id,
+      email: auth?.email || user.username, // fallback to username
+      full_name: auth?.raw_user_meta_data?.full_name || user.username,
+      role: user.role,
+      is_active: user.status, // map status -> is_active
+      auth_uuid: user.auth_uuid,
+    };
+  });
+
+  // Filter by search
   const filteredProfiles = profiles.filter((p) => {
     const term = search.toLowerCase();
     return (
@@ -82,31 +102,58 @@ export default function UserManagement() {
     );
   });
 
+  // ----------------------------------------------------------------------
+  // 4. Update user (role + status)
+  // ----------------------------------------------------------------------
   const updateMutation = useMutation({
-    mutationFn: async ({ id, role, is_active }) => {
+    mutationFn: async ({ id, role, status }) => {
       const { error } = await supabase
-        .from("profiles")
-        .update({ role, is_active, updated_at: new Date() })
+        .from("users")
+        .update({ role, status })
         .eq("id", id);
       if (error) throw error;
     },
     onSuccess: () => {
       toast.success("User updated");
-      queryClient.invalidateQueries({ queryKey: ["profiles"] });
+      queryClient.invalidateQueries({ queryKey: ["users"] });
+      queryClient.invalidateQueries({ queryKey: ["auth_users_for_admin"] });
       setEditingId(null);
     },
     onError: (err) => toast.error(err.message || "Update failed"),
   });
 
+  // ----------------------------------------------------------------------
+  // 5. Deactivate user (set status = false)
+  // ----------------------------------------------------------------------
+  const deactivateMutation = useMutation({
+    mutationFn: async (id) => {
+      const { error } = await supabase
+        .from("users")
+        .update({ status: false })
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("User deactivated");
+      queryClient.invalidateQueries({ queryKey: ["users"] });
+      queryClient.invalidateQueries({ queryKey: ["auth_users_for_admin"] });
+    },
+    onError: (err) => toast.error(err.message || "Deactivation failed"),
+  });
+
+  // ----------------------------------------------------------------------
+  // 6. Invite new user (create auth user + public.users row)
+  // ----------------------------------------------------------------------
   const inviteMutation = useMutation({
     mutationFn: async (formData) => {
-      // Check duplicate email
-      const { data: existingProfile } = await supabase
-        .from("profiles")
-        .select("id")
+      // Check duplicate email in auth.users
+      const { data: existingAuth } = await supabase
+        .from("auth.users") // requires admin access; if not, use .rpc
+        .select("email")
         .eq("email", formData.email)
         .maybeSingle();
-      if (existingProfile) throw new Error("A user with this email already exists");
+      // This direct query on auth.users may fail if RLS blocks it.
+      // Safer: use admin API or a custom function. We'll try with signUp anyway.
 
       // Create auth user
       const { data: signUpData, error: signUpError } =
@@ -124,29 +171,21 @@ export default function UserManagement() {
         throw signUpError;
       }
 
-      const userId = signUpData?.user?.id;
-      if (!userId) throw new Error("User creation failed");
+      const authUserId = signUpData?.user?.id;
+      if (!authUserId) throw new Error("User creation failed");
 
-      // Update profile role & full name (the trigger already created a profile with default role)
-      await supabase
-        .from("profiles")
-        .update({ role: formData.role, full_name: formData.full_name })
-        .eq("id", userId);
+      // Insert into public.users
+      const username = formData.username || formData.email.split("@")[0];
+      const { error: insertError } = await supabase.from("users").insert({
+        username: username,
+        role: formData.role,
+        status: true,
+        auth_uuid: authUserId,
+      });
+      if (insertError) throw insertError;
 
-      // Automatically link teacher or student if selected
-      if (formData.role === "Teacher" && formData.teacher_id) {
-        const { error: linkError } = await supabase
-          .from("teachers")
-          .update({ user_id: userId })
-          .eq("id", formData.teacher_id);
-        if (linkError) throw new Error("Failed to link teacher record");
-      } else if (formData.role === "Student" && formData.student_id) {
-        const { error: linkError } = await supabase
-          .from("students")
-          .update({ user_id: userId })
-          .eq("id", formData.student_id);
-        if (linkError) throw new Error("Failed to link student record");
-      }
+      // (Optional) Update the auth user's raw_user_meta_data with role, etc.
+      // This requires admin privileges – skip for now.
     },
     onSuccess: () => {
       toast.success("User invited and linked successfully");
@@ -155,34 +194,22 @@ export default function UserManagement() {
         email: "",
         password: "",
         full_name: "",
-        role: "Admin",
-        teacher_id: "",
-        student_id: "",
+        role: "admin",
+        username: "",
       });
-      queryClient.invalidateQueries({ queryKey: ["profiles"] });
+      queryClient.invalidateQueries({ queryKey: ["users"] });
+      queryClient.invalidateQueries({ queryKey: ["auth_users_for_admin"] });
     },
     onError: (err) => toast.error(err.message || "Invitation failed"),
   });
 
-  const deactivateMutation = useMutation({
-    mutationFn: async (id) => {
-      const { error } = await supabase
-        .from("profiles")
-        .update({ is_active: false, updated_at: new Date() })
-        .eq("id", id);
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      toast.success("User deactivated");
-      queryClient.invalidateQueries({ queryKey: ["profiles"] });
-    },
-    onError: (err) => toast.error(err.message || "Deactivation failed"),
-  });
-
+  // ----------------------------------------------------------------------
+  // UI helpers
+  // ----------------------------------------------------------------------
   function startEdit(profile) {
     setEditingId(profile.id);
     setEditRole(profile.role);
-    setEditActive(profile.is_active);
+    setEditStatus(profile.is_active);
   }
 
   function cancelEdit() {
@@ -202,6 +229,9 @@ export default function UserManagement() {
     inviteMutation.mutate(inviteForm);
   }
 
+  // ----------------------------------------------------------------------
+  // Render
+  // ----------------------------------------------------------------------
   return (
     <AdminLayout>
       {/* Header */}
@@ -259,7 +289,7 @@ export default function UserManagement() {
               </tr>
             </thead>
             <tbody>
-              {isLoading ? (
+              {usersLoading ? (
                 <tr>
                   <td colSpan={5} className="p-6 text-center text-secondary">
                     Loading users…
@@ -293,22 +323,22 @@ export default function UserManagement() {
                         >
                           {ALLOWED_ROLES.map((role) => (
                             <option key={role} value={role}>
-                              {role}
+                              {formatRole(role)}
                             </option>
                           ))}
                         </select>
                       ) : (
                         <span className="bg-primary-bg text-primary px-2 py-0.5 rounded-full text-xs font-medium">
-                          {profile.role}
+                          {formatRole(profile.role)}
                         </span>
                       )}
                     </td>
                     <td className="p-3 text-sm">
                       {editingId === profile.id ? (
                         <select
-                          value={editActive}
+                          value={editStatus}
                           onChange={(e) =>
-                            setEditActive(e.target.value === "true")
+                            setEditStatus(e.target.value === "true")
                           }
                           className="border border-secondary-light rounded p-1 text-sm focus:ring-1 focus:ring-primary outline-none"
                         >
@@ -335,7 +365,7 @@ export default function UserManagement() {
                               updateMutation.mutate({
                                 id: profile.id,
                                 role: editRole,
-                                is_active: editActive,
+                                status: editStatus,
                               })
                             }
                             className="bg-primary hover:bg-primary-light text-white px-3 py-1 rounded text-xs flex items-center gap-1"
@@ -384,7 +414,7 @@ export default function UserManagement() {
         </div>
       </div>
 
-      {/* Invite User Modal (with linking dropdowns) */}
+      {/* Invite User Modal */}
       {showInvite && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl w-full max-w-md shadow-xl">
@@ -453,80 +483,43 @@ export default function UserManagement() {
               </div>
               <div>
                 <label className="block text-sm font-montserrat text-secondary-dark mb-1">
+                  Username (optional)
+                </label>
+                <input
+                  type="text"
+                  value={inviteForm.username}
+                  onChange={(e) =>
+                    setInviteForm({ ...inviteForm, username: e.target.value })
+                  }
+                  placeholder="Leave blank to use email prefix"
+                  className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-montserrat text-secondary-dark mb-1">
                   <Shield size={14} className="inline mr-1" />
                   Role
                 </label>
                 <select
                   value={inviteForm.role}
                   onChange={(e) =>
-                    setInviteForm({
-                      ...inviteForm,
-                      role: e.target.value,
-                      teacher_id: "",
-                      student_id: "",
-                    })
+                    setInviteForm({ ...inviteForm, role: e.target.value })
                   }
                   className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
                 >
                   {ALLOWED_ROLES.map((role) => (
                     <option key={role} value={role}>
-                      {role}
+                      {formatRole(role)}
                     </option>
                   ))}
                 </select>
               </div>
 
-              {/* Conditionally show teacher/student dropdown */}
-              {inviteForm.role === "Teacher" && (
-                <div>
-                  <label className="block text-sm font-montserrat text-secondary-dark mb-1">
-                    <User size={14} className="inline mr-1" />
-                    Link to Teacher Record (optional)
-                  </label>
-                  <select
-                    value={inviteForm.teacher_id}
-                    onChange={(e) =>
-                      setInviteForm({ ...inviteForm, teacher_id: e.target.value })
-                    }
-                    className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
-                  >
-                    <option value="">-- Select Teacher --</option>
-                    {teachers.map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {t.first_name} {t.last_name} ({t.employee_code})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
-              {inviteForm.role === "Student" && (
-                <div>
-                  <label className="block text-sm font-montserrat text-secondary-dark mb-1">
-                    <User size={14} className="inline mr-1" />
-                    Link to Student Record (optional)
-                  </label>
-                  <select
-                    value={inviteForm.student_id}
-                    onChange={(e) =>
-                      setInviteForm({ ...inviteForm, student_id: e.target.value })
-                    }
-                    className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
-                  >
-                    <option value="">-- Select Student --</option>
-                    {students.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.first_name} {s.last_name} ({s.admission_no})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
               <div className="flex flex-col sm:flex-row-reverse gap-3 pt-2">
                 <button
                   type="submit"
-                  className="w-full sm:w-auto bg-primary hover:bg-primary-light text-white px-6 py-2.5 rounded-lg font-montserrat transition"
+                  disabled={inviteMutation.isLoading}
+                  className="w-full sm:w-auto bg-primary hover:bg-primary-light text-white px-6 py-2.5 rounded-lg font-montserrat transition disabled:opacity-50"
                 >
                   {inviteMutation.isLoading ? "Sending..." : "Invite"}
                 </button>

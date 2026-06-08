@@ -21,8 +21,6 @@ import AdminLayout from "../layouts/AdminLayout";
 import StudentForm from "../components/StudentForm";
 import {
   getStudents,
-  createStudent,
-  updateStudent,
   deleteStudent,
   getAllStudentsForExport,
 } from "../services/studentService";
@@ -32,7 +30,7 @@ import { printAdmissionForm } from "../utils/printAdmissionForm";
 export default function Students() {
   const queryClient = useQueryClient();
 
-  // Filters – quick search always visible, others inside advanced panel
+  // Filters
   const [search, setSearch] = useState("");
   const [advancedFilters, setAdvancedFilters] = useState({
     standard: "",
@@ -43,13 +41,12 @@ export default function Students() {
   });
   const [showFilters, setShowFilters] = useState(false);
   const [showForm, setShowForm] = useState(false);
-  const [editing, setEditing] = useState(null);
+  const [editingStudent, setEditingStudent] = useState(null);
   const fileInputRef = useRef(null);
 
-  // Combine quick search with advanced filters for API call
   const filters = { search, ...advancedFilters };
 
-  // Infinite query
+  // Infinite query – unchanged
   const {
     data,
     isLoading,
@@ -75,34 +72,17 @@ export default function Students() {
 
   const students = data?.pages.flatMap((page) => page.data) || [];
 
-  // Mutations
-  const createMutation = useMutation({
-    mutationFn: createStudent,
-    onSuccess: () => {
-      toast.success("Student created");
-      queryClient.invalidateQueries({ queryKey: ["students"] });
-      setShowForm(false);
-    },
-    onError: () => toast.error("Failed to create student"),
-  });
-
-  const updateMutation = useMutation({
-    mutationFn: ({ id, payload }) => updateStudent(id, payload),
-    onSuccess: () => {
-      toast.success("Student updated");
-      queryClient.invalidateQueries({ queryKey: ["students"] });
-      setEditing(null);
-    },
-    onError: () => toast.error("Failed to update student"),
-  });
-
+  // Only delete mutation remains (create/update are handled inside StudentForm)
   const deleteMutation = useMutation({
     mutationFn: deleteStudent,
-    onSuccess: () => toast.success("Student deleted"),
+    onSuccess: () => {
+      toast.success("Student deleted");
+      queryClient.invalidateQueries({ queryKey: ["students"] });
+    },
     onError: () => toast.error("Delete failed"),
   });
 
-  // CSV Import
+  // CSV Import – uses createStudent from service (still works because it expects clean payload)
   async function handleCSVImport(event) {
     const file = event.target.files[0];
     if (!file) return;
@@ -121,6 +101,8 @@ export default function Students() {
               standard: row.standard,
               school_name: row.school_name,
             };
+            // We still import via the service because CSV doesn't need parent linking etc.
+            const { createStudent } = await import("../services/studentService");
             await createStudent(payload);
             successCount++;
           } catch (err) {
@@ -134,7 +116,7 @@ export default function Students() {
     });
   }
 
-  // CSV Export
+  // CSV Export – unchanged
   async function handleCSVExport() {
     try {
       const allData = await getAllStudentsForExport(filters);
@@ -151,7 +133,7 @@ export default function Students() {
     }
   }
 
-  // PDF / Print
+  // PDF / Print – unchanged
   async function handlePrintAdmission(studentId) {
     try {
       await generateAdmissionPdf(studentId);
@@ -165,17 +147,16 @@ export default function Students() {
     }
   }
 
-  function handleCreate(payload) {
-    createMutation.mutate(payload);
-  }
-
-  function handleUpdate(payload) {
-    updateMutation.mutate({ id: editing.id, payload });
-  }
-
   function handleDelete(id) {
     if (!window.confirm("Delete student?")) return;
     deleteMutation.mutate(id);
+  }
+
+  // Called after StudentForm successfully creates/updates a student
+  function handleFormSuccess() {
+    queryClient.invalidateQueries({ queryKey: ["students"] });
+    setShowForm(false);
+    setEditingStudent(null);
   }
 
   return (
@@ -212,7 +193,7 @@ export default function Students() {
         </div>
       </div>
 
-      {/* Quick Search & Filter Toggle */}
+      {/* Quick Search & Filter Toggle – unchanged */}
       <div className="flex flex-col sm:flex-row gap-3 mb-4">
         <div className="relative flex-1">
           <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-secondary" />
@@ -233,7 +214,7 @@ export default function Students() {
         </button>
       </div>
 
-      {/* Advanced Filters Panel */}
+      {/* Advanced Filters Panel – unchanged */}
       {showFilters && (
         <div className="bg-white rounded-xl p-4 shadow-sm mb-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 border border-secondary-light">
           <div>
@@ -272,11 +253,10 @@ export default function Students() {
               <option>graduated</option>
             </select>
           </div>
-          {/* Additional filters can be added here */}
         </div>
       )}
 
-      {/* Students Table */}
+      {/* Students Table – unchanged except Edit button now sets editingStudent */}
       <div className="bg-white rounded-xl shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[700px]">
@@ -329,10 +309,16 @@ export default function Students() {
                     <td className="text-sm">{student.standard || "-"}</td>
                     <td>
                       <div className="flex items-center gap-2">
-                        <button onClick={() => setEditing(student)} className="text-blue-600 hover:underline text-sm">
+                        <button
+                          onClick={() => setEditingStudent(student)}
+                          className="text-blue-600 hover:underline text-sm"
+                        >
                           Edit
                         </button>
-                        <button onClick={() => handleDelete(student.id)} className="text-red-500 hover:underline text-sm">
+                        <button
+                          onClick={() => handleDelete(student.id)}
+                          className="text-red-500 hover:underline text-sm"
+                        >
                           Delete
                         </button>
                         <button
@@ -351,7 +337,7 @@ export default function Students() {
         </div>
       </div>
 
-      {/* Load More */}
+      {/* Load More – unchanged */}
       {hasNextPage && (
         <div className="flex justify-center mt-6">
           <button
@@ -364,15 +350,18 @@ export default function Students() {
         </div>
       )}
 
-      {/* Student Form Modals */}
+      {/* Student Form Modals – using the self‑contained StudentForm */}
       {showForm && (
-        <StudentForm onSubmit={handleCreate} onClose={() => setShowForm(false)} />
-      )}
-      {editing && (
         <StudentForm
-          initialData={editing}
-          onSubmit={handleUpdate}
-          onClose={() => setEditing(null)}
+          onSuccess={handleFormSuccess}
+          onClose={() => setShowForm(false)}
+        />
+      )}
+      {editingStudent && (
+        <StudentForm
+          initialData={editingStudent}
+          onSuccess={handleFormSuccess}
+          onClose={() => setEditingStudent(null)}
         />
       )}
     </AdminLayout>

@@ -9,7 +9,7 @@ const STUDENT_ROUTES = [
 ];
 
 const TEACHER_ROUTES = [
-  "/teacher", "/teacher/salary", "/teacher/leaves", "/teacher/profile",
+  "/teacher", "/teacher/salary", "/teacher/leaves", "/teacher/profile", "/teacher/calendar", 
   "/attendance", "/attendance/mark/:sessionId", "/homework",
   "/exams", "/results", "/results/enter/:examId", "/results/view/:examId",
   "/teachers", "/settings", "/login",
