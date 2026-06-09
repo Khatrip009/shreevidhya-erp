@@ -114,11 +114,10 @@ export async function updateHomework(id, payload) {
   if (error) throw error;
   return data;
 }
-
 export async function deleteHomework(id) {
   const { error } = await supabase
     .from("homework")
-    .delete()
+    .update({ deleted_at: new Date().toISOString() })
     .eq("id", id);
   if (error) throw error;
 }

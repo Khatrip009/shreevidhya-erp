@@ -71,10 +71,12 @@ export async function updateIncome(id, payload) {
 export async function deleteIncome(id) {
   const { error } = await supabase
     .from("income")
-    .delete()
+    .update({ deleted_at: new Date().toISOString() })
     .eq("id", id);
   if (error) throw error;
 }
+
+
 
 // ========================
 // EXPENSES (paginated)
@@ -147,7 +149,7 @@ export async function updateExpense(id, payload) {
 export async function deleteExpense(id) {
   const { error } = await supabase
     .from("expenses")
-    .delete()
+    .update({ deleted_at: new Date().toISOString() })
     .eq("id", id);
   if (error) throw error;
 }

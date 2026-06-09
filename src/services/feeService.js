@@ -34,10 +34,21 @@ export async function updateFeeStructure(id, payload) {
   return data;
 }
 
+// ✅ ADD THIS MISSING FUNCTION
 export async function deleteFeeStructure(id) {
   const { error } = await supabase
     .from("fee_structures")
-    .delete()
+    .update({ deleted_at: new Date().toISOString() })
+    .eq("id", id);
+  if (error) throw error;
+}
+
+// (Optional) This function seems misplaced – it's for exams, not fee structures.
+// If you don't need it, consider removing or renaming.
+export async function deleteExam(id) {
+  const { error } = await supabase
+    .from("exams")
+    .update({ deleted_at: new Date().toISOString() })
     .eq("id", id);
   if (error) throw error;
 }
@@ -60,19 +71,15 @@ export async function getStudentFees({ pageParam = 0, filters = {} } = {}) {
     .order("id", { ascending: false })
     .range(from, to);
 
-  // Filters: search by student name or course name
   if (filters.search) {
     query = query.or(
       `students.first_name.ilike.%${filters.search}%,students.last_name.ilike.%${filters.search}%`
     );
-    // Note: course name filter would require a separate join logic, but we can do a post-filter in the frontend.
-    // For simplicity, we'll keep the frontend filtering for course name.
   }
 
   const { data, error, count } = await query;
   if (error) throw error;
 
-  // Enrich with payment totals (same as before)
   const enriched = await Promise.all(
     data.map(async (fee) => {
       const { data: payments } = await supabase
@@ -96,7 +103,6 @@ export async function getStudentFees({ pageParam = 0, filters = {} } = {}) {
   return { data: enriched, count };
 }
 
-/** Export all fee records matching filters (for CSV) */
 export async function getAllStudentFeesForExport(filters = {}) {
   let query = supabase
     .from("student_fees")
@@ -114,7 +120,6 @@ export async function getAllStudentFeesForExport(filters = {}) {
   const { data, error } = await query;
   if (error) throw error;
 
-  // Enrich with payment totals
   const enriched = await Promise.all(
     data.map(async (fee) => {
       const { data: payments } = await supabase
@@ -161,13 +166,13 @@ export async function updateStudentFee(id, payload) {
 export async function deleteStudentFee(id) {
   const { error } = await supabase
     .from("student_fees")
-    .delete()
+    .update({ deleted_at: new Date().toISOString() })
     .eq("id", id);
   if (error) throw error;
 }
 
 // ========================
-// PAYMENTS & RECEIPTS (unchanged)
+// PAYMENTS & RECEIPTS
 // ========================
 
 export async function getPayments(studentFeeId) {
@@ -188,7 +193,6 @@ export async function collectPayment(paymentPayload, studentId) {
     .single();
   if (error) throw error;
 
-  // Auto-generate receipt
   const receiptNo = "RCPT-" + Date.now();
   await supabase.from("receipts").insert([
     {
@@ -201,7 +205,6 @@ export async function collectPayment(paymentPayload, studentId) {
     },
   ]);
 
-  // Auto-log income
   await supabase.from("income").insert([
     {
       income_date: paymentPayload.payment_date,
@@ -213,7 +216,6 @@ export async function collectPayment(paymentPayload, studentId) {
     },
   ]);
 
-  // Auto-update payment status
   await updateFeeStatusAutomatically(paymentPayload.student_fee_id);
 
   return payment;

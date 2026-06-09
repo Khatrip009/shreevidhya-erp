@@ -66,7 +66,7 @@ export async function updateParent(id, payload) {
 export async function deleteParent(id) {
   const { error } = await supabase
     .from("parents")
-    .delete()
+    .update({ deleted_at: new Date().toISOString() })
     .eq("id", id);
   if (error) throw error;
 }

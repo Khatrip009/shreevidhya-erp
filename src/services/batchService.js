@@ -94,13 +94,18 @@ export async function updateBatch(id, payload) {
 }
 
 export async function deleteBatch(id) {
-  // Clean up junction table first (if CASCADE is not set)
-  await supabase.from("batch_teachers").delete().eq("batch_id", id);
+  // soft-delete the batch
   const { error } = await supabase
     .from("batches")
-    .delete()
+    .update({ deleted_at: new Date().toISOString() })
     .eq("id", id);
   if (error) throw error;
+
+  // also soft-delete batch_teachers entries (optional, but clean)
+  await supabase
+    .from("batch_teachers")
+    .update({ deleted_at: new Date().toISOString() })
+    .eq("batch_id", id);
 }
 
 // Dropdown options

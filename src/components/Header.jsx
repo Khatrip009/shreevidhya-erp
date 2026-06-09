@@ -11,6 +11,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../api/supabase";
 import { useAuth } from "../context/AuthContext";
+import GlobalSearch from "./GlobalSearch";
 
 export default function Header({ onMenuClick }) {
   const { profile } = useAuth();
@@ -158,16 +159,7 @@ const { data: unreadCount = 0 } = useQuery({
       </div>
 
       {/* Center Search – only for admins on desktop */}
-      {isAdmin && (
-        <div className="flex-1 max-w-md mx-4 hidden md:flex items-center bg-secondary-bg rounded-xl px-4 py-2">
-          <Search size={18} className="text-secondary flex-shrink-0" />
-          <input
-            type="text"
-            placeholder="Search students, fees, batches..."
-            className="bg-transparent outline-none ml-3 w-full text-sm text-secondary-dark placeholder-secondary-light"
-          />
-        </div>
-      )}
+      {isAdmin && <GlobalSearch />}
 
       {/* Right Side */}
       <div className="flex items-center gap-3 sm:gap-4 lg:gap-6">

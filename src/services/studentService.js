@@ -117,12 +117,12 @@ export async function updateStudent(id, payload) {
 }
 
 export async function deleteStudent(id) {
-  // Clean up parent links first (in case CASCADE is not set)
-  await supabase.from("student_parents").delete().eq("student_id", id);
-  const { error } = await supabase.from("students").delete().eq("id", id);
+  const { error } = await supabase
+    .from("students")
+    .update({ deleted_at: new Date().toISOString() })
+    .eq("id", id);
   if (error) throw error;
 }
-
 // Export all filtered data (for CSV)
 export async function getAllStudentsForExport(filters = {}) {
   let query = supabase

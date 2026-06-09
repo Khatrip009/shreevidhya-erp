@@ -8,11 +8,32 @@ import {
   Calendar,
   Clock,
   Hash,
+  CalendarDays,
 } from "lucide-react";
 import { getCourseOptions } from "../services/courseService";
 import { getTeacherOptions } from "../services/teacherService";
 import { useOrgDarkLogo } from "../hooks/useOrgDarkLogo";
 
+function normalizeDays(input) {
+  const dayMap = {
+    sunday: 'Sun', monday: 'Mon', tuesday: 'Tue', wednesday: 'Wed',
+    thursday: 'Thu', friday: 'Fri', saturday: 'Sat',
+    sun: 'Sun', mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat',
+  };
+
+  const parts = input.split(',');
+  const normalized = [];
+
+  for (let part of parts) {
+    const key = part.trim().toLowerCase();
+    if (!key) continue;
+    const abbrev = dayMap[key];
+    if (!abbrev) return null;  // unrecognized day → invalid
+    normalized.push(abbrev);
+  }
+
+  return normalized.join(',');
+}
 export default function BatchForm({ onSubmit, onClose, initialData = {} }) {
   const darkLogo = useOrgDarkLogo();
   const [courses, setCourses] = useState([]);
@@ -24,6 +45,7 @@ export default function BatchForm({ onSubmit, onClose, initialData = {} }) {
     teacher_id: initialData.teacher_id || "",
     start_date: initialData.start_date || "",
     end_date: initialData.end_date || "",
+    days: initialData.days || "",
     start_time: initialData.start_time || "",
     end_time: initialData.end_time || "",
     capacity: initialData.capacity || "",
@@ -48,14 +70,33 @@ export default function BatchForm({ onSubmit, onClose, initialData = {} }) {
     setForm({ ...form, [e.target.name]: e.target.value });
   }
 
-  async function handleSubmit(e) {
-    e.preventDefault();
-    if (!form.batch_name || !form.course_id) {
-      toast.error("Batch name and course are required");
-      return;
-    }
-    await onSubmit(form);
+ function validateDays(value) {
+  if (!value.trim()) return true; // optional field
+  const cleaned = normalizeDays(value);
+  if (!cleaned) {
+    toast.error("Days must be valid day names separated by commas (e.g., Monday,Wednesday or Mon,Wed)");
+    return false;
   }
+  return true;
+}
+
+ async function handleSubmit(e) {
+  e.preventDefault();
+  if (!form.batch_name || !form.course_id) {
+    toast.error("Batch name and course are required");
+    return;
+  }
+
+  // Normalize days to standard abbrev format
+  const daysValue = form.days ? normalizeDays(form.days) : "";
+  if (form.days && !daysValue) {
+    toast.error("Invalid day format. Use full names or abbreviations, e.g., Monday,Wednesday or Mon,Wed");
+    return;
+  }
+
+  const payload = { ...form, days: daysValue };
+  await onSubmit(payload);
+}
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
@@ -63,11 +104,11 @@ export default function BatchForm({ onSubmit, onClose, initialData = {} }) {
         {/* Header with logo */}
         <div className="sticky top-0 bg-white border-b border-secondary-light px-6 py-4 flex items-center justify-between rounded-t-xl z-10">
           <div className="flex items-center gap-3">
-           <img
-  src={darkLogo}
-  alt="ShreeVidhya Academy"
-  className="h-10 w-auto"
-/>
+            <img
+              src={darkLogo}
+              alt="ShreeVidhya Academy"
+              className="h-10 w-auto"
+            />
             <h2 className="text-xl font-righteous text-primary-dark">
               {initialData.id ? "Edit Batch" : "New Batch"}
             </h2>
@@ -168,6 +209,26 @@ export default function BatchForm({ onSubmit, onClose, initialData = {} }) {
                 className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
               />
             </div>
+          </div>
+
+          {/* Days (schedule) */}
+          <div>
+            <label className="block text-sm font-montserrat text-secondary-dark mb-1">
+              <CalendarDays size={14} className="inline mr-1" />
+              Days (schedule)
+            </label>
+            <input
+              type="text"
+              name="days"
+              placeholder="e.g., Mon,Wed,Fri"
+              value={form.days}
+              onChange={handleChange}
+              onBlur={(e) => validateDays(e.target.value)}
+              className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light"
+            />
+            <p className="text-xs text-secondary-light mt-1">
+              Enter full day names separated by commas (e.g., Mon,Wed,Fri). Leave blank if no fixed schedule.
+            </p>
           </div>
 
           {/* Start & End Time */}

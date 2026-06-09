@@ -121,11 +121,10 @@ export async function updateAttendanceSession(id, payload) {
   if (error) throw error;
   return data;
 }
-
 export async function deleteAttendanceSession(id) {
   const { error } = await supabase
     .from("attendance_sessions")
-    .delete()
+    .update({ deleted_at: new Date().toISOString() })
     .eq("id", id);
   if (error) throw error;
 }

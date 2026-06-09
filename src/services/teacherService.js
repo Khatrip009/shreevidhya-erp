@@ -63,7 +63,7 @@ export async function updateTeacher(id, payload) {
 export async function deleteTeacher(id) {
   const { error } = await supabase
     .from("teachers")
-    .delete()
+    .update({ deleted_at: new Date().toISOString() })
     .eq("id", id);
   if (error) throw error;
 }

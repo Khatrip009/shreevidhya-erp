@@ -5,7 +5,19 @@ import {
   CalendarCheck,
   BookOpen,
   Award,
+  TrendingUp,
 } from "lucide-react";
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+} from "recharts";
 import AdminLayout from "../layouts/AdminLayout";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../api/supabase";
@@ -52,9 +64,10 @@ export default function TeacherDashboard() {
     enabled: !!teacherId,
   });
 
+  const batchIds = batches.map((b) => b.batch_id);
+
   // 3. Today's attendance sessions
   const today = new Date().toISOString().split("T")[0];
-  const batchIds = batches.map((b) => b.batch_id);
   const { data: todaySessions = [] } = useQuery({
     queryKey: ["teacher-today-sessions", batchIds, today],
     queryFn: async () => {
@@ -99,6 +112,55 @@ export default function TeacherDashboard() {
         .order("exam_date", { ascending: true })
         .limit(5);
       return data || [];
+    },
+    enabled: batchIds.length > 0,
+  });
+
+  // 6. Attendance trend (last 30 days) for chart
+  const { data: attendanceTrend = [] } = useQuery({
+    queryKey: ["teacher-attendance-trend", batchIds],
+    queryFn: async () => {
+      if (!batchIds.length) return [];
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      const startDate = thirtyDaysAgo.toISOString().split("T")[0];
+
+      const { data: sessions } = await supabase
+        .from("attendance_sessions")
+        .select(`id, attendance_date`)
+        .in("batch_id", batchIds)
+        .gte("attendance_date", startDate)
+        .order("attendance_date", { ascending: true });
+
+      if (!sessions || sessions.length === 0) return [];
+
+      const sessionIds = sessions.map((s) => s.id);
+      const { data: marks } = await supabase
+        .from("student_attendance")
+        .select("session_id, status")
+        .in("session_id", sessionIds);
+
+      // group by date
+      const byDate = {};
+      sessions.forEach((s) => {
+        byDate[s.attendance_date] = { total: 0, present: 0 };
+      });
+      marks?.forEach((m) => {
+        const session = sessions.find((s) => s.id === m.session_id);
+        if (!session) return;
+        const date = session.attendance_date;
+        if (byDate[date]) {
+          byDate[date].total++;
+          if (m.status === "Present") byDate[date].present++;
+        }
+      });
+
+      const trend = Object.entries(byDate).map(([date, stats]) => ({
+        date,
+        attendance: stats.total > 0 ? ((stats.present / stats.total) * 100).toFixed(1) : 0,
+      }));
+
+      return trend;
     },
     enabled: batchIds.length > 0,
   });
@@ -162,6 +224,75 @@ export default function TeacherDashboard() {
         </div>
       </div>
 
+      {/* Charts Section */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+        {/* Attendance Trend Chart */}
+        <div className="bg-white rounded-xl p-5 shadow-sm border border-secondary-light">
+          <h2 className="text-lg font-righteous text-primary-dark mb-4 flex items-center gap-2">
+            <TrendingUp size={18} /> Attendance Trend (Last 30 Days)
+          </h2>
+          {attendanceTrend.length === 0 ? (
+            <p className="text-sm text-secondary text-center py-12">
+              No attendance data yet.
+            </p>
+          ) : (
+            <ResponsiveContainer width="100%" height={250}>
+              <LineChart data={attendanceTrend}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="date" fontSize={12} />
+                <YAxis domain={[0, 100]} fontSize={12} unit="%" />
+                <Tooltip formatter={(value) => `${value}%`} />
+                <Line
+                  type="monotone"
+                  dataKey="attendance"
+                  stroke="#0D47A1"
+                  strokeWidth={2}
+                  dot={false}
+                  name="Attendance %"
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+
+        {/* Upcoming Exams Timeline Chart */}
+        <div className="bg-white rounded-xl p-5 shadow-sm border border-secondary-light">
+          <h2 className="text-lg font-righteous text-primary-dark mb-4 flex items-center gap-2">
+            <Award size={18} /> Upcoming Exams
+          </h2>
+          {exams.length === 0 ? (
+            <p className="text-sm text-secondary text-center py-12">
+              No upcoming exams.
+            </p>
+          ) : (
+            <ResponsiveContainer width="100%" height={250}>
+              <BarChart
+                data={exams.map((e) => ({
+                  name: e.exam_name,
+                  batch: e.batches?.batch_name,
+                  date: e.exam_date,
+                  totalMarks: e.total_marks,
+                }))}
+                layout="vertical"
+                margin={{ left: 20, right: 20 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis type="number" hide />
+                <YAxis dataKey="name" type="category" fontSize={12} />
+                <Tooltip
+                  formatter={(value, name, props) => [
+                    `Batch: ${props.payload.batch}\nDate: ${props.payload.date}\nMarks: ${props.payload.totalMarks}`,
+                    "Details",
+                  ]}
+                />
+                <Bar dataKey="totalMarks" fill="#FF1070" radius={[0, 4, 4, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+      </div>
+
+      {/* Lists Section */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* My Batches */}
         <div className="bg-white rounded-xl p-5 shadow-sm border border-secondary-light">
@@ -174,8 +305,12 @@ export default function TeacherDashboard() {
             <ul className="space-y-2 text-sm">
               {batches.map((b) => (
                 <li key={b.batch_id} className="flex justify-between">
-                  <span>{b.batches?.batch_name} ({b.batches?.courses?.course_name})</span>
-                  <span className="text-secondary">{b.batches?.start_time} - {b.batches?.end_time}</span>
+                  <span>
+                    {b.batches?.batch_name} ({b.batches?.courses?.course_name})
+                  </span>
+                  <span className="text-secondary">
+                    {b.batches?.start_time} - {b.batches?.end_time}
+                  </span>
                 </li>
               ))}
             </ul>
@@ -193,8 +328,15 @@ export default function TeacherDashboard() {
             <ul className="space-y-2 text-sm">
               {todaySessions.map((s) => (
                 <li key={s.id} className="flex justify-between">
-                  <span>{s.batches?.batch_name} – {s.topic_covered || "No topic"}</span>
-                  <Link to={`/attendance/mark/${s.id}`} className="text-primary hover:underline">Mark</Link>
+                  <span>
+                    {s.batches?.batch_name} – {s.topic_covered || "No topic"}
+                  </span>
+                  <Link
+                    to={`/attendance/mark/${s.id}`}
+                    className="text-primary hover:underline"
+                  >
+                    Mark
+                  </Link>
                 </li>
               ))}
             </ul>
@@ -212,8 +354,12 @@ export default function TeacherDashboard() {
             <ul className="space-y-2 text-sm">
               {homeworks.map((hw) => (
                 <li key={hw.id}>
-                  <span className="font-medium">{hw.title}</span> – {hw.subjects?.subject_name} ({hw.batches?.batch_name})
-                  <br /><span className="text-secondary text-xs">Due: {hw.due_date}</span>
+                  <span className="font-medium">{hw.title}</span> –{" "}
+                  {hw.subjects?.subject_name} ({hw.batches?.batch_name})
+                  <br />
+                  <span className="text-secondary text-xs">
+                    Due: {hw.due_date}
+                  </span>
                 </li>
               ))}
             </ul>
@@ -231,8 +377,12 @@ export default function TeacherDashboard() {
             <ul className="space-y-2 text-sm">
               {exams.map((ex) => (
                 <li key={ex.id}>
-                  <span className="font-medium">{ex.exam_name}</span> – {ex.batches?.batch_name}
-                  <br /><span className="text-secondary text-xs">{ex.exam_date} | Total: {ex.total_marks}</span>
+                  <span className="font-medium">{ex.exam_name}</span> –{" "}
+                  {ex.batches?.batch_name}
+                  <br />
+                  <span className="text-secondary text-xs">
+                    {ex.exam_date} | Total: {ex.total_marks}
+                  </span>
                 </li>
               ))}
             </ul>

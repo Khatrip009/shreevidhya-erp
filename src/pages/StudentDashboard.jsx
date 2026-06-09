@@ -3,11 +3,17 @@ import { useQuery } from "@tanstack/react-query";
 import { useLocation, Link } from "react-router-dom";
 import {
   User, Calendar, IndianRupee, Award, Clock, FileText,
-  Phone, Mail, MapPin, School, Layers,
+  Phone, Mail, MapPin, School, Layers, TrendingUp,
 } from "lucide-react";
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line,
+} from "recharts";
 import AdminLayout from "../layouts/AdminLayout";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../api/supabase";
+
+const COLORS = ["#0D47A1", "#FF1070", "#00C49F", "#FFBB28", "#0088FE"];
 
 export default function StudentDashboard() {
   const { user } = useAuth();
@@ -44,34 +50,44 @@ export default function StudentDashboard() {
   });
 
   // ---------- 3. Attendance ----------
-  const { data: attendance = { percentage: 0, present: 0, total: 0 } } = useQuery({
+  const { data: attendance = { percentage: 0, present: 0, total: 0, trend: [] } } = useQuery({
     queryKey: ["student-attendance", studentId],
     queryFn: async () => {
-      if (!studentId) return { percentage: 0, present: 0, total: 0 };
+      if (!studentId) return { percentage: 0, present: 0, total: 0, trend: [] };
       const { data: batchRows } = await supabase
         .from("student_batches")
         .select("batch_id")
         .eq("student_id", studentId)
         .eq("status", "active");
       const batchIds = batchRows?.map((b) => b.batch_id) || [];
-      if (!batchIds.length) return { percentage: 0, present: 0, total: 0 };
+      if (!batchIds.length) return { percentage: 0, present: 0, total: 0, trend: [] };
 
       const { data: sessions } = await supabase
         .from("attendance_sessions")
-        .select("id")
-        .in("batch_id", batchIds);
+        .select("id, attendance_date")
+        .in("batch_id", batchIds)
+        .order("attendance_date", { ascending: false })
+        .limit(10);
+
       const sessionIds = sessions?.map((s) => s.id) || [];
-      if (!sessionIds.length) return { percentage: 0, present: 0, total: 0 };
+      if (!sessionIds.length) return { percentage: 0, present: 0, total: 0, trend: [] };
 
       const { data: marks } = await supabase
         .from("student_attendance")
-        .select("status")
-        .eq("student_id", studentId)
+        .select("session_id, status")
         .in("session_id", sessionIds);
 
       const total = sessionIds.length;
       const present = marks?.filter((m) => m.status === "Present").length || 0;
-      return { percentage: ((present / total) * 100).toFixed(1), present, total };
+
+      // Build trend data for chart
+      const trend = sessions.map((session) => ({
+        date: session.attendance_date,
+        status: marks?.find((m) => m.session_id === session.id)?.status || "Absent",
+        present: marks?.find((m) => m.session_id === session.id)?.status === "Present" ? 1 : 0,
+      })).reverse();
+
+      return { percentage: ((present / total) * 100).toFixed(1), present, total, trend };
     },
     enabled: !!studentId,
   });
@@ -100,17 +116,17 @@ export default function StudentDashboard() {
     enabled: !!studentId,
   });
 
-  // ---------- 5. Results ----------
+  // ---------- 5. Results (with subject‑wise data) ----------
   const { data: results = [] } = useQuery({
     queryKey: ["student-results", studentId],
     queryFn: async () => {
       if (!studentId) return [];
       const { data } = await supabase
         .from("student_results")
-        .select("marks_obtained, remarks, exams(exam_name, total_marks, exam_date)")
+        .select("marks_obtained, remarks, exams(exam_name, total_marks, exam_date, subject_id, subjects(subject_name))")
         .eq("student_id", studentId)
         .order("exam_id", { ascending: false })
-        .limit(3);
+        .limit(5);
       return data || [];
     },
     enabled: !!studentId,
@@ -154,10 +170,9 @@ export default function StudentDashboard() {
     enabled: !!studentId,
   });
 
-  // ---------- Scroll Logic ----------
+  // ---------- Scroll Logic (unchanged) ----------
   const location = useLocation();
 
-  // Robust scroll: tries main-content container first, falls back to whole page
   const scrollToSection = (sectionId) => {
     const container = document.getElementById("main-content") || window;
     const element = document.getElementById(sectionId);
@@ -168,21 +183,16 @@ export default function StudentDashboard() {
       const scrollOptions = { top: top - 20, behavior: "smooth" };
       if (container !== window) container.scrollTo(scrollOptions);
       else window.scrollTo(scrollOptions);
-    } else {
-      console.warn(`Element with id "${sectionId}" not found.`);
     }
   };
 
-  // React to hash changes
   useLayoutEffect(() => {
     const hash = location.hash.replace("#", "");
     if (hash) {
-      // Small delay ensures DOM is fully painted
       setTimeout(() => scrollToSection(hash), 100);
     }
   }, [location.hash]);
 
-  // Also expose globally so sidebar can call it (fallback)
   useEffect(() => {
     window.studentScrollToSection = scrollToSection;
     return () => { delete window.studentScrollToSection; };
@@ -206,6 +216,9 @@ export default function StudentDashboard() {
       </AdminLayout>
     );
   }
+
+  // Calculate paid percentage for the fee gauge
+  const paidPercent = fees.total > 0 ? ((fees.paid / fees.total) * 100).toFixed(0) : 0;
 
   return (
     <AdminLayout>
@@ -240,7 +253,7 @@ export default function StudentDashboard() {
           </div>
         </div>
 
-        {/* Batch & Attendance */}
+        {/* Batch & Attendance (with mini chart) */}
         <div className="space-y-6">
           <div id="batch" className="bg-white rounded-xl p-5 shadow-sm border border-secondary-light">
             <h2 className="text-lg font-righteous text-primary-dark mb-4"><Layers size={18} /> Current Batch</h2>
@@ -255,18 +268,29 @@ export default function StudentDashboard() {
             )}
           </div>
           <div id="attendance" className="bg-white rounded-xl p-5 shadow-sm border border-secondary-light">
-            <h2 className="text-lg font-righteous text-primary-dark mb-4"><Calendar size={18} /> Attendance</h2>
-            <div className="flex items-center gap-2">
+            <h2 className="text-lg font-righteous text-primary-dark mb-2 flex items-center gap-2">
+              <Calendar size={18} /> Attendance
+            </h2>
+            <div className="flex items-center gap-2 mb-2">
               <div className="w-full bg-gray-200 rounded-full h-3">
                 <div className="bg-green-500 h-3 rounded-full" style={{ width: `${attendance.percentage}%` }}></div>
               </div>
               <span className="font-bold text-sm">{attendance.percentage}%</span>
             </div>
-            <p className="text-xs text-secondary mt-1">{attendance.present} present / {attendance.total} sessions</p>
+            <p className="text-xs text-secondary mb-3">{attendance.present} present / {attendance.total} sessions</p>
+            {attendance.trend.length > 0 && (
+              <ResponsiveContainer width="100%" height={80}>
+                <BarChart data={attendance.trend}>
+                  <Bar dataKey="present" fill="#0D47A1" radius={[2,2,0,0]} />
+                  <XAxis dataKey="date" tick={false} />
+                  <Tooltip formatter={(val) => val ? "Present" : "Absent"} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
           </div>
         </div>
 
-        {/* Fee Summary */}
+        {/* Fee Summary (with gauge) */}
         <div id="fees" className="bg-white rounded-xl p-5 shadow-sm border border-secondary-light">
           <h2 className="text-lg font-righteous text-primary-dark mb-4"><IndianRupee size={18} /> Fee Summary</h2>
           <div className="space-y-2 text-sm">
@@ -274,28 +298,49 @@ export default function StudentDashboard() {
             <div className="flex justify-between"><span>Paid</span><span className="text-green-600 font-medium">₹{fees.paid.toLocaleString()}</span></div>
             <div className="flex justify-between"><span>Pending</span><span className="text-red-600 font-medium">₹{fees.pending.toLocaleString()}</span></div>
             <div className="w-full bg-gray-200 rounded-full h-2 mt-2">
-              <div className="bg-green-500 h-2 rounded-full" style={{ width: `${fees.total > 0 ? ((fees.paid / fees.total) * 100).toFixed(0) : 0}%` }}></div>
+              <div className="bg-green-500 h-2 rounded-full" style={{ width: `${paidPercent}%` }}></div>
             </div>
+            <p className="text-center text-xs text-secondary mt-1">{paidPercent}% paid</p>
           </div>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
+        {/* Recent Results (with subject‑wise bar chart) */}
         <div id="results" className="bg-white rounded-xl p-5 shadow-sm border border-secondary-light">
-          <h2 className="text-lg font-righteous text-primary-dark mb-4"><Award size={18} /> Recent Results</h2>
+          <h2 className="text-lg font-righteous text-primary-dark mb-4 flex items-center gap-2">
+            <Award size={18} /> Recent Results
+          </h2>
           {results.length === 0 ? (
             <p className="text-sm text-secondary">No results yet.</p>
           ) : (
-            <ul className="space-y-3">
-              {results.map((r, idx) => (
-                <li key={idx} className="border-b pb-2 last:border-0">
-                  <p className="font-medium text-sm">{r.exams?.exam_name}</p>
-                  <p className="text-xs text-secondary">Marks: {r.marks_obtained}/{r.exams?.total_marks} – {r.exams?.exam_date}</p>
-                </li>
-              ))}
-            </ul>
+            <>
+              <ul className="space-y-2 text-sm mb-3">
+                {results.slice(0, 2).map((r, idx) => (
+                  <li key={idx} className="flex justify-between">
+                    <span>{r.exams?.subjects?.subject_name || r.exams?.exam_name}</span>
+                    <span className="font-medium">{r.marks_obtained}/{r.exams?.total_marks}</span>
+                  </li>
+                ))}
+              </ul>
+              {results.length >= 2 && (
+                <ResponsiveContainer width="100%" height={120}>
+                  <BarChart data={results.map(r => ({
+                    subject: r.exams?.subjects?.subject_name || r.exams?.exam_name,
+                    score: r.exams?.total_marks ? ((r.marks_obtained / r.exams.total_marks) * 100).toFixed(1) : 0,
+                  }))}>
+                    <Bar dataKey="score" fill="#FF1070" radius={[4,4,0,0]} />
+                    <XAxis dataKey="subject" fontSize={10} />
+                    <YAxis unit="%" fontSize={10} />
+                    <Tooltip />
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+            </>
           )}
         </div>
+
+        {/* Upcoming Homework */}
         <div id="homework" className="bg-white rounded-xl p-5 shadow-sm border border-secondary-light">
           <h2 className="text-lg font-righteous text-primary-dark mb-4"><Clock size={18} /> Upcoming Homework</h2>
           {homeworks.length === 0 ? (
@@ -311,6 +356,8 @@ export default function StudentDashboard() {
             </ul>
           )}
         </div>
+
+        {/* Certificates */}
         <div id="certificates" className="bg-white rounded-xl p-5 shadow-sm border border-secondary-light">
           <h2 className="text-lg font-righteous text-primary-dark mb-4"><FileText size={18} /> Certificates</h2>
           <div className="text-center">

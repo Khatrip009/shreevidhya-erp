@@ -94,7 +94,7 @@ export async function updateExam(id, payload) {
 export async function deleteExam(id) {
   const { error } = await supabase
     .from("exams")
-    .delete()
+    .update({ deleted_at: new Date().toISOString() })
     .eq("id", id);
   if (error) throw error;
 }
