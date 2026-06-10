@@ -98,10 +98,14 @@ export default function UserManagement() {
     onError: (err) => toast.error(err.message),
   });
 
-  // 4. Invite new user – now inserts only into profiles (via trigger), then updates role
+  // 4. Invite new user – preserves admin session
   const inviteMutation = useMutation({
     mutationFn: async (formData) => {
-      // Check duplicate
+      // ---- Save the current (admin) session ----
+      const { data: sessionData } = await supabase.auth.getSession();
+      const adminSession = sessionData?.session;
+
+      // ---- Check duplicate email ----
       const { data: existing } = await supabase
         .from("profiles")
         .select("id")
@@ -109,6 +113,7 @@ export default function UserManagement() {
         .maybeSingle();
       if (existing) throw new Error("A user with this email already exists.");
 
+      // ---- Create the new auth user ----
       const { data: signUpData, error: signUpError } =
         await supabase.auth.signUp({
           email: formData.email,
@@ -126,7 +131,16 @@ export default function UserManagement() {
 
       const userId = signUpData.user.id;
 
-      // Trigger already inserted profile with default 'admin' role; override it
+      // ---- Restore the admin session immediately ----
+      // This signs out the new user and brings back the admin
+      if (adminSession) {
+        await supabase.auth.setSession({
+          access_token: adminSession.access_token,
+          refresh_token: adminSession.refresh_token,
+        });
+      }
+
+      // ---- Update the profile role (trigger already created the row) ----
       const { error: updateError } = await supabase
         .from("profiles")
         .update({ role: formData.role })
@@ -344,7 +358,7 @@ export default function UserManagement() {
         </div>
       </div>
 
-      {/* Invite User Modal – same layout, but now it syncs profiles */}
+      {/* Invite User Modal */}
       {showInvite && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl w-full max-w-md shadow-xl">
