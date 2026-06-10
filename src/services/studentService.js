@@ -1,5 +1,45 @@
 import { supabase } from "../api/supabase";
 
+/**
+ * Create a Supabase auth user, update profile role, and return the user ID.
+ * Throws user-friendly error if email already exists.
+ */
+async function createAuthUser(email, password, fullName, role) {
+  if (!email || !password) return null;
+
+  // Check if email is already taken
+  const { data: existing } = await supabase
+    .from("profiles")
+    .select("id")
+    .eq("email", email)
+    .maybeSingle();
+  if (existing) throw new Error("A user with this email already exists.");
+
+  const { data, error } = await supabase.auth.signUp({
+    email,
+    password,
+    options: { data: { full_name: fullName } },
+  });
+  if (error) {
+    if (error.message.includes("already been registered"))
+      throw new Error("This email is already registered. Please use another email.");
+    throw error;
+  }
+
+  const userId = data.user.id;
+
+  // Update profile role to the correct role
+  const { error: profileError } = await supabase
+    .from("profiles")
+    .update({ role })
+    .eq("id", userId);
+  if (profileError) throw profileError;
+
+  return userId;
+}
+
+// ─── CRUD ───────────────────────────────────────────────
+
 export async function getStudents({ pageParam = 0, filters = {} }) {
   const limit = 10;
   const from = pageParam * limit;
@@ -61,17 +101,21 @@ export async function getStudent(id) {
 }
 
 export async function createStudent(payload) {
-  const { _parent_ids, ...studentData } = payload;
+  const { _parent_ids, email, password, ...studentData } = payload;
 
-  // 1. Insert student
+  // 1. Optionally create auth user
+  const fullName = `${studentData.first_name || ""} ${studentData.last_name || ""}`.trim();
+  const userId = await createAuthUser(email, password, fullName, "student");
+
+  // 2. Insert student record with user_id
   const { data: student, error } = await supabase
     .from("students")
-    .insert([studentData])
+    .insert([{ ...studentData, user_id: userId }])
     .select()
     .single();
   if (error) throw error;
 
-  // 2. Create student_parent links if any
+  // 3. Link parents if any
   if (_parent_ids && _parent_ids.length > 0) {
     const links = _parent_ids.map((parentId) => ({
       student_id: student.id,
@@ -86,9 +130,8 @@ export async function createStudent(payload) {
 }
 
 export async function updateStudent(id, payload) {
-  const { _parent_ids, ...studentData } = payload;
-
-  // 1. Update student record
+  const { _parent_ids, email, password, ...studentData } = payload;
+  // Update student record only; auth changes not handled here for simplicity.
   const { data: student, error } = await supabase
     .from("students")
     .update(studentData)
@@ -97,11 +140,8 @@ export async function updateStudent(id, payload) {
     .single();
   if (error) throw error;
 
-  // 2. Replace parent links
   if (_parent_ids !== undefined) {
-    // Remove old links
     await supabase.from("student_parents").delete().eq("student_id", id);
-    // Insert new links
     if (_parent_ids.length > 0) {
       const links = _parent_ids.map((parentId) => ({
         student_id: id,
@@ -112,7 +152,6 @@ export async function updateStudent(id, payload) {
       if (linkError) throw linkError;
     }
   }
-
   return student;
 }
 
@@ -123,7 +162,7 @@ export async function deleteStudent(id) {
     .eq("id", id);
   if (error) throw error;
 }
-// Export all filtered data (for CSV)
+
 export async function getAllStudentsForExport(filters = {}) {
   let query = supabase
     .from("students")

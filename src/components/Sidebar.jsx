@@ -1,23 +1,18 @@
 import {
-  LayoutDashboard,
-  Users,
-  GraduationCap,
-  BookOpen,
-  Award,
-  IndianRupee,
-  Settings,
-  ChevronDown,
-  Bell,
-  X,
-  CalendarClock,
-  Wallet,
-  Building,
+  LayoutDashboard, Users, GraduationCap, BookOpen, Award,
+  IndianRupee, Settings, ChevronDown, Bell, X, CalendarClock,
+  Wallet, Building,
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "../context/AuthContext";
 import { getOrganization } from "../services/organizationService";
+
+// Same helper as in ProtectedRoute – converts any role string to slug
+function normaliseRole(rawRole) {
+  return (rawRole || "").toLowerCase().replace(/\s+/g, "_");
+}
 
 export default function Sidebar({ onClose }) {
   const { profile } = useAuth();
@@ -41,9 +36,10 @@ export default function Sidebar({ onClose }) {
     );
   }
 
-  const role = profile.role;
+  // Normalise the role to a slug (e.g. "Super Admin" → "super_admin")
+  const role = normaliseRole(profile.role);
 
-  // ---------- Student links ----------
+  // ---------- Student links (slug: "student") ----------
   const studentLinks = (
     <>
       <NavLink to="/student" end className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-lg transition ${isActive ? "bg-primary-light" : "hover:bg-primary-light"}`}>
@@ -63,41 +59,41 @@ export default function Sidebar({ onClose }) {
     </>
   );
 
-  // ---------- Teacher links ----------
- const teacherLinks = (
-  <>
-    <NavLink to="/teacher" end className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-lg transition ${isActive ? "bg-primary-light" : "hover:bg-primary-light"}`}>
-      <LayoutDashboard size={18} /> Dashboard
-    </NavLink>
-    <button onClick={() => setAcademicOpen(!academicOpen)} className="w-full flex justify-between items-center px-4 py-3 rounded-lg hover:bg-primary-light transition">
-      <span className="flex items-center gap-3"><GraduationCap size={18} />Academics</span>
-      <ChevronDown size={16} className={`transition ${academicOpen ? "rotate-180" : ""}`} />
-    </button>
-    {academicOpen && (
-      <div className="ml-8 space-y-1">
-        <NavLink to="/attendance" className="block py-2 text-secondary-light hover:text-white">Attendance</NavLink>
-        <NavLink to="/homework" className="block py-2 text-secondary-light hover:text-white">Homework</NavLink>
-        <NavLink to="/exams" className="block py-2 text-secondary-light hover:text-white">Exams</NavLink>
-        <NavLink to="/results" className="block py-2 text-secondary-light hover:text-white">Results</NavLink>
-      </div>
-    )}
-    <NavLink to="/teacher/salary" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-primary-light transition">
-      <Wallet size={18} /> My Salary
-    </NavLink>
-    <NavLink to="/teacher/leaves" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-primary-light transition">
-      <CalendarClock size={18} /> My Leaves
-    </NavLink>
-    <NavLink to="/teacher/profile" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-primary-light transition">
-      <BookOpen size={18} /> My Profile
-    </NavLink>
-    <NavLink to="/teacher/timetable" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-primary-light transition">
-      <CalendarClock size={18} /> My Timetable
-    </NavLink>
-    <NavLink to="/settings" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-primary-light transition">
-      <Settings size={18} /> Settings
-    </NavLink>
-  </>
-);
+  // ---------- Teacher links (slug: "teacher") ----------
+  const teacherLinks = (
+    <>
+      <NavLink to="/teacher" end className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-lg transition ${isActive ? "bg-primary-light" : "hover:bg-primary-light"}`}>
+        <LayoutDashboard size={18} /> Dashboard
+      </NavLink>
+      <button onClick={() => setAcademicOpen(!academicOpen)} className="w-full flex justify-between items-center px-4 py-3 rounded-lg hover:bg-primary-light transition">
+        <span className="flex items-center gap-3"><GraduationCap size={18} />Academics</span>
+        <ChevronDown size={16} className={`transition ${academicOpen ? "rotate-180" : ""}`} />
+      </button>
+      {academicOpen && (
+        <div className="ml-8 space-y-1">
+          <NavLink to="/attendance" className="block py-2 text-secondary-light hover:text-white">Attendance</NavLink>
+          <NavLink to="/homework" className="block py-2 text-secondary-light hover:text-white">Homework</NavLink>
+          <NavLink to="/exams" className="block py-2 text-secondary-light hover:text-white">Exams</NavLink>
+          <NavLink to="/results" className="block py-2 text-secondary-light hover:text-white">Results</NavLink>
+        </div>
+      )}
+      <NavLink to="/teacher/salary" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-primary-light transition">
+        <Wallet size={18} /> My Salary
+      </NavLink>
+      <NavLink to="/teacher/leaves" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-primary-light transition">
+        <CalendarClock size={18} /> My Leaves
+      </NavLink>
+      <NavLink to="/teacher/profile" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-primary-light transition">
+        <BookOpen size={18} /> My Profile
+      </NavLink>
+      <NavLink to="/teacher/timetable" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-primary-light transition">
+        <CalendarClock size={18} /> My Timetable
+      </NavLink>
+      <NavLink to="/settings" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-primary-light transition">
+        <Settings size={18} /> Settings
+      </NavLink>
+    </>
+  );
 
   // ---------- Admin / Super Admin full links ----------
   const adminLinks = (
@@ -160,8 +156,7 @@ export default function Sidebar({ onClose }) {
         <Settings size={18} /> Settings
       </NavLink>
       <NavLink to="/organization-settings" className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-lg transition ${isActive ? "bg-primary-light" : "hover:bg-primary-light"}`}>
-        <Building size={18} />
-        Organization
+        <Building size={18} /> Organization
       </NavLink>
     </>
   );
@@ -179,9 +174,9 @@ export default function Sidebar({ onClose }) {
         />
       </div>
       <nav className="p-4 space-y-2 flex-1">
-        {role === "Student" && studentLinks}
-        {role === "Teacher" && teacherLinks}
-        {(role === "Admin" || role === "Super Admin") && adminLinks}
+        {role === "student" && studentLinks}
+        {role === "teacher" && teacherLinks}
+        {(role === "admin" || role === "super_admin") && adminLinks}
       </nav>
     </aside>
   );

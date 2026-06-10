@@ -25,16 +25,18 @@ import { supabase } from "../api/supabase";
 export default function TeacherDashboard() {
   const { user, profile } = useAuth();
 
-  // 1. Find the teacher record linked to this auth user
+  // 1. Find the teacher record linked to this auth user (safe version)
   const { data: teacherId, isLoading: teacherLoading } = useQuery({
     queryKey: ["teacher-id", user?.id],
     queryFn: async () => {
-      const { data } = await supabase
+      if (!user?.id) return null;
+      const { data, error } = await supabase
         .from("teachers")
         .select("id")
         .eq("user_id", user.id)
-        .single();
-      return data?.id;
+        .maybeSingle();                // won't throw if 0 rows
+      if (error) throw error;
+      return data?.id || null;         // explicitly null or number
     },
     enabled: !!user?.id,
   });

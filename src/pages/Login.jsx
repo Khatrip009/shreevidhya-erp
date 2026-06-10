@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useState } from "react";
+import { Navigate, useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
 import { Mail, Lock, LogIn, ArrowLeft, KeyRound } from "lucide-react";
 import { supabase } from "../api/supabase";
@@ -8,32 +8,23 @@ import { useOrgDarkLogo } from "../hooks/useOrgDarkLogo";
 
 export default function Login() {
   const darkLogo = useOrgDarkLogo();
-  const { user, profile } = useAuth();
+  const { user, profile, loading: authLoading } = useAuth();
   const navigate = useNavigate();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
-
-  // OTP mode toggle
   const [useOtp, setUseOtp] = useState(false);
   const [otpSent, setOtpSent] = useState(false);
 
-  // Redirect based on role once user and profile are fully loaded
-  useEffect(() => {
-    if (user && profile) {
-      if (profile.role === "Student") {
-        navigate("/student", { replace: true });
-      } else if (profile.role === "Teacher") {
-        navigate("/teacher", { replace: true });
-      } else {
-        navigate("/", { replace: true });
-      }
-    }
-  }, [user, profile, navigate]);
+  // -------- Redirect once auth is fully loaded --------
+  if (user && profile) {
+    // Navigate to root – ProtectedRoute will handle role‑based routing
+    return <Navigate to="/" replace />;
+  }
 
-  // Show a loading screen while profile is being fetched
-  if (user && !profile) {
+  // Show loading while auth state is being fetched (or profile still loading)
+  if (authLoading || (user && !profile)) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-secondary-bg">
         <p className="text-secondary font-montserrat">Loading your account…</p>
@@ -55,7 +46,7 @@ export default function Login() {
         setLoading(false);
         return;
       }
-      // AuthContext picks up the session – useEffect above will redirect
+      // AuthContext will update user & profile → <Navigate> triggers
     } catch (err) {
       console.error(err);
       toast.error("Login failed");
@@ -75,7 +66,7 @@ export default function Login() {
       const { error } = await supabase.auth.signInWithOtp({
         email,
         options: {
-          shouldCreateUser: false,          // only existing users
+          shouldCreateUser: false,
           emailRedirectTo: window.location.origin + "/#/login",
         },
       });
@@ -84,7 +75,7 @@ export default function Login() {
         setLoading(false);
         return;
       }
-      toast.success("OTP sent to your email – check your inbox");
+      toast.success("OTP sent – check your inbox");
       setOtpSent(true);
     } catch (err) {
       console.error(err);
@@ -105,7 +96,7 @@ export default function Login() {
         redirectTo: window.location.origin + "/#/login",
       });
       if (error) throw error;
-      toast.success("Password reset link sent to your email");
+      toast.success("Password reset link sent");
     } catch (err) {
       toast.error(err.message || "Failed to send reset link");
     }
@@ -120,13 +111,8 @@ export default function Login() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-secondary-bg px-4">
       <div className="bg-white shadow-xl rounded-2xl p-8 w-full max-w-md border border-secondary-light">
-        {/* Logo */}
         <div className="flex justify-center mb-6">
-          <img
-            src={darkLogo}
-            alt="ShreeVidhya Academy"
-            className="h-20 w-auto"
-          />
+          <img src={darkLogo} alt="ShreeVidhya Academy" className="h-20 w-auto" />
         </div>
         <h1 className="text-2xl font-righteous text-primary-dark text-center mb-1">
           ShreeVidhya Academy
@@ -135,13 +121,12 @@ export default function Login() {
           {useOtp ? "Sign in with a one‑time code" : "Sign in to your account"}
         </p>
 
-        {/* -------- PASSWORD FORM -------- */}
+        {/* Password form */}
         {!useOtp && (
           <form onSubmit={handlePasswordLogin} className="space-y-5">
             <div>
               <label className="block text-sm font-montserrat text-secondary-dark mb-1">
-                <Mail size={14} className="inline mr-1" />
-                Email
+                <Mail size={14} className="inline mr-1" /> Email
               </label>
               <input
                 type="email"
@@ -154,8 +139,7 @@ export default function Login() {
             </div>
             <div>
               <label className="block text-sm font-montserrat text-secondary-dark mb-1">
-                <Lock size={14} className="inline mr-1" />
-                Password
+                <Lock size={14} className="inline mr-1" /> Password
               </label>
               <input
                 type="password"
@@ -165,7 +149,6 @@ export default function Login() {
                 className="w-full border border-secondary-light rounded-lg p-3 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light"
                 required
               />
-              {/* Forgot password link */}
               <button
                 type="button"
                 onClick={handleForgotPassword}
@@ -182,8 +165,6 @@ export default function Login() {
               <LogIn size={18} />
               {loading ? "Signing In..." : "Sign In"}
             </button>
-
-            {/* Switch to OTP */}
             <div className="text-center">
               <button
                 type="button"
@@ -196,10 +177,9 @@ export default function Login() {
           </form>
         )}
 
-        {/* -------- OTP FORM -------- */}
+        {/* OTP form */}
         {useOtp && (
           <>
-            {/* Back button (before OTP sent) */}
             {!otpSent && (
               <div className="mb-4">
                 <button
@@ -215,8 +195,7 @@ export default function Login() {
             <form onSubmit={handleSendOtp} className="space-y-5">
               <div>
                 <label className="block text-sm font-montserrat text-secondary-dark mb-1">
-                  <Mail size={14} className="inline mr-1" />
-                  Email
+                  <Mail size={14} className="inline mr-1" /> Email
                 </label>
                 <input
                   type="email"
@@ -229,7 +208,7 @@ export default function Login() {
               </div>
               {otpSent && (
                 <p className="text-sm text-green-600 font-montserrat">
-                  ✅ OTP sent! Check your inbox. You can close this page after entering the code.
+                  ✅ OTP sent! Check your inbox.
                 </p>
               )}
               <button
@@ -240,7 +219,6 @@ export default function Login() {
                 <KeyRound size={18} />
                 {loading ? "Sending..." : "Send One‑Time Code"}
               </button>
-              {/* Back to password */}
               {!otpSent && (
                 <div className="text-center">
                   <button

@@ -21,11 +21,13 @@ import { supabase } from "../api/supabase";
 
 const ALLOWED_ROLES = ["super_admin", "admin", "teacher", "student", "parent"];
 
-// Helper to capitalise role for display
-const formatRole = (role) => {
-  if (!role) return "";
-  return role.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
-};
+const formatRole = (role) =>
+  role
+    ? role
+        .split("_")
+        .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+        .join(" ")
+    : "";
 
 export default function UserManagement() {
   const queryClient = useQueryClient();
@@ -34,66 +36,27 @@ export default function UserManagement() {
   const [editRole, setEditRole] = useState("");
   const [editStatus, setEditStatus] = useState(true);
   const [showInvite, setShowInvite] = useState(false);
-
   const [inviteForm, setInviteForm] = useState({
     email: "",
     password: "",
     full_name: "",
     role: "admin",
-    username: "", // optional, defaults to email
   });
 
-  // ----------------------------------------------------------------------
-  // 1. Fetch all public users (from your "users" table)
-  // ----------------------------------------------------------------------
-  const { data: users = [], isLoading: usersLoading } = useQuery({
-    queryKey: ["users"],
+  // 1. Fetch all profiles
+  const { data: profiles = [], isLoading } = useQuery({
+    queryKey: ["profiles"],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("users")
-        .select("id, username, role, status, auth_uuid")
-        .order("id", { ascending: true });
+        .from("profiles")
+        .select("id, email, full_name, role, is_active, created_at")
+        .order("created_at", { ascending: false });
       if (error) throw error;
       return data || [];
     },
     staleTime: 5 * 60 * 1000,
   });
 
-  // ----------------------------------------------------------------------
-  // 2. Fetch auth users data (email, full_name) – only for admin/super_admin
-  //    Uses the secure function we created earlier.
-  // ----------------------------------------------------------------------
-  const { data: authUsers = [] } = useQuery({
-    queryKey: ["auth_users_for_admin"],
-    queryFn: async () => {
-      try {
-        const { data, error } = await supabase.rpc("get_auth_users_for_admin");
-        if (error) throw error;
-        return data || [];
-      } catch (err) {
-        console.warn("Could not fetch auth users. Email display may be incomplete.", err);
-        return [];
-      }
-    },
-    enabled: true, // will fail silently if function doesn't exist
-  });
-
-  // ----------------------------------------------------------------------
-  // 3. Merge public users with auth data (email, full_name)
-  // ----------------------------------------------------------------------
-  const profiles = users.map((user) => {
-    const auth = authUsers.find((au) => au.id === user.auth_uuid);
-    return {
-      id: user.id,
-      email: auth?.email || user.username, // fallback to username
-      full_name: auth?.raw_user_meta_data?.full_name || user.username,
-      role: user.role,
-      is_active: user.status, // map status -> is_active
-      auth_uuid: user.auth_uuid,
-    };
-  });
-
-  // Filter by search
   const filteredProfiles = profiles.filter((p) => {
     const term = search.toLowerCase();
     return (
@@ -102,60 +65,50 @@ export default function UserManagement() {
     );
   });
 
-  // ----------------------------------------------------------------------
-  // 4. Update user (role + status)
-  // ----------------------------------------------------------------------
+  // 2. Update profile (role + active status)
   const updateMutation = useMutation({
-    mutationFn: async ({ id, role, status }) => {
+    mutationFn: async ({ id, role, is_active }) => {
       const { error } = await supabase
-        .from("users")
-        .update({ role, status })
+        .from("profiles")
+        .update({ role, is_active })
         .eq("id", id);
       if (error) throw error;
     },
     onSuccess: () => {
       toast.success("User updated");
-      queryClient.invalidateQueries({ queryKey: ["users"] });
-      queryClient.invalidateQueries({ queryKey: ["auth_users_for_admin"] });
+      queryClient.invalidateQueries({ queryKey: ["profiles"] });
       setEditingId(null);
     },
-    onError: (err) => toast.error(err.message || "Update failed"),
+    onError: (err) => toast.error(err.message),
   });
 
-  // ----------------------------------------------------------------------
-  // 5. Deactivate user (set status = false)
-  // ----------------------------------------------------------------------
+  // 3. Deactivate user
   const deactivateMutation = useMutation({
     mutationFn: async (id) => {
       const { error } = await supabase
-        .from("users")
-        .update({ status: false })
+        .from("profiles")
+        .update({ is_active: false })
         .eq("id", id);
       if (error) throw error;
     },
     onSuccess: () => {
       toast.success("User deactivated");
-      queryClient.invalidateQueries({ queryKey: ["users"] });
-      queryClient.invalidateQueries({ queryKey: ["auth_users_for_admin"] });
+      queryClient.invalidateQueries({ queryKey: ["profiles"] });
     },
-    onError: (err) => toast.error(err.message || "Deactivation failed"),
+    onError: (err) => toast.error(err.message),
   });
 
-  // ----------------------------------------------------------------------
-  // 6. Invite new user (create auth user + public.users row)
-  // ----------------------------------------------------------------------
+  // 4. Invite new user – now inserts only into profiles (via trigger), then updates role
   const inviteMutation = useMutation({
     mutationFn: async (formData) => {
-      // Check duplicate email in auth.users
-      const { data: existingAuth } = await supabase
-        .from("auth.users") // requires admin access; if not, use .rpc
-        .select("email")
+      // Check duplicate
+      const { data: existing } = await supabase
+        .from("profiles")
+        .select("id")
         .eq("email", formData.email)
         .maybeSingle();
-      // This direct query on auth.users may fail if RLS blocks it.
-      // Safer: use admin API or a custom function. We'll try with signUp anyway.
+      if (existing) throw new Error("A user with this email already exists.");
 
-      // Create auth user
       const { data: signUpData, error: signUpError } =
         await supabase.auth.signUp({
           email: formData.email,
@@ -167,56 +120,38 @@ export default function UserManagement() {
 
       if (signUpError) {
         if (signUpError.message.includes("already been registered"))
-          throw new Error("This email is already registered");
+          throw new Error("This email is already registered.");
         throw signUpError;
       }
 
-      const authUserId = signUpData?.user?.id;
-      if (!authUserId) throw new Error("User creation failed");
+      const userId = signUpData.user.id;
 
-      // Insert into public.users
-      const username = formData.username || formData.email.split("@")[0];
-      const { error: insertError } = await supabase.from("users").insert({
-        username: username,
-        role: formData.role,
-        status: true,
-        auth_uuid: authUserId,
-      });
-      if (insertError) throw insertError;
-
-      // (Optional) Update the auth user's raw_user_meta_data with role, etc.
-      // This requires admin privileges – skip for now.
+      // Trigger already inserted profile with default 'admin' role; override it
+      const { error: updateError } = await supabase
+        .from("profiles")
+        .update({ role: formData.role })
+        .eq("id", userId);
+      if (updateError) throw updateError;
     },
     onSuccess: () => {
-      toast.success("User invited and linked successfully");
+      toast.success("User invited");
       setShowInvite(false);
-      setInviteForm({
-        email: "",
-        password: "",
-        full_name: "",
-        role: "admin",
-        username: "",
-      });
-      queryClient.invalidateQueries({ queryKey: ["users"] });
-      queryClient.invalidateQueries({ queryKey: ["auth_users_for_admin"] });
+      setInviteForm({ email: "", password: "", full_name: "", role: "admin" });
+      queryClient.invalidateQueries({ queryKey: ["profiles"] });
     },
-    onError: (err) => toast.error(err.message || "Invitation failed"),
+    onError: (err) => toast.error(err.message),
   });
 
-  // ----------------------------------------------------------------------
   // UI helpers
-  // ----------------------------------------------------------------------
-  function startEdit(profile) {
+  const startEdit = (profile) => {
     setEditingId(profile.id);
     setEditRole(profile.role);
     setEditStatus(profile.is_active);
-  }
+  };
 
-  function cancelEdit() {
-    setEditingId(null);
-  }
+  const cancelEdit = () => setEditingId(null);
 
-  function handleInviteSubmit(e) {
+  const handleInviteSubmit = (e) => {
     e.preventDefault();
     if (!inviteForm.email || !inviteForm.password) {
       toast.error("Email and password are required");
@@ -227,11 +162,8 @@ export default function UserManagement() {
       return;
     }
     inviteMutation.mutate(inviteForm);
-  }
+  };
 
-  // ----------------------------------------------------------------------
-  // Render
-  // ----------------------------------------------------------------------
   return (
     <AdminLayout>
       {/* Header */}
@@ -289,7 +221,7 @@ export default function UserManagement() {
               </tr>
             </thead>
             <tbody>
-              {usersLoading ? (
+              {isLoading ? (
                 <tr>
                   <td colSpan={5} className="p-6 text-center text-secondary">
                     Loading users…
@@ -311,9 +243,7 @@ export default function UserManagement() {
                     className="border-b border-secondary-light hover:bg-primary-bg transition"
                   >
                     <td className="p-3 text-sm">{profile.email}</td>
-                    <td className="p-3 text-sm">
-                      {profile.full_name || "-"}
-                    </td>
+                    <td className="p-3 text-sm">{profile.full_name || "-"}</td>
                     <td className="p-3 text-sm">
                       {editingId === profile.id ? (
                         <select
@@ -365,7 +295,7 @@ export default function UserManagement() {
                               updateMutation.mutate({
                                 id: profile.id,
                                 role: editRole,
-                                status: editStatus,
+                                is_active: editStatus,
                               })
                             }
                             className="bg-primary hover:bg-primary-light text-white px-3 py-1 rounded text-xs flex items-center gap-1"
@@ -414,7 +344,7 @@ export default function UserManagement() {
         </div>
       </div>
 
-      {/* Invite User Modal */}
+      {/* Invite User Modal – same layout, but now it syncs profiles */}
       {showInvite && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl w-full max-w-md shadow-xl">
@@ -483,20 +413,6 @@ export default function UserManagement() {
               </div>
               <div>
                 <label className="block text-sm font-montserrat text-secondary-dark mb-1">
-                  Username (optional)
-                </label>
-                <input
-                  type="text"
-                  value={inviteForm.username}
-                  onChange={(e) =>
-                    setInviteForm({ ...inviteForm, username: e.target.value })
-                  }
-                  placeholder="Leave blank to use email prefix"
-                  className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-montserrat text-secondary-dark mb-1">
                   <Shield size={14} className="inline mr-1" />
                   Role
                 </label>
@@ -514,14 +430,13 @@ export default function UserManagement() {
                   ))}
                 </select>
               </div>
-
               <div className="flex flex-col sm:flex-row-reverse gap-3 pt-2">
                 <button
                   type="submit"
                   disabled={inviteMutation.isLoading}
                   className="w-full sm:w-auto bg-primary hover:bg-primary-light text-white px-6 py-2.5 rounded-lg font-montserrat transition disabled:opacity-50"
                 >
-                  {inviteMutation.isLoading ? "Sending..." : "Invite"}
+                  {inviteMutation.isLoading ? "Inviting..." : "Invite"}
                 </button>
                 <button
                   type="button"

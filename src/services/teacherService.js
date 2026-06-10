@@ -1,5 +1,42 @@
 import { supabase } from "../api/supabase";
 
+/**
+ * Reusable function to create auth user + update profile role.
+ */
+async function createAuthUser(email, password, fullName, role) {
+  if (!email || !password) return null;
+
+  const { data: existing } = await supabase
+    .from("profiles")
+    .select("id")
+    .eq("email", email)
+    .maybeSingle();
+  if (existing) throw new Error("A user with this email already exists.");
+
+  const { data, error } = await supabase.auth.signUp({
+    email,
+    password,
+    options: { data: { full_name: fullName } },
+  });
+  if (error) {
+    if (error.message.includes("already been registered"))
+      throw new Error("This email is already registered.");
+    throw error;
+  }
+
+  const userId = data.user.id;
+
+  const { error: profileError } = await supabase
+    .from("profiles")
+    .update({ role })
+    .eq("id", userId);
+  if (profileError) throw profileError;
+
+  return userId;
+}
+
+// ─── CRUD ───────────────────────────────────────────────
+
 export async function getTeachers({ pageParam = 0, filters = {} }) {
   const limit = 10;
   const from = pageParam * limit;
@@ -40,16 +77,22 @@ export async function getAllTeachersForExport(filters = {}) {
 }
 
 export async function createTeacher(payload) {
-  const { data, error } = await supabase
+  const { email, password, ...teacherData } = payload;
+
+  const fullName = `${teacherData.first_name || ""} ${teacherData.last_name || ""}`.trim();
+  const userId = await createAuthUser(email, password, fullName, "teacher");
+
+  const { data: teacher, error } = await supabase
     .from("teachers")
-    .insert([payload])
+    .insert([{ ...teacherData, user_id: userId }])
     .select()
     .single();
   if (error) throw error;
-  return data;
+  return teacher;
 }
 
 export async function updateTeacher(id, payload) {
+  // Does not handle auth changes for simplicity.
   const { data, error } = await supabase
     .from("teachers")
     .update(payload)

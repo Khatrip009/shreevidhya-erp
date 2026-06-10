@@ -10,10 +10,8 @@ import {
   Plus,
   Edit3,
   Trash2,
-  Filter,
   Download,
   Upload,
-  X,
   Users,
 } from "lucide-react";
 import Papa from "papaparse";
@@ -32,7 +30,6 @@ export default function Parents() {
 
   // Search & filters
   const [search, setSearch] = useState("");
-  const [showFilters, setShowFilters] = useState(false);
   const allFilters = { search };
 
   // UI state
@@ -67,11 +64,11 @@ export default function Parents() {
   const createMutation = useMutation({
     mutationFn: createParent,
     onSuccess: () => {
-      toast.success("Parent created");
+      toast.success("Parent created and linked");
       queryClient.invalidateQueries({ queryKey: ["parents"] });
       setShowForm(false);
     },
-    onError: () => toast.error("Failed to create parent"),
+    onError: (err) => toast.error(err.message || "Failed to create parent"),
   });
 
   const updateMutation = useMutation({
@@ -94,7 +91,7 @@ export default function Parents() {
       toast.error("Deletion failed. The parent may be linked to students."),
   });
 
-  // CSV Import
+  // CSV Import (unchanged)
   async function handleCSVImport(event) {
     const file = event.target.files[0];
     if (!file) return;
@@ -114,7 +111,7 @@ export default function Parents() {
               occupation: row.occupation || null,
               address: row.address || null,
             };
-            await createParent(payload);
+            await createParent(payload);   // without studentId – won't link, but you may want to enforce here too
             successCount++;
           } catch (err) {
             console.error(err);
@@ -127,7 +124,7 @@ export default function Parents() {
     });
   }
 
-  // CSV Export
+  // CSV Export (unchanged)
   async function handleCSVExport() {
     try {
       const allData = await getAllParentsForExport(allFilters);
@@ -144,7 +141,6 @@ export default function Parents() {
     }
   }
 
-  // Handlers
   function handleCreate(payload) {
     createMutation.mutate(payload);
   }
@@ -165,7 +161,7 @@ export default function Parents() {
         <div>
           <h1 className="text-3xl font-righteous text-primary-dark">Parents</h1>
           <p className="text-sm text-secondary-dark font-montserrat mt-1">
-            Manage parent records
+            Manage parent records – each parent must be linked to a student
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -215,7 +211,7 @@ export default function Parents() {
       {/* Table */}
       <div className="bg-white rounded-xl shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[700px]">
+          <table className="w-full min-w-[800px]">
             <thead className="bg-slate-100 border-b border-secondary-light">
               <tr>
                 <th className="p-3 text-left text-sm font-montserrat text-secondary-dark">Father</th>
@@ -223,19 +219,20 @@ export default function Parents() {
                 <th className="text-left text-sm font-montserrat text-secondary-dark">Mobile</th>
                 <th className="text-left text-sm font-montserrat text-secondary-dark">WhatsApp</th>
                 <th className="text-left text-sm font-montserrat text-secondary-dark">Email</th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">Linked Students</th>
                 <th className="text-left text-sm font-montserrat text-secondary-dark">Actions</th>
               </tr>
             </thead>
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan={6} className="p-6 text-center text-secondary">
+                  <td colSpan={7} className="p-6 text-center text-secondary">
                     Loading parents…
                   </td>
                 </tr>
               ) : parents.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="p-6 text-center text-secondary">
+                  <td colSpan={7} className="p-6 text-center text-secondary">
                     <div className="flex flex-col items-center gap-2">
                       <Users size={32} className="text-secondary-light" />
                       <span>No parents found</span>
@@ -258,6 +255,15 @@ export default function Parents() {
                     <td className="text-sm">{parent.mobile || "-"}</td>
                     <td className="text-sm">{parent.whatsapp || "-"}</td>
                     <td className="text-sm">{parent.email || "-"}</td>
+                    <td className="text-sm">
+                      {parent.linked_students && parent.linked_students.length > 0
+                        ? parent.linked_students.map((s, i) => (
+                            <span key={s.id} className="inline-block bg-primary-bg text-primary px-2 py-0.5 rounded-full text-xs mr-1 mb-1">
+                              {s.first_name} {s.last_name}
+                            </span>
+                          ))
+                        : <span className="text-red-500 italic text-xs">No student linked!</span>}
+                    </td>
                     <td className="text-sm">
                       <div className="flex gap-2">
                         <button
@@ -307,6 +313,8 @@ export default function Parents() {
           initialData={editing}
           onSubmit={handleUpdate}
           onClose={() => setEditing(null)}
+          // Note: when editing, we do not pass studentId – linking is not changed here;
+          // but you could add a “link to student” feature later if needed.
         />
       )}
     </AdminLayout>

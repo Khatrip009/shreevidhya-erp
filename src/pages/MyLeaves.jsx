@@ -5,7 +5,7 @@ import {
   Plus,
   Calendar,
   FileText,
-  X, // <-- missing import
+  X,
 } from "lucide-react";
 import AdminLayout from "../layouts/AdminLayout";
 import { useAuth } from "../context/AuthContext";
@@ -18,11 +18,18 @@ export default function MyLeaves() {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ start_date: "", end_date: "", reason: "" });
 
+  // Fetch teacher ID safely – never returns undefined
   const { data: teacherId } = useQuery({
     queryKey: ["teacher-id", user?.id],
     queryFn: async () => {
-      const { data } = await supabase.from("teachers").select("id").eq("user_id", user.id).single();
-      return data?.id;
+      if (!user?.id) return null;
+      const { data, error } = await supabase
+        .from("teachers")
+        .select("id")
+        .eq("user_id", user.id)
+        .maybeSingle();                // won't throw if 0 rows
+      if (error) throw error;
+      return data?.id || null;         // always null or number
     },
     enabled: !!user?.id,
   });
@@ -99,7 +106,7 @@ export default function MyLeaves() {
             <div className="sticky top-0 bg-white border-b border-secondary-light px-6 py-4 flex items-center justify-between rounded-t-xl">
               <h2 className="text-xl font-righteous text-primary-dark">Request Leave</h2>
               <button onClick={() => setShowForm(false)} className="p-2 hover:bg-secondary-bg rounded-lg">
-                <X size={20} className="text-secondary-dark" />  {/* Now defined */}
+                <X size={20} className="text-secondary-dark" />
               </button>
             </div>
             <form onSubmit={handleSubmit} className="p-6 space-y-4">

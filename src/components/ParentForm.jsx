@@ -1,17 +1,18 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import toast from "react-hot-toast";
 import {
-  X,
-  User,
-  Phone,
-  Mail,
-  Briefcase,
-  MapPin,
+  X, User, Phone, Mail, Briefcase, MapPin, Users,
 } from "lucide-react";
+import { supabase } from "../api/supabase";
 import { useOrgDarkLogo } from "../hooks/useOrgDarkLogo";
-import { createParent } from "../services/parentService";   // <-- add this import
+import { createParent } from "../services/parentService";
 
-export default function ParentForm({ onSubmit, onClose, initialData = {} }) {
+export default function ParentForm({
+  onSubmit,          // callback when parent is created (existing usage)
+  onClose,
+  initialData = {},
+  studentId = null,  // if provided, parent will be auto-linked to this student
+}) {
   const darkLogo = useOrgDarkLogo();
   const [form, setForm] = useState({
     father_name: initialData.father_name || "",
@@ -22,6 +23,24 @@ export default function ParentForm({ onSubmit, onClose, initialData = {} }) {
     occupation: initialData.occupation || "",
     address: initialData.address || "",
   });
+
+  // Standalone mode: student selection is required
+  const [selectedStudentId, setSelectedStudentId] = useState(studentId || null);
+  const [students, setStudents] = useState([]);
+  const [loadingStudents, setLoadingStudents] = useState(!studentId);
+
+  useEffect(() => {
+    if (!studentId) {
+      // Fetch all active students (simplified – you might want a search)
+      supabase
+        .from("students")
+        .select("id, first_name, last_name, standard")
+        .eq("status", "active")
+        .order("first_name")
+        .then(({ data }) => setStudents(data || []))
+        .finally(() => setLoadingStudents(false));
+    }
+  }, [studentId]);
 
   function handleChange(e) {
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
@@ -37,11 +56,15 @@ export default function ParentForm({ onSubmit, onClose, initialData = {} }) {
       toast.error("Mobile number is required");
       return;
     }
+    if (!studentId && !selectedStudentId) {
+      toast.error("Please select a student to link this parent");
+      return;
+    }
+
     try {
-      // 1. Actually create the parent in the database
-      const createdParent = await createParent(form);
-      // 2. Pass the full parent object back to the student form
-      onSubmit(createdParent);
+      const idToLink = studentId || selectedStudentId;
+      const createdParent = await createParent(form, idToLink);
+      onSubmit(createdParent);   // pass back to parent component
       toast.success("Parent created and linked");
     } catch (err) {
       toast.error(err.message || "Failed to create parent");
@@ -51,7 +74,7 @@ export default function ParentForm({ onSubmit, onClose, initialData = {} }) {
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-xl w-full max-w-2xl shadow-xl">
-        {/* Header with logo */}
+        {/* Header */}
         <div className="sticky top-0 bg-white border-b border-secondary-light px-6 py-4 flex items-center justify-between rounded-t-xl">
           <div className="flex items-center gap-3">
             <img
@@ -72,6 +95,33 @@ export default function ParentForm({ onSubmit, onClose, initialData = {} }) {
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-5">
+          {/* Student selector – only when not already inside a student form */}
+          {!studentId && (
+            <div>
+              <label className="block text-sm font-montserrat text-secondary-dark mb-1">
+                <Users size={14} className="inline mr-1" />
+                Link to Student *
+              </label>
+              {loadingStudents ? (
+                <p className="text-sm text-secondary">Loading students...</p>
+              ) : (
+                <select
+                  value={selectedStudentId || ""}
+                  onChange={(e) => setSelectedStudentId(e.target.value ? Number(e.target.value) : null)}
+                  className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary outline-none"
+                  required
+                >
+                  <option value="" disabled>Select a student</option>
+                  {students.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.first_name} {s.last_name} {s.standard ? `(Std ${s.standard})` : ""}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+          )}
+
           {/* Father & Mother Name */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>

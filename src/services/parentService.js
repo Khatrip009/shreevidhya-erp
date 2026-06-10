@@ -1,6 +1,40 @@
 import { supabase } from "../api/supabase";
 
-// Paginated fetch with filters
+/**
+ * Helper: create an auth user + update profile role.
+ * Returns the new user's UUID, or null if no credentials provided.
+ */
+async function createAuthUser(email, password, fullName, role) {
+  if (!email || !password) return null;
+
+  const { data: existingProfile } = await supabase
+    .from("profiles")
+    .select("id")
+    .eq("email", email)
+    .maybeSingle();
+  if (existingProfile) throw new Error("A user with this email already exists.");
+
+  const { data, error } = await supabase.auth.signUp({
+    email,
+    password,
+    options: { data: { full_name: fullName } },
+  });
+  if (error) {
+    if (error.message.includes("already been registered"))
+      throw new Error("This email is already registered.");
+    throw error;
+  }
+
+  const userId = data.user.id;
+  const { error: profileError } = await supabase
+    .from("profiles")
+    .update({ role })
+    .eq("id", userId);
+  if (profileError) throw profileError;
+  return userId;
+}
+
+// ─── Paginated fetch WITH linked students ──────────────────────
 export async function getParents({ pageParam = 0, filters = {} } = {}) {
   const limit = 10;
   const from = pageParam * limit;
@@ -8,7 +42,13 @@ export async function getParents({ pageParam = 0, filters = {} } = {}) {
 
   let query = supabase
     .from("parents")
-    .select("*", { count: "exact" })
+    .select(
+      `*,
+       student_parents(
+         students(first_name, last_name, id)
+       )`,
+      { count: "exact" }
+    )
     .order("id", { ascending: false })
     .range(from, to);
 
@@ -20,10 +60,18 @@ export async function getParents({ pageParam = 0, filters = {} } = {}) {
 
   const { data, error, count } = await query;
   if (error) throw error;
-  return { data, count };
+
+  // Flatten student data for easier rendering
+  const enriched = (data || []).map((parent) => ({
+    ...parent,
+    linked_students: (parent.student_parents || [])
+      .map((link) => link.students)
+      .filter(Boolean),
+  }));
+  return { data: enriched, count };
 }
 
-// Export all parents (for CSV)
+// Export all parents (for CSV) – still flat, you may add student names if needed
 export async function getAllParentsForExport(filters = {}) {
   let query = supabase
     .from("parents")
@@ -41,15 +89,38 @@ export async function getAllParentsForExport(filters = {}) {
   return data || [];
 }
 
-// CRUD
-export async function createParent(payload) {
-  const { data, error } = await supabase
+/**
+ * Create a parent record.
+ * @param {Object} payload – parent fields + optional `email` & `password` for auth.
+ * @param {number} [studentId] – if provided, the new parent is immediately linked to this student.
+ */
+export async function createParent(payload, studentId = null) {
+  const { email, password, ...parentData } = payload;
+
+  const fullName =
+    parentData.father_name || parentData.mother_name || "Parent";
+  const userId = await createAuthUser(email, password, fullName, "parent");
+
+  const { data: parent, error } = await supabase
     .from("parents")
-    .insert([payload])
+    .insert([{ ...parentData, user_id: userId }])
     .select()
     .single();
   if (error) throw error;
-  return data;
+
+  // If a student ID was provided, automatically link
+  if (studentId) {
+    const { error: linkError } = await supabase
+      .from("student_parents")
+      .insert({
+        student_id: studentId,
+        parent_id: parent.id,
+        relation: "guardian",
+      });
+    if (linkError) throw linkError;
+  }
+
+  return parent;
 }
 
 export async function updateParent(id, payload) {
