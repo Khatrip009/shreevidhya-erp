@@ -1,14 +1,7 @@
 import { useState, useEffect } from "react";
 import toast from "react-hot-toast";
 import {
-  X,
-  Layers,
-  BookOpen,
-  FileText,
-  AlignLeft,
-  Calendar,
-  Link2,
-  User,
+  X, Layers, BookOpen, FileText, AlignLeft, Calendar, Link2, User,
 } from "lucide-react";
 import {
   getBatchOptions,
@@ -16,12 +9,18 @@ import {
   getTeacherOptions,
 } from "../services/homeworkService";
 import { useOrgDarkLogo } from "../hooks/useOrgDarkLogo";
+import { useAuth } from "../context/AuthContext";
+import { supabase } from "../api/supabase";
 
 export default function HomeworkForm({ onSubmit, onClose, initialData = {} }) {
   const darkLogo = useOrgDarkLogo();
+  const { user, profile } = useAuth();
+
   const [batches, setBatches] = useState([]);
   const [subjects, setSubjects] = useState([]);
   const [teachers, setTeachers] = useState([]);
+  const [loadingTeacherId, setLoadingTeacherId] = useState(false);
+  const [loadingSubjects, setLoadingSubjects] = useState(false);   // NEW
 
   const [form, setForm] = useState({
     batch_id: initialData.batch_id || "",
@@ -34,19 +33,69 @@ export default function HomeworkForm({ onSubmit, onClose, initialData = {} }) {
     created_by: initialData.created_by || "",
   });
 
-  const [batchesLoaded, setBatchesLoaded] = useState(false);
+  const isAdmin = profile?.role === "admin" || profile?.role === "super_admin";
 
   useEffect(() => {
     loadDropdowns();
+    autoSetTeacher();
   }, []);
 
+  // Fetch subjects whenever batch_id changes (using direct Supabase query)
   useEffect(() => {
-    if (form.batch_id && batchesLoaded) {
-      loadSubjectsForBatch(form.batch_id);
-    } else {
+    if (!form.batch_id) {
       setSubjects([]);
+      return;
     }
-  }, [form.batch_id, batchesLoaded]);
+
+    async function fetchSubjects() {
+      setLoadingSubjects(true);
+      try {
+        // 1. Get the course_id for the selected batch
+        const { data: batchData, error: batchError } = await supabase
+          .from("batches")
+          .select("course_id")
+          .eq("id", form.batch_id)
+          .maybeSingle();
+
+        if (batchError) throw batchError;
+        if (!batchData || !batchData.course_id) {
+          setSubjects([]);
+          return;
+        }
+
+        // 2. Fetch subjects for that course
+        const subj = await getSubjectsByCourse(batchData.course_id);
+        setSubjects(subj);
+      } catch (err) {
+        console.error("Failed to load subjects:", err);
+        toast.error("Failed to load subjects");
+        setSubjects([]);
+      } finally {
+        setLoadingSubjects(false);
+      }
+    }
+
+    fetchSubjects();
+  }, [form.batch_id]);
+
+  async function autoSetTeacher() {
+    if (isAdmin) return;
+    try {
+      setLoadingTeacherId(true);
+      const { data: teacherData } = await supabase
+        .from("teachers")
+        .select("id")
+        .eq("user_id", user?.id)
+        .maybeSingle();
+      if (teacherData?.id) {
+        setForm((prev) => ({ ...prev, created_by: teacherData.id }));
+      }
+    } catch (err) {
+      console.error("Failed to auto-set teacher ID", err);
+    } finally {
+      setLoadingTeacherId(false);
+    }
+  }
 
   async function loadDropdowns() {
     try {
@@ -56,24 +105,8 @@ export default function HomeworkForm({ onSubmit, onClose, initialData = {} }) {
       ]);
       setBatches(batchData);
       setTeachers(teacherData);
-      setBatchesLoaded(true);
     } catch {
       toast.error("Failed to load form data");
-    }
-  }
-
-  async function loadSubjectsForBatch(batchId) {
-    const batch = batches.find((b) => b.id == batchId);
-    if (!batch || !batch.course_id) {
-      setSubjects([]);
-      return;
-    }
-    try {
-      const subj = await getSubjectsByCourse(batch.course_id);
-      setSubjects(subj);
-    } catch {
-      toast.error("Failed to load subjects");
-      setSubjects([]);
     }
   }
 
@@ -88,7 +121,7 @@ export default function HomeworkForm({ onSubmit, onClose, initialData = {} }) {
       return;
     }
     try {
-      await onSubmit(form);
+      await onSubmit({ ...form, created_by: form.created_by || null });
     } catch (err) {
       toast.error(err.message);
     }
@@ -97,22 +130,15 @@ export default function HomeworkForm({ onSubmit, onClose, initialData = {} }) {
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-xl w-full max-w-2xl shadow-xl max-h-[90vh] overflow-y-auto">
-        {/* Header with logo */}
+        {/* Header */}
         <div className="sticky top-0 bg-white border-b border-secondary-light px-6 py-4 flex items-center justify-between rounded-t-xl z-10">
           <div className="flex items-center gap-3">
-            <img
-              src={darkLogo}
-              alt="ShreeVidhya Academy"
-              className="h-10 w-auto"
-            />
+            <img src={darkLogo} alt="ShreeVidhya Academy" className="h-10 w-auto" />
             <h2 className="text-xl font-righteous text-primary-dark">
               {initialData.id ? "Edit Homework" : "New Homework"}
             </h2>
           </div>
-          <button
-            onClick={onClose}
-            className="p-2 hover:bg-secondary-bg rounded-lg transition"
-          >
+          <button onClick={onClose} className="p-2 hover:bg-secondary-bg rounded-lg transition">
             <X size={20} className="text-secondary-dark" />
           </button>
         </div>
@@ -151,22 +177,21 @@ export default function HomeworkForm({ onSubmit, onClose, initialData = {} }) {
                 onChange={handleChange}
                 className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
                 required
-                disabled={!form.batch_id}
+                disabled={!form.batch_id || loadingSubjects}
               >
-                <option value="">Select Subject</option>
-                {form.batch_id && subjects.length === 0 && batchesLoaded ? (
+                <option value="">
+                  {loadingSubjects ? "Loading subjects..." : "Select Subject"}
+                </option>
+                {!loadingSubjects && subjects.length === 0 && form.batch_id && (
                   <option value="" disabled>
-                    {batches.find((b) => b.id == form.batch_id)?.course_id
-                      ? "No subjects for this course – add them in Subjects page"
-                      : "Batch has no course – edit the batch first"}
+                    No subjects found for this batch.
                   </option>
-                ) : (
-                  subjects.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.subject_name}
-                    </option>
-                  ))
                 )}
+                {subjects.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.subject_name}
+                  </option>
+                ))}
               </select>
             </div>
           </div>
@@ -250,30 +275,35 @@ export default function HomeworkForm({ onSubmit, onClose, initialData = {} }) {
           </div>
 
           {/* Assigned Teacher */}
-          <div>
-            <label className="block text-sm font-montserrat text-secondary-dark mb-1">
-              <User size={14} className="inline mr-1" />
-              Assigned Teacher
-            </label>
-            <select
-              name="created_by"
-              value={form.created_by}
-              onChange={handleChange}
-              className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
-            >
-              <option value="">Optional</option>
-              {teachers.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.first_name} {t.last_name}
-                </option>
-              ))}
-            </select>
-          </div>
+          {isAdmin ? (
+            <div>
+              <label className="block text-sm font-montserrat text-secondary-dark mb-1">
+                <User size={14} className="inline mr-1" />
+                Assigned Teacher
+              </label>
+              <select
+                name="created_by"
+                value={form.created_by}
+                onChange={handleChange}
+                className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
+              >
+                <option value="">Optional</option>
+                {teachers.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.first_name} {t.last_name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : (
+            <input type="hidden" name="created_by" value={form.created_by || ""} />
+          )}
 
           {/* Buttons */}
           <div className="flex flex-col sm:flex-row-reverse gap-3 pt-2">
             <button
               type="submit"
+              disabled={loadingTeacherId || loadingSubjects}
               className="w-full sm:w-auto bg-primary hover:bg-primary-light text-white px-6 py-2.5 rounded-lg font-montserrat transition flex items-center justify-center gap-2"
             >
               {initialData.id ? "Update Homework" : "Create Homework"}

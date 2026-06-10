@@ -29,11 +29,15 @@ import {
   getBatchOptions,
   getAllAttendanceSessionsForExport,
 } from "../services/attendanceService";
-import { useAuth } from "../context/AuthContext"; // <-- added
+import { useAuth } from "../context/AuthContext";
 
 export default function Attendance() {
-  const { profile } = useAuth(); // <-- added
-  const isAdmin = profile?.role === "Admin" || profile?.role === "Super Admin"; // <-- added
+  const { profile } = useAuth();
+
+  // ── Normalise role to lowercase slug ──
+  const role = (profile?.role || "").toLowerCase().replace(/\s+/g, "_");
+  const isAdmin = role === "admin" || role === "super_admin";
+  const isTeacher = role === "teacher";
 
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -179,18 +183,35 @@ export default function Attendance() {
             Manage daily session attendance
           </p>
         </div>
-        {isAdmin && (
+
+        {/* Show New Session button for admins and teachers */}
+        {(isAdmin || isTeacher) && (
           <div className="flex flex-wrap gap-2">
-            <button onClick={() => setShowForm(true)} className="bg-primary hover:bg-primary-light text-white px-5 py-2.5 rounded-lg transition font-montserrat text-sm flex items-center gap-2">
+            <button
+              onClick={() => setShowForm(true)}
+              className="bg-primary hover:bg-primary-light text-white px-5 py-2.5 rounded-lg transition font-montserrat text-sm flex items-center gap-2"
+            >
               <CalendarCheck size={18} /> New Session
             </button>
-            <button onClick={handleCSVExport} className="border border-secondary-light px-4 py-2.5 rounded-lg text-secondary-dark hover:bg-secondary-bg font-montserrat text-sm flex items-center gap-2">
+            <button
+              onClick={handleCSVExport}
+              className="border border-secondary-light px-4 py-2.5 rounded-lg text-secondary-dark hover:bg-secondary-bg font-montserrat text-sm flex items-center gap-2"
+            >
               <Download size={18} /> Export
             </button>
-            <button onClick={() => fileInputRef.current?.click()} className="border border-secondary-light px-4 py-2.5 rounded-lg text-secondary-dark hover:bg-secondary-bg font-montserrat text-sm flex items-center gap-2">
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="border border-secondary-light px-4 py-2.5 rounded-lg text-secondary-dark hover:bg-secondary-bg font-montserrat text-sm flex items-center gap-2"
+            >
               <Upload size={18} /> Import
             </button>
-            <input type="file" ref={fileInputRef} className="hidden" accept=".csv" onChange={handleCSVImport} />
+            <input
+              type="file"
+              ref={fileInputRef}
+              className="hidden"
+              accept=".csv"
+              onChange={handleCSVImport}
+            />
           </div>
         )}
       </div>
@@ -198,10 +219,22 @@ export default function Attendance() {
       {/* Filter Bar */}
       <div className="flex flex-col sm:flex-row gap-3 mb-4">
         <div className="relative flex-1">
-          <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-secondary" />
-          <input type="text" placeholder="Search by topic or date..." value={search} onChange={(e) => setSearch(e.target.value)} className="w-full border border-secondary-light rounded-lg pl-10 pr-4 py-2.5 text-sm focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light" />
+          <Search
+            size={18}
+            className="absolute left-3 top-1/2 -translate-y-1/2 text-secondary"
+          />
+          <input
+            type="text"
+            placeholder="Search by topic or date..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full border border-secondary-light rounded-lg pl-10 pr-4 py-2.5 text-sm focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light"
+          />
         </div>
-        <button onClick={() => setShowFilters(!showFilters)} className="border border-secondary-light px-4 py-2.5 rounded-lg text-secondary-dark hover:bg-secondary-bg font-montserrat text-sm flex items-center gap-2">
+        <button
+          onClick={() => setShowFilters(!showFilters)}
+          className="border border-secondary-light px-4 py-2.5 rounded-lg text-secondary-dark hover:bg-secondary-bg font-montserrat text-sm flex items-center gap-2"
+        >
           <Filter size={18} /> Filters {showFilters && <X size={16} />}
         </button>
       </div>
@@ -210,21 +243,49 @@ export default function Attendance() {
         <div className="bg-white rounded-xl p-4 shadow-sm mb-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 border border-secondary-light">
           <div>
             <label className="text-xs font-montserrat text-secondary-dark">Batch</label>
-            <select value={batchFilter} onChange={(e) => setBatchFilter(e.target.value)} className="w-full border border-secondary-light rounded p-2 text-sm mt-1 focus:ring-1 focus:ring-primary">
+            <select
+              value={batchFilter}
+              onChange={(e) => setBatchFilter(e.target.value)}
+              className="w-full border border-secondary-light rounded p-2 text-sm mt-1 focus:ring-1 focus:ring-primary"
+            >
               <option value="">All Batches</option>
-              {batches.map((b) => <option key={b.id} value={b.id}>{b.batch_name}</option>)}
+              {batches.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.batch_name}
+                </option>
+              ))}
             </select>
           </div>
           <div>
             <label className="text-xs font-montserrat text-secondary-dark">From Date</label>
-            <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="w-full border border-secondary-light rounded p-2 text-sm mt-1 focus:ring-1 focus:ring-primary" />
+            <input
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className="w-full border border-secondary-light rounded p-2 text-sm mt-1 focus:ring-1 focus:ring-primary"
+            />
           </div>
           <div>
             <label className="text-xs font-montserrat text-secondary-dark">To Date</label>
-            <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="w-full border border-secondary-light rounded p-2 text-sm mt-1 focus:ring-1 focus:ring-primary" />
+            <input
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              className="w-full border border-secondary-light rounded p-2 text-sm mt-1 focus:ring-1 focus:ring-primary"
+            />
           </div>
           <div className="flex items-end">
-            <button onClick={() => { setSearch(""); setBatchFilter(""); setStartDate(""); setEndDate(""); }} className="text-primary text-sm hover:underline">Clear Filters</button>
+            <button
+              onClick={() => {
+                setSearch("");
+                setBatchFilter("");
+                setStartDate("");
+                setEndDate("");
+              }}
+              className="text-primary text-sm hover:underline"
+            >
+              Clear Filters
+            </button>
           </div>
         </div>
       )}
@@ -243,34 +304,63 @@ export default function Attendance() {
             </thead>
             <tbody>
               {isLoading ? (
-                <tr><td colSpan={5} className="p-6 text-center text-secondary">Loading sessions…</td></tr>
+                <tr>
+                  <td colSpan={5} className="p-6 text-center text-secondary">
+                    Loading sessions…
+                  </td>
+                </tr>
               ) : sessions.length === 0 ? (
-                <tr><td colSpan={5} className="p-6 text-center text-secondary">
-                  <div className="flex flex-col items-center gap-2">
-                    <CalendarCheck size={32} className="text-secondary-light" />
-                    <span>No sessions found</span>
-                    <span className="text-xs text-secondary-light">
-                      {search || batchFilter || startDate || endDate ? "Try adjusting your filters" : "Create a new session to get started"}
-                    </span>
-                  </div>
-                </td></tr>
+                <tr>
+                  <td colSpan={5} className="p-6 text-center text-secondary">
+                    <div className="flex flex-col items-center gap-2">
+                      <CalendarCheck size={32} className="text-secondary-light" />
+                      <span>No sessions found</span>
+                      <span className="text-xs text-secondary-light">
+                        {search || batchFilter || startDate || endDate
+                          ? "Try adjusting your filters"
+                          : "Create a new session to get started"}
+                      </span>
+                    </div>
+                  </td>
+                </tr>
               ) : (
                 sessions.map((session) => (
-                  <tr key={session.id} className="border-b border-secondary-light hover:bg-primary-bg transition">
+                  <tr
+                    key={session.id}
+                    className="border-b border-secondary-light hover:bg-primary-bg transition"
+                  >
                     <td className="p-3 text-sm">{session.attendance_date}</td>
                     <td className="text-sm">{session.batch_name}</td>
                     <td className="text-sm">{session.topic_covered || "-"}</td>
                     <td className="text-sm">
-                      <span className="text-green-600 font-medium">{session.present_count}</span>
+                      <span className="text-green-600 font-medium">
+                        {session.present_count}
+                      </span>
                       <span className="text-secondary"> / {session.total_count}</span>
                     </td>
                     <td className="text-sm">
                       <div className="flex gap-2">
-                        <button onClick={() => navigate(`/attendance/mark/${session.id}`)} className="text-blue-600 hover:underline">Mark</button>
+                        <button
+                          onClick={() => navigate(`/attendance/mark/${session.id}`)}
+                          className="text-blue-600 hover:underline"
+                        >
+                          Mark
+                        </button>
+                        {/* Edit/Delete only for admins */}
                         {isAdmin && (
                           <>
-                            <button onClick={() => setEditing(session)} className="text-yellow-600 hover:underline"><Edit3 size={15} /></button>
-                            <button onClick={() => handleDelete(session.id)} className="text-red-600 hover:underline"><Trash2 size={15} /></button>
+                            <button
+                              onClick={() => setEditing(session)}
+                              className="text-yellow-600 hover:underline"
+                            >
+                              <Edit3 size={15} />
+                            </button>
+                            <button
+                              onClick={() => handleDelete(session.id)}
+                              className="text-red-600 hover:underline"
+                            >
+                              <Trash2 size={15} />
+                            </button>
                           </>
                         )}
                       </div>
@@ -285,17 +375,30 @@ export default function Attendance() {
 
       {hasNextPage && (
         <div className="flex justify-center mt-6">
-          <button onClick={() => fetchNextPage()} disabled={isFetchingNextPage} className="bg-primary hover:bg-primary-light text-white px-6 py-2.5 rounded-lg font-montserrat text-sm transition disabled:opacity-60">
+          <button
+            onClick={() => fetchNextPage()}
+            disabled={isFetchingNextPage}
+            className="bg-primary hover:bg-primary-light text-white px-6 py-2.5 rounded-lg font-montserrat text-sm transition disabled:opacity-60"
+          >
             {isFetchingNextPage ? "Loading more…" : "Load More"}
           </button>
         </div>
       )}
 
-      {isAdmin && showForm && (
-        <AttendanceSessionForm onSubmit={handleCreate} onClose={() => setShowForm(false)} />
+      {/* Form modal – open for both admins and teachers */}
+      {(isAdmin || isTeacher) && showForm && (
+        <AttendanceSessionForm
+          onSubmit={handleCreate}
+          onClose={() => setShowForm(false)}
+        />
       )}
+      {/* Edit modal – only for admins */}
       {isAdmin && editing && (
-        <AttendanceSessionForm initialData={editing} onSubmit={handleUpdate} onClose={() => setEditing(null)} />
+        <AttendanceSessionForm
+          initialData={editing}
+          onSubmit={handleUpdate}
+          onClose={() => setEditing(null)}
+        />
       )}
     </AdminLayout>
   );

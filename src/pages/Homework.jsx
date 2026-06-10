@@ -8,7 +8,6 @@ import {
 import toast from "react-hot-toast";
 import {
   Search,
-  Plus,
   Edit3,
   Trash2,
   Filter,
@@ -16,8 +15,7 @@ import {
   Upload,
   X,
   BookOpen,
-  Calendar,
-  Layers,
+  Layers,   // <-- added missing import
 } from "lucide-react";
 import Papa from "papaparse";
 import AdminLayout from "../layouts/AdminLayout";
@@ -31,41 +29,36 @@ import {
   getBatchOptions,
   getAllHomeworksForExport,
 } from "../services/homeworkService";
-import { useAuth } from "../context/AuthContext"; // <-- added
+import { useAuth } from "../context/AuthContext";
 
 export default function Homework() {
-  const { profile } = useAuth(); // <-- added
-  const isAdmin = profile?.role === "Admin" || profile?.role === "Super Admin"; // <-- added
+  const { profile } = useAuth();
+
+  // ── Normalise role ──
+  const role = (profile?.role || "").toLowerCase().replace(/\s+/g, "_");
+  const isAdmin = role === "admin" || role === "super_admin";
+  const isTeacher = role === "teacher";
 
   const queryClient = useQueryClient();
 
-  // Filters
   const [batchFilter, setBatchFilter] = useState("");
   const [search, setSearch] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [showFilters, setShowFilters] = useState(false);
-  const allFilters = {
-    batchId: batchFilter,
-    search,
-    startDate,
-    endDate,
-  };
+  const allFilters = { batchId: batchFilter, search, startDate, endDate };
 
-  // UI state
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
   const [viewingSubmissions, setViewingSubmissions] = useState(null);
   const fileInputRef = useRef(null);
 
-  // Batches dropdown
   const { data: batches = [] } = useQuery({
     queryKey: ["batches-dropdown"],
     queryFn: getBatchOptions,
     staleTime: 10 * 60 * 1000,
   });
 
-  // Infinite query for homework
   const {
     data,
     isLoading,
@@ -78,9 +71,7 @@ export default function Homework() {
       getHomeworks({ pageParam, filters: allFilters }),
     getNextPageParam: (lastPage, allPages) => {
       const totalFetched = allPages.reduce((sum, page) => sum + page.data.length, 0);
-      if (lastPage.count && totalFetched < lastPage.count) {
-        return allPages.length;
-      }
+      if (lastPage.count && totalFetched < lastPage.count) return allPages.length;
       return undefined;
     },
     initialPageParam: 0,
@@ -89,7 +80,6 @@ export default function Homework() {
 
   const homeworks = data?.pages.flatMap((page) => page.data) || [];
 
-  // Mutations
   const createMutation = useMutation({
     mutationFn: createHomework,
     onSuccess: () => {
@@ -119,7 +109,6 @@ export default function Homework() {
     onError: () => toast.error("Delete failed"),
   });
 
-  // CSV Import (only admin can call, but function kept for reference)
   async function handleCSVImport(event) {
     const file = event.target.files[0];
     if (!file) return;
@@ -153,7 +142,6 @@ export default function Homework() {
     });
   }
 
-  // CSV Export (only admin can call, but function kept)
   async function handleCSVExport() {
     try {
       const allData = await getAllHomeworksForExport(allFilters);
@@ -203,7 +191,9 @@ export default function Homework() {
             Assign and manage homework
           </p>
         </div>
-        {isAdmin && (
+
+        {/* Show Add Homework for both admins and teachers */}
+        {(isAdmin || isTeacher) && (
           <div className="flex flex-wrap gap-2">
             <button
               onClick={() => setShowForm(true)}
@@ -253,12 +243,10 @@ export default function Homework() {
           onClick={() => setShowFilters(!showFilters)}
           className="border border-secondary-light px-4 py-2.5 rounded-lg text-secondary-dark hover:bg-secondary-bg font-montserrat text-sm flex items-center gap-2"
         >
-          <Filter size={18} /> Filters
-          {showFilters && <X size={16} />}
+          <Filter size={18} /> Filters {showFilters && <X size={16} />}
         </button>
       </div>
 
-      {/* Advanced Filters Panel */}
       {showFilters && (
         <div className="bg-white rounded-xl p-4 shadow-sm mb-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 border border-secondary-light">
           <div>
@@ -310,7 +298,7 @@ export default function Homework() {
         </div>
       )}
 
-      {/* Homework Table */}
+      {/* Table */}
       <div className="bg-white rounded-xl shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[800px]">
@@ -364,6 +352,7 @@ export default function Homework() {
                         >
                           <Layers size={15} /> Submissions
                         </button>
+                        {/* Edit/Delete only for admins */}
                         {isAdmin && (
                           <>
                             <button
@@ -390,7 +379,6 @@ export default function Homework() {
         </div>
       </div>
 
-      {/* Load More */}
       {hasNextPage && (
         <div className="flex justify-center mt-6">
           <button
@@ -404,7 +392,7 @@ export default function Homework() {
       )}
 
       {/* Modals */}
-      {isAdmin && showForm && (
+      {(isAdmin || isTeacher) && showForm && (
         <HomeworkForm
           onSubmit={handleCreate}
           onClose={() => setShowForm(false)}

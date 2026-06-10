@@ -30,7 +30,7 @@ export async function getAttendanceSessions({ pageParam = 0, filters = {} } = {}
   const { data, error, count } = await query;
   if (error) throw error;
 
-  // Enrich with attendance counts – use row selects (no HEAD requests)
+  // Enrich with attendance counts
   const enriched = await Promise.all(
     data.map(async (session) => {
       const { data: presentRows } = await supabase
@@ -100,11 +100,17 @@ export async function getAllAttendanceSessionsForExport(filters = {}) {
   return enriched;
 }
 
-// CRUD (unchanged)
+// ============================
+// CRUD
+// ============================
+
 export async function createAttendanceSession(payload) {
+  // Use the provided created_by, or null if not present
+  const { created_by, ...rest } = payload;
+
   const { data, error } = await supabase
     .from("attendance_sessions")
-    .insert([{ ...payload, created_by: 1 }])
+    .insert([{ ...rest, created_by: created_by || null }])
     .select()
     .single();
   if (error) throw error;
@@ -121,6 +127,7 @@ export async function updateAttendanceSession(id, payload) {
   if (error) throw error;
   return data;
 }
+
 export async function deleteAttendanceSession(id) {
   const { error } = await supabase
     .from("attendance_sessions")
