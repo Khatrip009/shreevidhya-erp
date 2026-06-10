@@ -48,9 +48,10 @@ export async function getAllIncomesForExport(filters = {}) {
 }
 
 export async function createIncome(payload) {
+  // Do NOT force created_by – it defaults to null
   const { data, error } = await supabase
     .from("income")
-    .insert([{ ...payload, created_by: 1 }])
+    .insert([payload])
     .select()
     .single();
   if (error) throw error;
@@ -75,8 +76,6 @@ export async function deleteIncome(id) {
     .eq("id", id);
   if (error) throw error;
 }
-
-
 
 // ========================
 // EXPENSES (paginated)
@@ -126,9 +125,10 @@ export async function getAllExpensesForExport(filters = {}) {
 }
 
 export async function createExpense(payload) {
+  // Do NOT force created_by – it defaults to null
   const { data, error } = await supabase
     .from("expenses")
-    .insert([{ ...payload, created_by: 1 }])
+    .insert([payload])
     .select()
     .single();
   if (error) throw error;
@@ -152,4 +152,28 @@ export async function deleteExpense(id) {
     .update({ deleted_at: new Date().toISOString() })
     .eq("id", id);
   if (error) throw error;
+}
+
+export async function getProfitLossSummary(startDate, endDate) {
+  const { data: incomes, error: incomeError } = await supabase
+    .from("income")
+    .select("amount")
+    .gte("income_date", startDate)
+    .lte("income_date", endDate);
+
+  if (incomeError) throw incomeError;
+
+  const { data: expenses, error: expenseError } = await supabase
+    .from("expenses")
+    .select("amount")
+    .gte("expense_date", startDate)
+    .lte("expense_date", endDate);
+
+  if (expenseError) throw expenseError;
+
+  const totalIncome = (incomes || []).reduce((sum, r) => sum + Number(r.amount), 0);
+  const totalExpense = (expenses || []).reduce((sum, r) => sum + Number(r.amount), 0);
+  const profit = totalIncome - totalExpense;
+
+  return { totalIncome, totalExpense, profit };
 }

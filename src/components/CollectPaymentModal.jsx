@@ -16,7 +16,7 @@ export default function CollectPaymentModal({ fee, onClose, onSuccess }) {
     payment_mode: "Cash",
     transaction_no: "",
     remarks: "",
-    installment_id: "", // optional
+    installment_id: "",
   });
   const [installments, setInstallments] = useState([]);
   const [loadingInstallments, setLoadingInstallments] = useState(true);
@@ -39,7 +39,7 @@ export default function CollectPaymentModal({ fee, onClose, onSuccess }) {
     loadInstallments();
   }, [fee.id]);
 
-  // When an installment is selected, auto-fill the amount and disable amount field
+  // When an installment is selected, auto-fill the amount
   const selectedInstallment = installments.find(
     (inst) => inst.id === Number(form.installment_id)
   );
@@ -84,9 +84,10 @@ export default function CollectPaymentModal({ fee, onClose, onSuccess }) {
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl w-full max-w-md shadow-xl">
-        {/* Header with logo */}
-        <div className="sticky top-0 bg-white border-b border-secondary-light px-6 py-4 flex items-center justify-between rounded-t-xl">
+      {/* Scrollable white card */}
+      <div className="bg-white rounded-xl w-full max-w-md shadow-xl max-h-[90vh] overflow-y-auto">
+        {/* Header */}
+        <div className="sticky top-0 bg-white border-b border-secondary-light px-6 py-4 flex items-center justify-between rounded-t-xl z-10">
           <div className="flex items-center gap-3">
             <img
               src={darkLogo}
@@ -189,7 +190,6 @@ export default function CollectPaymentModal({ fee, onClose, onSuccess }) {
               placeholder="Enter amount"
               className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light"
               required
-              // Allow editing even when installment selected
             />
           </div>
 

@@ -143,6 +143,9 @@ export default function Sidebar({ onClose }) {
           ))}
         </div>
       )}
+      <NavLink to="/profit-loss" className={({ isActive }) => `block py-2 transition ${isActive ? "text-white font-medium" : "text-secondary-light hover:text-white"}`}>
+  Profit & Loss
+</NavLink>
 
       {/* Admin timetable link – standalone */}
       <NavLink to="/timetable" className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-lg transition ${isActive ? "bg-primary-light" : "hover:bg-primary-light"}`}>

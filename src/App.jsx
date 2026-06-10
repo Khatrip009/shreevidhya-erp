@@ -37,6 +37,7 @@ import Login from "./pages/Login";
 import OrganizationSettings from "./pages/OrganizationSettings";
 import TeacherWeeklyTimetable from "./components/TeacherWeeklyTimetable";
 import AdminTimetable from "./pages/AdminTimetable";
+import ProfitLoss from "./pages/ProfitLoss";
 
 // Student pages
 import StudentFeesPage from "./pages/StudentFeesPage";
@@ -117,6 +118,7 @@ function App() {
         <Route path="/progress" element={<ProtectedRoute><ProgressEvaluations /></ProtectedRoute>} />
         <Route path="/student-progress" element={<ProtectedRoute><StudentProgressReport /></ProtectedRoute>} />
         <Route path="/attendance/reports" element={<ProtectedRoute><AttendanceReports /></ProtectedRoute>} />
+        <Route path="/profit-loss" element={<ProtectedRoute><ProfitLoss /></ProtectedRoute>} />
 
         {/* Admin Master Timetable */}
         <Route path="/timetable" element={<ProtectedRoute><AdminTimetable /></ProtectedRoute>} />
