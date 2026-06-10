@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import {
-  X, User, Phone, Mail, MapPin, School, Calendar, Hash, Upload, Plus, Search, Lock
+  X, User, Phone, Mail, MapPin, School, Calendar, Hash, Upload,
+  Plus, Search, Lock, Link2,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { supabase } from "../api/supabase";
@@ -32,10 +33,11 @@ export default function StudentForm({ onSuccess, onClose, initialData = {} }) {
     status: initialData.status || "active",
   });
 
-  // ---- Login account fields ----
-  const [createLogin, setCreateLogin] = useState(false);
+  // ---- Login account options ----
+  const [loginMode, setLoginMode] = useState("none"); // "none" | "create" | "link"
   const [loginEmail, setLoginEmail] = useState(initialData.email || "");
   const [loginPassword, setLoginPassword] = useState("student123");
+  const [existingUserId, setExistingUserId] = useState(""); // uuid from profiles
 
   // ---- Parent linking ----
   const [allParents, setAllParents] = useState([]);
@@ -47,15 +49,24 @@ export default function StudentForm({ onSuccess, onClose, initialData = {} }) {
   const [uploading, setUploading] = useState(false);
   const [loadingAdmission, setLoadingAdmission] = useState(!isEdit && !initialData.admission_no);
 
+  // ---- Fetch existing profiles for linking ----
+  const [existingUsers, setExistingUsers] = useState([]);
+  useEffect(() => {
+    supabase
+      .from("profiles")
+      .select("id, email, full_name, role")
+      .order("email")
+      .then(({ data }) => setExistingUsers(data || []));
+  }, []);
+
   // ----------------------------------------------------------------------
-  // Auto-generate admission number for new students (format: SRA-00001)
+  // Auto-generate admission number (format: SRA-00001)
   // ----------------------------------------------------------------------
   useEffect(() => {
-    if (isEdit || initialData.admission_no) return; // editing or already has admission no
+    if (isEdit || initialData.admission_no) return;
 
     async function generateAdmissionNo() {
       try {
-        // Fetch the latest admission number from students table
         const { data, error } = await supabase
           .from("students")
           .select("admission_no")
@@ -71,7 +82,6 @@ export default function StudentForm({ onSuccess, onClose, initialData = {} }) {
           if (match && match[1]) {
             nextNumber = parseInt(match[1], 10) + 1;
           } else {
-            // fallback: if format is different, try to extract any number
             const numMatch = last.match(/\d+/);
             if (numMatch) nextNumber = parseInt(numMatch[0], 10) + 1;
           }
@@ -81,9 +91,7 @@ export default function StudentForm({ onSuccess, onClose, initialData = {} }) {
         setForm((prev) => ({ ...prev, admission_no: newAdmissionNo }));
       } catch (err) {
         console.error("Failed to generate admission number:", err);
-        // fallback: use timestamp
-        const fallback = `SRA-${Date.now()}`;
-        setForm((prev) => ({ ...prev, admission_no: fallback }));
+        setForm((prev) => ({ ...prev, admission_no: `SRA-${Date.now()}` }));
       } finally {
         setLoadingAdmission(false);
       }
@@ -101,7 +109,7 @@ export default function StudentForm({ onSuccess, onClose, initialData = {} }) {
       .then(({ data }) => setAllParents(data || []));
   }, []);
 
-  // Load already linked parents when editing – FILTER OUT NULL PARENTS
+  // Load already linked parents when editing
   useEffect(() => {
     if (isEdit && initialData.id) {
       supabase
@@ -119,7 +127,6 @@ export default function StudentForm({ onSuccess, onClose, initialData = {} }) {
     }
   }, [isEdit, initialData.id]);
 
-  // Filter parents based on search (safe access)
   const filteredParents = allParents.filter((p) => {
     const term = parentSearch.toLowerCase();
     return (
@@ -149,7 +156,7 @@ export default function StudentForm({ onSuccess, onClose, initialData = {} }) {
     setForm((prev) => ({ ...prev, [name]: value }));
   }
 
-  // ---------- Main Submit: Create auth user first, then student ----------
+  // ---------- Main Submit ----------
   async function handleSubmit(e) {
     e.preventDefault();
 
@@ -158,25 +165,30 @@ export default function StudentForm({ onSuccess, onClose, initialData = {} }) {
       return;
     }
 
-    if (createLogin && !loginEmail) {
+    if (loginMode === "create" && !loginEmail) {
       toast.error("Login email is required when creating an account");
       return;
     }
-
-    // Validate email format if creating login
-    if (createLogin && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(loginEmail)) {
+    if (loginMode === "create" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(loginEmail)) {
       toast.error("Please enter a valid email address");
+      return;
+    }
+    if (loginMode === "link" && !existingUserId) {
+      toast.error("Please select an existing user to link");
       return;
     }
 
     setUploading(true);
 
     try {
-      // ------------------------------
-      // STEP 1: Create auth user (if needed)
-      // ------------------------------
+      // ---- STEP 1: Handle auth user linking/creation ----
       let authUserId = null;
-      if (createLogin) {
+
+      if (loginMode === "create") {
+        // Save admin session before creating new user
+        const { data: sessionData } = await supabase.auth.getSession();
+        const adminSession = sessionData?.session;
+
         const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
           email: loginEmail,
           password: loginPassword,
@@ -189,21 +201,41 @@ export default function StudentForm({ onSuccess, onClose, initialData = {} }) {
         });
 
         if (signUpError) {
-          if (signUpError.message.includes("already registered")) {
-            toast.error("This email is already registered. Please use a different email or uncheck 'Create login account'.");
-          } else {
-            toast.error(`Sign-up failed: ${signUpError.message}`);
-          }
-          setUploading(false);
-          return;
+          if (signUpError.message.includes("already registered"))
+            throw new Error("This email is already registered.");
+          throw signUpError;
         }
+
         authUserId = signUpData?.user?.id;
         if (!authUserId) throw new Error("Auth user creation returned no ID");
+
+        // Restore admin session
+        if (adminSession) {
+          await supabase.auth.setSession({
+            access_token: adminSession.access_token,
+            refresh_token: adminSession.refresh_token,
+          });
+        }
+
+        // Update profile role to student (trigger already created it with default)
+        await supabase
+          .from("profiles")
+          .update({ role: "student" })
+          .eq("id", authUserId);
+
+        toast.success("Login account created");
+      } else if (loginMode === "link") {
+        authUserId = existingUserId;
+        // Ensure profile role is student and active
+        const { error: roleUpdateError } = await supabase
+          .from("profiles")
+          .update({ role: "student", is_active: true })
+          .eq("id", existingUserId);
+        if (roleUpdateError) throw roleUpdateError;
+        toast.success("Existing user linked");
       }
 
-      // ------------------------------
-      // STEP 2: Upload photo (if any)
-      // ------------------------------
+      // ---- STEP 2: Upload photo (if any) ----
       let photoUrl = initialData.photo_url || null;
       if (photoFile) {
         const fileExt = photoFile.name.split(".").pop();
@@ -219,9 +251,7 @@ export default function StudentForm({ onSuccess, onClose, initialData = {} }) {
         photoUrl = publicUrlData.publicUrl;
       }
 
-      // ------------------------------
-      // STEP 3: Create/update student record
-      // ------------------------------
+      // ---- STEP 3: Create/update student record ----
       const studentData = {
         admission_no: form.admission_no || null,
         first_name: form.first_name,
@@ -241,6 +271,7 @@ export default function StudentForm({ onSuccess, onClose, initialData = {} }) {
         joining_date: form.joining_date || null,
         status: form.status,
         photo_url: photoUrl,
+        user_id: authUserId,
       };
 
       let studentId = initialData.id;
@@ -263,17 +294,7 @@ export default function StudentForm({ onSuccess, onClose, initialData = {} }) {
         toast.success("Student added successfully");
       }
 
-      // ------------------------------
-      // STEP 4: Update auth user's metadata with student_id (optional)
-      // ------------------------------
-      if (authUserId && studentId) {
-        // Note: Cannot update another user's metadata from client; skip.
-        // The trigger on public.users will already create a row.
-      }
-
-      // ------------------------------
-      // STEP 5: Handle parent linking
-      // ------------------------------
+      // ---- STEP 4: Parent linking ----
       if (studentId) {
         await supabase.from("student_parents").delete().eq("student_id", studentId);
         if (linkedParents.length) {
@@ -285,15 +306,6 @@ export default function StudentForm({ onSuccess, onClose, initialData = {} }) {
           const { error: linkError } = await supabase.from("student_parents").insert(links);
           if (linkError) throw linkError;
         }
-      }
-
-      // ------------------------------
-      // STEP 6: Done
-      // ------------------------------
-      if (createLogin) {
-        toast.success("Student and login account created successfully");
-      } else {
-        toast.success("Student saved successfully");
       }
 
       if (onSuccess) onSuccess();
@@ -310,7 +322,7 @@ export default function StudentForm({ onSuccess, onClose, initialData = {} }) {
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto shadow-xl">
-        {/* Header with logo */}
+        {/* Header */}
         <div className="sticky top-0 bg-white border-b border-secondary-light px-6 py-4 flex items-center justify-between rounded-t-xl z-10">
           <div className="flex items-center gap-3">
             <img src={darkLogo} alt="ShreeVidhya Academy" className="h-10 w-auto" />
@@ -577,26 +589,51 @@ export default function StudentForm({ onSuccess, onClose, initialData = {} }) {
             </select>
           </div>
 
-          {/* Create Login Account Section */}
+          {/* ===== LOGIN ACCOUNT SECTION ===== */}
           <div className="col-span-1 sm:col-span-2 border-t border-secondary-light pt-5">
             <h3 className="text-lg font-righteous text-primary-dark mb-3 flex items-center gap-2">
-              <Lock size={18} /> Create Login Account
+              <Lock size={18} /> Student Login Account
             </h3>
-            <label className="flex items-center gap-2 text-sm font-montserrat text-secondary-dark mb-3">
-              <input
-                type="checkbox"
-                checked={createLogin}
-                onChange={(e) => {
-                  setCreateLogin(e.target.checked);
-                  if (e.target.checked && !loginEmail && form.email) {
-                    setLoginEmail(form.email);
-                  }
-                }}
-                className="rounded accent-primary h-4 w-4"
-              />
-              Create a login account for this student
-            </label>
-            {createLogin && (
+
+            {/* Login mode selection */}
+            <div className="space-y-3 mb-4">
+              <label className="flex items-center gap-2 text-sm font-montserrat text-secondary-dark">
+                <input
+                  type="radio"
+                  name="loginMode"
+                  value="none"
+                  checked={loginMode === "none"}
+                  onChange={() => setLoginMode("none")}
+                  className="accent-primary"
+                />
+                No login account
+              </label>
+              <label className="flex items-center gap-2 text-sm font-montserrat text-secondary-dark">
+                <input
+                  type="radio"
+                  name="loginMode"
+                  value="create"
+                  checked={loginMode === "create"}
+                  onChange={() => setLoginMode("create")}
+                  className="accent-primary"
+                />
+                Create new login account
+              </label>
+              <label className="flex items-center gap-2 text-sm font-montserrat text-secondary-dark">
+                <input
+                  type="radio"
+                  name="loginMode"
+                  value="link"
+                  checked={loginMode === "link"}
+                  onChange={() => setLoginMode("link")}
+                  className="accent-primary"
+                />
+                Link to existing user
+              </label>
+            </div>
+
+            {/* Fields for create mode */}
+            {loginMode === "create" && (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-montserrat text-secondary-dark mb-1">
@@ -608,7 +645,7 @@ export default function StudentForm({ onSuccess, onClose, initialData = {} }) {
                     onChange={(e) => setLoginEmail(e.target.value)}
                     placeholder="student@example.com"
                     className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary outline-none"
-                    required={createLogin}
+                    required
                   />
                 </div>
                 <div>
@@ -623,9 +660,37 @@ export default function StudentForm({ onSuccess, onClose, initialData = {} }) {
                     readOnly
                   />
                   <p className="text-xs text-secondary-light mt-1">
-                    Default password is “student123”. Student will be forced to change it on first login.
+                    Default: “student123”. User should change it after first login.
                   </p>
                 </div>
+              </div>
+            )}
+
+            {/* Fields for link mode */}
+            {loginMode === "link" && (
+              <div>
+                <label className="block text-sm font-montserrat text-secondary-dark mb-1">
+                  <Link2 size={14} className="inline mr-1" />
+                  Select Existing User *
+                </label>
+                <select
+                  value={existingUserId}
+                  onChange={(e) => setExistingUserId(e.target.value)}
+                  className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary outline-none"
+                  required
+                >
+                  <option value="" disabled>
+                    -- choose a user --
+                  </option>
+                  {existingUsers.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.full_name || u.email} ({u.email}) – {u.role}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-secondary-light mt-1">
+                  The selected user's role will be updated to "student".
+                </p>
               </div>
             )}
           </div>
