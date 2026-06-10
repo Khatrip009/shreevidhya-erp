@@ -34,7 +34,6 @@ export async function updateFeeStructure(id, payload) {
   return data;
 }
 
-// ✅ ADD THIS MISSING FUNCTION
 export async function deleteFeeStructure(id) {
   const { error } = await supabase
     .from("fee_structures")
@@ -43,18 +42,8 @@ export async function deleteFeeStructure(id) {
   if (error) throw error;
 }
 
-// (Optional) This function seems misplaced – it's for exams, not fee structures.
-// If you don't need it, consider removing or renaming.
-export async function deleteExam(id) {
-  const { error } = await supabase
-    .from("exams")
-    .update({ deleted_at: new Date().toISOString() })
-    .eq("id", id);
-  if (error) throw error;
-}
-
 // ========================
-// STUDENT FEES (with pagination)
+// STUDENT FEES (with pagination & installments)
 // ========================
 
 export async function getStudentFees({ pageParam = 0, filters = {} } = {}) {
@@ -92,10 +81,18 @@ export async function getStudentFees({ pageParam = 0, filters = {} } = {}) {
       const finalFee = Number(fee.final_fee);
       const pending = Math.max(finalFee - totalPaid, 0);
 
+      // Fetch installments for this fee (for display in payment history)
+      const { data: installments } = await supabase
+        .from("fee_installments")
+        .select("*")
+        .eq("student_fee_id", fee.id)
+        .order("installment_number");
+
       return {
         ...fee,
         total_paid: totalPaid,
         pending: pending,
+        installments: installments || [],
       };
     })
   );
@@ -143,27 +140,75 @@ export async function getAllStudentFeesForExport(filters = {}) {
 }
 
 export async function createStudentFee(payload) {
-  const { data, error } = await supabase
+  const { installment_data, ...feeData } = payload;
+
+  // 1. Insert the student fee
+  const { data: fee, error } = await supabase
     .from("student_fees")
-    .insert([payload])
+    .insert([feeData])
     .select()
     .single();
   if (error) throw error;
-  return data;
+
+  // 2. If installments provided, insert them
+  if (installment_data && installment_data.length > 0) {
+    const inserts = installment_data.map((inst) => ({
+      student_fee_id: fee.id,
+      installment_number: inst.installment_number,
+      amount: inst.amount,
+      due_date: inst.due_date || null,
+      status: "Pending",
+    }));
+    const { error: instError } = await supabase
+      .from("fee_installments")
+      .insert(inserts);
+    if (instError) throw instError;
+  }
+
+  return fee;
 }
 
 export async function updateStudentFee(id, payload) {
-  const { data, error } = await supabase
+  const { installment_data, ...feeData } = payload;
+
+  // 1. Update the student fee record
+  const { data: fee, error } = await supabase
     .from("student_fees")
-    .update(payload)
+    .update(feeData)
     .eq("id", id)
     .select()
     .single();
   if (error) throw error;
-  return data;
+
+  // 2. Replace installments if provided
+  if (installment_data !== undefined) {
+    // Delete old installments
+    await supabase
+      .from("fee_installments")
+      .delete()
+      .eq("student_fee_id", id);
+
+    // Insert new ones (if any)
+    if (installment_data && installment_data.length > 0) {
+      const inserts = installment_data.map((inst) => ({
+        student_fee_id: id,
+        installment_number: inst.installment_number,
+        amount: inst.amount,
+        due_date: inst.due_date || null,
+        status: "Pending",
+      }));
+      const { error: instError } = await supabase
+        .from("fee_installments")
+        .insert(inserts);
+      if (instError) throw instError;
+    }
+  }
+
+  return fee;
 }
 
 export async function deleteStudentFee(id) {
+  // Soft-delete the fee (cascades to installments due to ON DELETE CASCADE)
   const { error } = await supabase
     .from("student_fees")
     .update({ deleted_at: new Date().toISOString() })
@@ -186,6 +231,7 @@ export async function getPayments(studentFeeId) {
 }
 
 export async function collectPayment(paymentPayload, studentId) {
+  // 1. Insert payment
   const { data: payment, error } = await supabase
     .from("fee_payments")
     .insert([paymentPayload])
@@ -193,6 +239,7 @@ export async function collectPayment(paymentPayload, studentId) {
     .single();
   if (error) throw error;
 
+  // 2. Generate receipt
   const receiptNo = "RCPT-" + Date.now();
   await supabase.from("receipts").insert([
     {
@@ -201,10 +248,13 @@ export async function collectPayment(paymentPayload, studentId) {
       payment_id: payment.id,
       receipt_date: paymentPayload.payment_date,
       amount: paymentPayload.amount,
-      generated_by: 1,
+      generated_by: null,
     },
   ]);
 
+  // 3. Record in income
+  const { data: { user } } = await supabase.auth.getUser();
+  const adminId = user?.id;
   await supabase.from("income").insert([
     {
       income_date: paymentPayload.payment_date,
@@ -212,33 +262,39 @@ export async function collectPayment(paymentPayload, studentId) {
       amount: paymentPayload.amount,
       payment_mode: paymentPayload.payment_mode,
       description: `Payment for Student Fee ID ${paymentPayload.student_fee_id} — Auto receipt ${receiptNo}`,
-      created_by: 1,
+      created_by: adminId,
     },
   ]);
 
+  // 4. Update fee status and installments (if applicable)
   await updateFeeStatusAutomatically(paymentPayload.student_fee_id);
 
   return payment;
 }
 
-export async function updateFeeStatusAutomatically(studentFeeId) {
-  const { data: payments, error: sumError } = await supabase
+async function updateFeeStatusAutomatically(studentFeeId) {
+  // Sum all payments
+  const { data: payments } = await supabase
     .from("fee_payments")
     .select("amount")
     .eq("student_fee_id", studentFeeId);
-  if (sumError) return;
+  const totalPaid = (payments || []).reduce((sum, p) => sum + Number(p.amount), 0);
 
-  const totalPaid = payments.reduce((sum, p) => sum + Number(p.amount), 0);
-  const { data: fee, error: feeError } = await supabase
+  // Get final fee amount
+  const { data: fee } = await supabase
     .from("student_fees")
     .select("final_fee")
     .eq("id", studentFeeId)
     .single();
-  if (feeError) return;
+  if (!fee) return;
 
+  // Update overall status
   const newStatus = totalPaid >= Number(fee.final_fee) ? "Paid" : "Pending";
   await supabase
     .from("student_fees")
     .update({ status: newStatus })
     .eq("id", studentFeeId);
+
+  // Optionally update individual installment statuses (mark as Paid if total covers them)
+  // For simplicity, we won't change installment status automatically – you can extend later.
 }

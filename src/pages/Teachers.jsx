@@ -11,6 +11,9 @@ import {
   Upload,
   Printer,
   UserRoundPlus,
+  Mail,
+  Link as LinkIcon,
+  Unlink,
 } from "lucide-react";
 import Papa from "papaparse";
 import AdminLayout from "../layouts/AdminLayout";
@@ -31,7 +34,6 @@ export default function Teachers() {
   const [editing, setEditing] = useState(null);
   const fileInputRef = useRef(null);
 
-  // Infinite query with search filter
   const {
     data,
     isLoading,
@@ -58,7 +60,6 @@ export default function Teachers() {
 
   const teachers = data?.pages.flatMap((page) => page.data) || [];
 
-  // Mutations
   const createMutation = useMutation({
     mutationFn: createTeacher,
     onSuccess: () => {
@@ -89,7 +90,6 @@ export default function Teachers() {
       toast.error("Deletion failed. The teacher may be assigned to a batch."),
   });
 
-  // CSV Import
   async function handleCSVImport(event) {
     const file = event.target.files[0];
     if (!file) return;
@@ -124,7 +124,6 @@ export default function Teachers() {
     });
   }
 
-  // CSV Export
   async function handleCSVExport() {
     try {
       const allData = await getAllTeachersForExport({ search });
@@ -141,7 +140,6 @@ export default function Teachers() {
     }
   }
 
-  // Resume PDF
   async function handlePrintResume(teacherId) {
     try {
       await generateTeacherResumePdf(teacherId);
@@ -163,9 +161,12 @@ export default function Teachers() {
     deleteMutation.mutate(id);
   }
 
+  // Helper to truncate UUID for display
+  const truncateId = (uuid) =>
+    uuid ? `${uuid.substring(0, 8)}...${uuid.substring(uuid.length - 4)}` : null;
+
   return (
     <AdminLayout>
-      {/* Page Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
         <div>
           <h1 className="text-3xl font-righteous text-primary-dark">Teachers</h1>
@@ -202,7 +203,6 @@ export default function Teachers() {
         </div>
       </div>
 
-      {/* Search */}
       <div className="relative mb-6 max-w-md">
         <Search
           size={18}
@@ -217,10 +217,9 @@ export default function Teachers() {
         />
       </div>
 
-      {/* Teachers Table */}
       <div className="bg-white rounded-xl shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[800px]">
+          <table className="w-full min-w-[900px]">
             <thead className="bg-slate-100 border-b border-secondary-light">
               <tr>
                 <th className="p-3 text-left text-sm font-montserrat text-secondary-dark">
@@ -233,7 +232,10 @@ export default function Teachers() {
                   Mobile
                 </th>
                 <th className="text-left text-sm font-montserrat text-secondary-dark">
-                  Email
+                  Email (contact)
+                </th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">
+                  Linked Account
                 </th>
                 <th className="text-left text-sm font-montserrat text-secondary-dark">
                   Qualification
@@ -249,13 +251,13 @@ export default function Teachers() {
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan={7} className="p-6 text-center text-secondary">
+                  <td colSpan={8} className="p-6 text-center text-secondary">
                     Loading teachers…
                   </td>
                 </tr>
               ) : teachers.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="p-6 text-center text-secondary">
+                  <td colSpan={8} className="p-6 text-center text-secondary">
                     <div className="flex flex-col items-center gap-2">
                       <Search size={32} className="text-secondary-light" />
                       <span>No teachers found</span>
@@ -281,6 +283,24 @@ export default function Teachers() {
                     </td>
                     <td className="text-sm">{teacher.mobile}</td>
                     <td className="text-sm">{teacher.email || "-"}</td>
+                    <td className="text-sm">
+                      {teacher.user_id ? (
+                        <div className="flex items-center gap-1">
+                          <LinkIcon size={14} className="text-green-600" />
+                          <span
+                            className="text-green-700 cursor-help"
+                            title={teacher.user_id}
+                          >
+                            {teacher.user_email || truncateId(teacher.user_id)}
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1 text-red-500">
+                          <Unlink size={14} />
+                          <span>Not linked</span>
+                        </div>
+                      )}
+                    </td>
                     <td className="text-sm">
                       {teacher.qualification || "-"}
                     </td>
@@ -319,7 +339,6 @@ export default function Teachers() {
         </div>
       </div>
 
-      {/* Load More */}
       {hasNextPage && (
         <div className="flex justify-center mt-6">
           <button
@@ -332,7 +351,6 @@ export default function Teachers() {
         </div>
       )}
 
-      {/* Modals */}
       {showForm && (
         <TeacherForm
           onSubmit={handleCreate}

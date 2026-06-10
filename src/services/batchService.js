@@ -12,7 +12,7 @@ export async function getBatches({ pageParam = 0, filters = {} } = {}) {
       `*, 
        courses(course_name),
        teachers(first_name, last_name),
-       batch_teachers(teacher_id, subject_id, teachers(first_name, last_name), subjects(subject_name))
+       batch_teachers(teacher_id, subject_id, day, teachers(first_name, last_name), subjects(subject_name))
       `,
       { count: "exact" }
     )
@@ -24,7 +24,6 @@ export async function getBatches({ pageParam = 0, filters = {} } = {}) {
   }
   if (filters.course_id) query = query.eq("course_id", filters.course_id);
   if (filters.teacher_id) {
-    // filter by teacher_id in the junction table
     const { data: linkedBatches } = await supabase
       .from("batch_teachers")
       .select("batch_id")
@@ -38,7 +37,6 @@ export async function getBatches({ pageParam = 0, filters = {} } = {}) {
   const { data, error, count } = await query;
   if (error) throw error;
 
-  // Flatten the teachers for display
   const enriched = (data || []).map((batch) => ({
     ...batch,
     assigned_teachers: (batch.batch_teachers || []).map((bt) => ({
@@ -48,13 +46,13 @@ export async function getBatches({ pageParam = 0, filters = {} } = {}) {
         : null,
       subject_id: bt.subject_id,
       subject_name: bt.subjects?.subject_name || null,
+      day: bt.day,
     })),
   }));
 
   return { data: enriched, count };
 }
 
-// Unpaginated export (simplified – without teacher details for performance)
 export async function getAllBatchesForExport(filters = {}) {
   let query = supabase
     .from("batches")
@@ -79,11 +77,10 @@ export async function getAllBatchesForExport(filters = {}) {
   return data || [];
 }
 
-// Create batch – supports both old teacher_id and new teacher_subjects
 export async function createBatch(payload) {
   const { teacher_subjects, teacher_id, ...batchData } = payload;
+  console.log("Creating batch with payload:", payload);
 
-  // 1. Insert batch (keep teacher_id for backward compatibility)
   const { data: batch, error } = await supabase
     .from("batches")
     .insert([{ ...batchData, teacher_id: teacher_id || null }])
@@ -91,17 +88,14 @@ export async function createBatch(payload) {
     .single();
   if (error) throw error;
 
-  // 2. Handle teacher assignments
   await syncBatchTeachers(batch.id, teacher_subjects, teacher_id);
-
   return batch;
 }
 
-// Update batch – merged logic
 export async function updateBatch(id, payload) {
   const { teacher_subjects, teacher_id, ...batchData } = payload;
+  console.log("Updating batch", id, "with payload:", payload);
 
-  // 1. Update batch row
   const { data: batch, error } = await supabase
     .from("batches")
     .update({ ...batchData, teacher_id: teacher_id || null })
@@ -110,16 +104,13 @@ export async function updateBatch(id, payload) {
     .single();
   if (error) throw error;
 
-  // 2. Sync teacher assignments
   await syncBatchTeachers(id, teacher_subjects, teacher_id);
-
   return batch;
 }
 
-// Helper: sync batch_teachers table
 async function syncBatchTeachers(batchId, teacherSubjects, singleTeacherId) {
-  // If new teacher_subjects array is provided, use it
   if (teacherSubjects !== undefined) {
+    console.log("Syncing teacher_subjects for batch", batchId, teacherSubjects);
     await supabase.from("batch_teachers").delete().eq("batch_id", batchId);
     const links = teacherSubjects
       .filter((ts) => ts.teacher_id)
@@ -127,15 +118,20 @@ async function syncBatchTeachers(batchId, teacherSubjects, singleTeacherId) {
         batch_id: batchId,
         teacher_id: ts.teacher_id,
         subject_id: ts.subject_id || null,
+        day: ts.day || null,   // <-- this is the crucial field
       }));
     if (links.length > 0) {
+      console.log("Inserting links:", links);
       const { error: linkError } = await supabase
         .from("batch_teachers")
         .insert(links);
-      if (linkError) throw linkError;
+      if (linkError) {
+        console.error("Link insert error:", linkError);
+        throw linkError;
+      }
     }
   } else if (singleTeacherId !== undefined) {
-    // Fallback: old single teacher_id logic
+    // Fallback for old single-teacher usage
     await supabase.from("batch_teachers").delete().eq("batch_id", batchId);
     if (singleTeacherId) {
       const { error: linkError } = await supabase
@@ -144,7 +140,6 @@ async function syncBatchTeachers(batchId, teacherSubjects, singleTeacherId) {
       if (linkError) throw linkError;
     }
   }
-  // If neither is provided, leave the existing assignments alone
 }
 
 export async function deleteBatch(id) {

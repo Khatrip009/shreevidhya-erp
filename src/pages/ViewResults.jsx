@@ -1,17 +1,9 @@
 import { useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import toast from "react-hot-toast";
 import {
-  ArrowLeft,
-  Award,
-  Calendar,
-  Layers,
-  FileText,
-  User,
-  Hash,
-  Search,
-  Download,
+  ArrowLeft, Award, Calendar, Layers, FileText,
+  User, Hash, Search, Download,
 } from "lucide-react";
 import Papa from "papaparse";
 import AdminLayout from "../layouts/AdminLayout";
@@ -20,11 +12,14 @@ import { getExamById, getResultsByExam } from "../services/examService";
 export default function ViewResults() {
   const { examId } = useParams();
   const navigate = useNavigate();
-
   const [search, setSearch] = useState("");
-  const [filterStandard, setFilterStandard] = useState("");
 
-  // Fetch exam info
+  // Redirect if examId is missing or the literal string "undefined"
+  if (!examId || examId === "undefined") {
+    navigate("/results", { replace: true });
+    return null;
+  }
+
   const {
     data: exam,
     isLoading: examLoading,
@@ -32,19 +27,17 @@ export default function ViewResults() {
   } = useQuery({
     queryKey: ["exam", examId],
     queryFn: () => getExamById(examId),
+    enabled: !!examId && examId !== "undefined",
   });
 
-  // Fetch results
   const { data: results = [], isLoading: resultsLoading } = useQuery({
     queryKey: ["results", examId],
     queryFn: () => getResultsByExam(examId),
-    enabled: !!examId,
+    enabled: !!examId && examId !== "undefined",
   });
 
-  // Extract unique standards for filter
-  const standards = [...new Set(results.map((r) => r.students?.standard).filter(Boolean))].sort();
+  const courseName = exam?.batches?.courses?.course_name || "-";
 
-  // Apply filters
   let filtered = results;
   if (search) {
     const term = search.toLowerCase();
@@ -55,18 +48,14 @@ export default function ViewResults() {
         r.students?.admission_no?.toLowerCase().includes(term)
     );
   }
-  if (filterStandard) {
-    filtered = filtered.filter((r) => r.students?.standard?.toString() === filterStandard);
-  }
 
-  // Export to CSV
   function handleExportCSV() {
     if (filtered.length === 0) return;
     const data = filtered.map((r) => ({
       admission_no: r.students?.admission_no,
       first_name: r.students?.first_name,
       last_name: r.students?.last_name,
-      standard: r.students?.standard || "",
+      course: courseName,
       marks_obtained: r.marks_obtained,
       remarks: r.remarks || "",
     }));
@@ -83,9 +72,7 @@ export default function ViewResults() {
   if (examLoading || resultsLoading) {
     return (
       <AdminLayout>
-        <div className="p-8 text-center text-secondary font-montserrat">
-          Loading results…
-        </div>
+        <div className="p-8 text-center">Loading results…</div>
       </AdminLayout>
     );
   }
@@ -94,7 +81,7 @@ export default function ViewResults() {
     return (
       <AdminLayout>
         <div className="p-8 text-center text-red-500">
-          Exam not found or an error occurred.
+          {examError?.message || "Exam not found."}
         </div>
       </AdminLayout>
     );
@@ -102,115 +89,83 @@ export default function ViewResults() {
 
   return (
     <AdminLayout>
-      {/* Back button and header */}
       <div className="mb-6">
         <button
           onClick={() => navigate("/results")}
-          className="flex items-center gap-2 text-secondary hover:text-primary-dark mb-2 font-montserrat text-sm transition"
+          className="flex items-center gap-2 text-secondary hover:text-primary-dark mb-2 font-montserrat text-sm"
         >
           <ArrowLeft size={18} />
           Back to Results
         </button>
         <h1 className="text-3xl font-righteous text-primary-dark">Exam Results</h1>
-        {exam && (
-          <div className="flex flex-wrap gap-2 mt-2 text-sm text-secondary-dark font-montserrat">
-            <span className="flex items-center gap-1 bg-primary-bg text-primary px-3 py-1 rounded-full">
-              <FileText size={14} /> {exam.exam_name}
-            </span>
-            <span className="flex items-center gap-1 bg-primary-bg text-primary px-3 py-1 rounded-full">
-              <Layers size={14} /> {exam.batches?.batch_name}
-            </span>
-            <span className="flex items-center gap-1 bg-primary-bg text-primary px-3 py-1 rounded-full">
-              <Calendar size={14} /> {exam.exam_date}
-            </span>
-            <span className="flex items-center gap-1 bg-primary-bg text-primary px-3 py-1 rounded-full">
-              Total Marks: {exam.total_marks || "N/A"}
-            </span>
-          </div>
-        )}
+        <div className="flex flex-wrap gap-2 mt-2 text-sm text-secondary-dark font-montserrat">
+          <span className="bg-primary-bg text-primary px-3 py-1 rounded-full">
+            <FileText size={14} className="inline mr-1" />{exam.exam_name}
+          </span>
+          <span className="bg-primary-bg text-primary px-3 py-1 rounded-full">
+            <Layers size={14} className="inline mr-1" />{exam.batches?.batch_name}
+          </span>
+          <span className="bg-primary-bg text-primary px-3 py-1 rounded-full">
+            <Calendar size={14} className="inline mr-1" />{exam.exam_date}
+          </span>
+          <span className="bg-primary-bg text-primary px-3 py-1 rounded-full">
+            Total Marks: {exam.total_marks || "N/A"}
+          </span>
+        </div>
       </div>
 
-      {/* Filters & Export */}
       <div className="flex flex-wrap items-end gap-3 mb-4">
         <div className="relative flex-1 max-w-md">
-          <Search
-            size={18}
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-secondary"
-          />
+          <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-secondary" />
           <input
             type="text"
             placeholder="Search by name or admission no..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full border border-secondary-light rounded-lg pl-10 pr-4 py-2.5 text-sm focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light"
+            className="w-full border border-secondary-light rounded-lg pl-10 pr-4 py-2.5 text-sm focus:ring-1 focus:ring-primary focus:border-primary outline-none"
           />
-        </div>
-        <div>
-          <select
-            value={filterStandard}
-            onChange={(e) => setFilterStandard(e.target.value)}
-            className="border border-secondary-light rounded p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none"
-          >
-            <option value="">All Standards</option>
-            {standards.map((std) => (
-              <option key={std} value={std}>{std}</option>
-            ))}
-          </select>
         </div>
         <button
           onClick={handleExportCSV}
-          className="border border-secondary-light px-4 py-2.5 rounded-lg text-secondary-dark hover:bg-secondary-bg font-montserrat text-sm flex items-center gap-2"
+          className="border border-secondary-light px-4 py-2.5 rounded-lg text-secondary-dark hover:bg-secondary-bg text-sm flex items-center gap-2"
         >
           <Download size={18} /> Export CSV
         </button>
       </div>
 
-      {/* Results Table */}
       <div className="bg-white rounded-xl shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[600px]">
             <thead className="bg-slate-100 border-b border-secondary-light">
               <tr>
                 <th className="p-3 text-left text-sm font-montserrat text-secondary-dark">
-                  <Hash size={14} className="inline mr-1" />
-                  Admission No
+                  <Hash size={14} className="inline mr-1" />Admission No
                 </th>
                 <th className="text-left text-sm font-montserrat text-secondary-dark">
-                  <User size={14} className="inline mr-1" />
-                  Student
+                  <User size={14} className="inline mr-1" />Student
                 </th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">Course</th>
                 <th className="text-left text-sm font-montserrat text-secondary-dark">
-                  Standard
+                  <Award size={14} className="inline mr-1" />Marks
                 </th>
-                <th className="text-left text-sm font-montserrat text-secondary-dark">
-                  <Award size={14} className="inline mr-1" />
-                  Marks
-                </th>
-                <th className="text-left text-sm font-montserrat text-secondary-dark">
-                  Remarks
-                </th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">Remarks</th>
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
                   <td colSpan={5} className="p-6 text-center text-secondary">
-                    {results.length === 0
-                      ? "No results entered yet"
-                      : "No students match your filters"}
+                    {results.length === 0 ? "No results entered yet" : "No students match your filters"}
                   </td>
                 </tr>
               ) : (
                 filtered.map((r) => (
-                  <tr
-                    key={r.id}
-                    className="border-b border-secondary-light hover:bg-primary-bg transition"
-                  >
+                  <tr key={r.id} className="border-b border-secondary-light hover:bg-primary-bg transition">
                     <td className="p-3 text-sm">{r.students?.admission_no}</td>
                     <td className="text-sm font-medium">
                       {r.students?.first_name} {r.students?.last_name}
                     </td>
-                    <td className="text-sm">{r.students?.standard || "-"}</td>
+                    <td className="text-sm">{courseName}</td>
                     <td className="text-sm">
                       {r.marks_obtained}
                       {exam.total_marks ? ` / ${exam.total_marks}` : ""}

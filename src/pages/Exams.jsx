@@ -19,6 +19,7 @@ import {
   Calendar,
   Layers,
 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import Papa from "papaparse";
 import AdminLayout from "../layouts/AdminLayout";
 import ExamForm from "../components/ExamForm";
@@ -31,15 +32,18 @@ import {
   getCourseOptions,
   getAllExamsForExport,
 } from "../services/examService";
-import { useAuth } from "../context/AuthContext"; // <-- added
+import { useAuth } from "../context/AuthContext";
 
 export default function Exams() {
-  const { profile } = useAuth(); // <-- added
-  const isAdmin = profile?.role === "Admin" || profile?.role === "Super Admin"; // <-- added
+  const { profile } = useAuth();
+  const navigate = useNavigate();
+
+  // Normalise role
+  const role = (profile?.role || "").toLowerCase().replace(/\s+/g, "_");
+  const isAdmin = role === "admin" || role === "super_admin";
 
   const queryClient = useQueryClient();
 
-  // Filters
   const [search, setSearch] = useState("");
   const [batchFilter, setBatchFilter] = useState("");
   const [courseFilter, setCourseFilter] = useState("");
@@ -54,12 +58,10 @@ export default function Exams() {
     endDate,
   };
 
-  // UI state
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
   const fileInputRef = useRef(null);
 
-  // Dropdowns
   const { data: batches = [] } = useQuery({
     queryKey: ["batches-dropdown"],
     queryFn: getBatchOptions,
@@ -71,7 +73,6 @@ export default function Exams() {
     staleTime: 10 * 60 * 1000,
   });
 
-  // Infinite query for exams
   const {
     data,
     isLoading,
@@ -94,7 +95,6 @@ export default function Exams() {
 
   const exams = data?.pages.flatMap((page) => page.data) || [];
 
-  // Mutations
   const createMutation = useMutation({
     mutationFn: createExam,
     onSuccess: () => {
@@ -124,7 +124,6 @@ export default function Exams() {
     onError: () => toast.error("Delete failed"),
   });
 
-  // CSV Import (kept for admin, function defined but only admins see the button)
   async function handleCSVImport(event) {
     const file = event.target.files[0];
     if (!file) return;
@@ -154,7 +153,6 @@ export default function Exams() {
     });
   }
 
-  // CSV Export (kept for admin)
   async function handleCSVExport() {
     try {
       const allData = await getAllExamsForExport(allFilters);
@@ -194,7 +192,6 @@ export default function Exams() {
 
   return (
     <AdminLayout>
-      {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
         <div>
           <h1 className="text-3xl font-righteous text-primary-dark">Exams</h1>
@@ -233,7 +230,6 @@ export default function Exams() {
         )}
       </div>
 
-      {/* Search & Filter Toggle */}
       <div className="flex flex-col sm:flex-row gap-3 mb-4">
         <div className="relative flex-1">
           <Search
@@ -257,7 +253,6 @@ export default function Exams() {
         </button>
       </div>
 
-      {/* Advanced Filters Panel */}
       {showFilters && (
         <div className="bg-white rounded-xl p-4 shadow-sm mb-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 border border-secondary-light">
           <div>
@@ -316,7 +311,6 @@ export default function Exams() {
         </div>
       )}
 
-      {/* Exams Table */}
       <div className="bg-white rounded-xl shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[700px]">
@@ -362,6 +356,13 @@ export default function Exams() {
                     <td className="text-sm">{exam.total_marks || "-"}</td>
                     <td className="text-sm">
                       <div className="flex gap-2">
+                        {/* Always show Enter Results link (admin & teacher) */}
+                        <button
+                          onClick={() => navigate(`/results/enter/${exam.id}`)}
+                          className="text-purple-600 hover:underline"
+                        >
+                          Results
+                        </button>
                         {isAdmin && (
                           <>
                             <button
@@ -388,7 +389,6 @@ export default function Exams() {
         </div>
       </div>
 
-      {/* Load More */}
       {hasNextPage && (
         <div className="flex justify-center mt-6">
           <button
@@ -401,7 +401,6 @@ export default function Exams() {
         </div>
       )}
 
-      {/* Modals (only for admin) */}
       {isAdmin && showForm && (
         <ExamForm
           onSubmit={handleCreate}

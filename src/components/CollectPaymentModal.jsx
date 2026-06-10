@@ -1,31 +1,58 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import toast from "react-hot-toast";
 import {
-  X,
-  Calendar,
-  IndianRupee,
-  CreditCard,
-  Hash,
-  FileText,
-  User,
+  X, Calendar, IndianRupee, CreditCard, Hash, FileText, User,
+  ChevronDown, List,
 } from "lucide-react";
 import { collectPayment } from "../services/feeService";
+import { supabase } from "../api/supabase";
 import { useOrgDarkLogo } from "../hooks/useOrgDarkLogo";
 
 export default function CollectPaymentModal({ fee, onClose, onSuccess }) {
   const darkLogo = useOrgDarkLogo();
   const [form, setForm] = useState({
-    student_fee_id: fee.id,
-    student_id: fee.student_id,
     payment_date: new Date().toISOString().split("T")[0],
     amount: "",
     payment_mode: "Cash",
     transaction_no: "",
     remarks: "",
+    installment_id: "", // optional
   });
+  const [installments, setInstallments] = useState([]);
+  const [loadingInstallments, setLoadingInstallments] = useState(true);
+
+  // Fetch installments for this fee
+  useEffect(() => {
+    async function loadInstallments() {
+      const { data, error } = await supabase
+        .from("fee_installments")
+        .select("*")
+        .eq("student_fee_id", fee.id)
+        .order("installment_number");
+      if (error) {
+        toast.error("Could not load installments");
+      } else {
+        setInstallments(data || []);
+      }
+      setLoadingInstallments(false);
+    }
+    loadInstallments();
+  }, [fee.id]);
+
+  // When an installment is selected, auto-fill the amount and disable amount field
+  const selectedInstallment = installments.find(
+    (inst) => inst.id === Number(form.installment_id)
+  );
+
+  useEffect(() => {
+    if (selectedInstallment) {
+      setForm((prev) => ({ ...prev, amount: selectedInstallment.amount.toString() }));
+    }
+  }, [selectedInstallment]);
 
   function handleChange(e) {
-    setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
+    const { name, value } = e.target;
+    setForm((prev) => ({ ...prev, [name]: value }));
   }
 
   async function handleSubmit(e) {
@@ -34,11 +61,21 @@ export default function CollectPaymentModal({ fee, onClose, onSuccess }) {
       toast.error("Enter a valid amount");
       return;
     }
+
     try {
-      const { student_id, ...paymentPayload } = form;
-      await collectPayment(paymentPayload, student_id);
+      const paymentPayload = {
+        student_fee_id: fee.id,
+        payment_date: form.payment_date,
+        amount: Number(form.amount),
+        payment_mode: form.payment_mode,
+        transaction_no: form.transaction_no,
+        remarks: form.remarks,
+        installment_id: form.installment_id || null,
+      };
+
+      await collectPayment(paymentPayload, fee.student_id);
       toast.success("Payment collected, receipt generated");
-      onSuccess();
+      if (onSuccess) onSuccess();
     } catch (err) {
       console.error(err);
       toast.error("Payment failed");
@@ -82,8 +119,45 @@ export default function CollectPaymentModal({ fee, onClose, onSuccess }) {
                   ₹{Number(fee.final_fee).toLocaleString("en-IN")}
                 </span>
               </p>
+              {fee.total_paid > 0 && (
+                <p className="text-sm text-green-700">
+                  Already paid: ₹{Number(fee.total_paid).toLocaleString("en-IN")}
+                </p>
+              )}
             </div>
           </div>
+
+          {/* Installments Section */}
+          {loadingInstallments ? (
+            <p className="text-sm text-secondary">Loading installments...</p>
+          ) : installments.length > 0 ? (
+            <div>
+              <label className="block text-sm font-montserrat text-secondary-dark mb-1">
+                <List size={14} className="inline mr-1" />
+                Installments (optional)
+              </label>
+              <select
+                name="installment_id"
+                value={form.installment_id}
+                onChange={handleChange}
+                className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
+              >
+                <option value="">No specific installment (lump sum)</option>
+                {installments.map((inst) => (
+                  <option key={inst.id} value={inst.id}>
+                    #{inst.installment_number} – ₹{Number(inst.amount).toLocaleString("en-IN")}
+                    {inst.due_date ? ` (Due ${inst.due_date})` : ""}
+                    {inst.status === "Paid" ? " ✓ Paid" : ""}
+                  </option>
+                ))}
+              </select>
+              {selectedInstallment && (
+                <p className="text-xs text-secondary mt-1">
+                  Amount auto‑filled with installment amount. You can still change it.
+                </p>
+              )}
+            </div>
+          ) : null}
 
           {/* Date */}
           <div>
@@ -115,6 +189,7 @@ export default function CollectPaymentModal({ fee, onClose, onSuccess }) {
               placeholder="Enter amount"
               className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light"
               required
+              // Allow editing even when installment selected
             />
           </div>
 

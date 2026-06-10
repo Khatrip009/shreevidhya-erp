@@ -36,6 +36,7 @@ import StudentDashboard from "./pages/StudentDashboard";
 import Login from "./pages/Login";
 import OrganizationSettings from "./pages/OrganizationSettings";
 import TeacherWeeklyTimetable from "./components/TeacherWeeklyTimetable";
+import AdminTimetable from "./pages/AdminTimetable";
 
 // Student pages
 import StudentFeesPage from "./pages/StudentFeesPage";
@@ -44,7 +45,8 @@ import StudentAttendancePage from "./pages/StudentAttendancePage";
 import StudentHomeworkPage from "./pages/StudentHomeworkPage";
 import StudentResultsPage from "./pages/StudentResultsPage";
 import StudentCertificatesPage from "./pages/StudentCertificatesPage";
-import PersonalTimetable from "./components/PersonalTimetable";
+import PersonalTimetable from "./pages/PersonalTimetable";
+import StudentExamsPage from "./pages/StudentExamsPage";
 
 // Teacher & HR pages
 import TeacherDashboard from "./pages/TeacherDashboard";
@@ -53,7 +55,7 @@ import MySalary from "./pages/MySalary";
 import MyLeaves from "./pages/MyLeaves";
 import SalaryPayments from "./pages/SalaryPayments";
 import LeaveManagement from "./pages/LeaveManagement";
-
+import TeacherTimetable from "./pages/TeacherTimetable";
 import ProtectedRoute from "./routes/ProtectedRoute";
 
 function App() {
@@ -74,6 +76,7 @@ function App() {
         <Route path="/student/certificates" element={<ProtectedRoute><StudentCertificatesPage /></ProtectedRoute>} />
         <Route path="/student/profile" element={<ProtectedRoute><StudentProfile /></ProtectedRoute>} />
         <Route path="/student/timetable" element={<ProtectedRoute><PersonalTimetable /></ProtectedRoute>} />
+        <Route path="/student/exams" element={<ProtectedRoute><StudentExamsPage /></ProtectedRoute>} />
 
         {/* Teacher routes */}
         <Route path="/teacher" element={<ProtectedRoute><TeacherDashboard /></ProtectedRoute>} />
@@ -81,9 +84,9 @@ function App() {
         <Route path="/teacher/leaves" element={<ProtectedRoute><MyLeaves /></ProtectedRoute>} />
         <Route path="/teacher/profile" element={<ProtectedRoute><TeacherProfile /></ProtectedRoute>} />
         <Route path="/teacher/calendar" element={<ProtectedRoute><TeacherWeeklyTimetable /></ProtectedRoute>}/>
-        <Route path="/teacher/timetable" element={<ProtectedRoute><PersonalTimetable /></ProtectedRoute>} />
+        <Route path="/teacher/timetable" element={<ProtectedRoute><TeacherTimetable /></ProtectedRoute>} />
 
-        {/* Admin/Teacher shared routes (RLS will restrict data) */}
+        {/* Admin/Teacher shared routes */}
         <Route path="/students" element={<ProtectedRoute><Students /></ProtectedRoute>} />
         <Route path="/students/:id" element={<ProtectedRoute><StudentProfile /></ProtectedRoute>} />
         <Route path="/inquiries" element={<ProtectedRoute><Inquiries /></ProtectedRoute>} />
@@ -114,6 +117,9 @@ function App() {
         <Route path="/progress" element={<ProtectedRoute><ProgressEvaluations /></ProtectedRoute>} />
         <Route path="/student-progress" element={<ProtectedRoute><StudentProgressReport /></ProtectedRoute>} />
         <Route path="/attendance/reports" element={<ProtectedRoute><AttendanceReports /></ProtectedRoute>} />
+
+        {/* Admin Master Timetable */}
+        <Route path="/timetable" element={<ProtectedRoute><AdminTimetable /></ProtectedRoute>} />
 
         {/* Admin-only HR routes */}
         <Route path="/salary-payments" element={<ProtectedRoute><SalaryPayments /></ProtectedRoute>} />

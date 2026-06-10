@@ -1,7 +1,7 @@
 import {
   LayoutDashboard, Users, GraduationCap, BookOpen, Award,
   IndianRupee, Settings, ChevronDown, Bell, X, CalendarClock,
-  Wallet, Building,
+  Wallet, Building, Calendar,
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { useState } from "react";
@@ -9,7 +9,6 @@ import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "../context/AuthContext";
 import { getOrganization } from "../services/organizationService";
 
-// Same helper as in ProtectedRoute – converts any role string to slug
 function normaliseRole(rawRole) {
   return (rawRole || "").toLowerCase().replace(/\s+/g, "_");
 }
@@ -36,10 +35,9 @@ export default function Sidebar({ onClose }) {
     );
   }
 
-  // Normalise the role to a slug (e.g. "Super Admin" → "super_admin")
   const role = normaliseRole(profile.role);
 
-  // ---------- Student links (slug: "student") ----------
+  // ---------- Student links ----------
   const studentLinks = (
     <>
       <NavLink to="/student" end className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-lg transition ${isActive ? "bg-primary-light" : "hover:bg-primary-light"}`}>
@@ -50,16 +48,20 @@ export default function Sidebar({ onClose }) {
       <NavLink to="/student/attendance" className="block py-2 ml-8 text-secondary-light hover:text-white">Attendance</NavLink>
       <NavLink to="/student/fees" className="block py-2 ml-8 text-secondary-light hover:text-white">Fees</NavLink>
       <NavLink to="/student/homework" className="block py-2 ml-8 text-secondary-light hover:text-white">Homework</NavLink>
+      <NavLink to="/student/exams" className="block py-2 ml-8 text-secondary-light hover:text-white">Exams</NavLink>
       <NavLink to="/student/results" className="block py-2 ml-8 text-secondary-light hover:text-white">Results</NavLink>
       <NavLink to="/student/certificates" className="block py-2 ml-8 text-secondary-light hover:text-white">Certificates</NavLink>
       <NavLink to="/student/timetable" className="block py-2 ml-8 text-secondary-light hover:text-white">Timetable</NavLink>
+      <NavLink to="/notifications" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-primary-light transition">
+        <Bell size={18} /> Notifications
+      </NavLink>
       <NavLink to="/settings" className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-lg transition ${isActive ? "bg-primary-light" : "hover:bg-primary-light"}`}>
         <Settings size={18} /> Settings
       </NavLink>
     </>
   );
 
-  // ---------- Teacher links (slug: "teacher") ----------
+  // ---------- Teacher links ----------
   const teacherLinks = (
     <>
       <NavLink to="/teacher" end className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-lg transition ${isActive ? "bg-primary-light" : "hover:bg-primary-light"}`}>
@@ -88,6 +90,9 @@ export default function Sidebar({ onClose }) {
       </NavLink>
       <NavLink to="/teacher/timetable" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-primary-light transition">
         <CalendarClock size={18} /> My Timetable
+      </NavLink>
+      <NavLink to="/notifications" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-primary-light transition">
+        <Bell size={18} /> Notifications
       </NavLink>
       <NavLink to="/settings" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-primary-light transition">
         <Settings size={18} /> Settings
@@ -120,11 +125,12 @@ export default function Sidebar({ onClose }) {
       </button>
       {academicOpen && (
         <div className="ml-8 space-y-1">
-          {[["/courses","Courses"],["/subjects","Subjects"],["/batches","Batches"],["/attendance","Attendance"],["/attendance/reports","Attendance Reports"],["/progress","Progress"],["/student-progress","Progress Report"],["/homework","Homework"],["/exams","Exams"],["/results","Results"],["/calendar", "Class Calendar"]].map(([to,label]) => (
+          {[["/courses","Courses"],["/subjects","Subjects"],["/batches","Batches"],["/attendance","Attendance"],["/attendance/reports","Attendance Reports"],["/progress","Progress"],["/student-progress","Progress Report"],["/homework","Homework"],["/exams","Exams"],["/results","Results"],["/timetable","Class Timetable"]].map(([to,label]) => (
             <NavLink key={to} to={to} className={({ isActive }) => `block py-2 transition ${isActive ? "text-white font-medium" : "text-secondary-light hover:text-white"}`}>{label}</NavLink>
           ))}
         </div>
       )}
+
       {/* Finance */}
       <button onClick={() => setFinanceOpen(!financeOpen)} className="w-full flex justify-between items-center px-4 py-3 rounded-lg hover:bg-primary-light transition">
         <span className="flex items-center gap-3"><IndianRupee size={18} />Finance</span>
@@ -137,6 +143,12 @@ export default function Sidebar({ onClose }) {
           ))}
         </div>
       )}
+
+      {/* Admin timetable link – standalone */}
+      <NavLink to="/timetable" className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-lg transition ${isActive ? "bg-primary-light" : "hover:bg-primary-light"}`}>
+        <Calendar size={18} /> Timetable
+      </NavLink>
+
       <NavLink to="/leave-management" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-primary-light transition">
         <CalendarClock size={18} /> Leave Management
       </NavLink>

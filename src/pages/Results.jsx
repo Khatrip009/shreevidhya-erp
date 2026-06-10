@@ -1,27 +1,52 @@
-import React, { useState } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { Search, Award, Edit3, Eye } from "lucide-react";
+import { Search, Award, Edit3, Eye, AlertCircle } from "lucide-react";
 import AdminLayout from "../layouts/AdminLayout";
 import { getAllExams } from "../services/examService";
-import { useAuth } from "../context/AuthContext"; // <-- added
+import { useAuth } from "../context/AuthContext";
 
 export default function Results() {
   const navigate = useNavigate();
+  const { profile } = useAuth();
   const [search, setSearch] = useState("");
 
-  const { profile } = useAuth(); // <-- added
-  const isAdmin = profile?.role === "Admin" || profile?.role === "Super Admin"; // <-- added
+  // Normalise role to avoid string mismatch
+  const role = (profile?.role || "").toLowerCase().replace(/\s+/g, "_");
+  const isAdmin = role === "admin" || role === "super_admin";
 
-  const { data: exams = [], isLoading } = useQuery({
+  // Fetch exams with error handling built into the query
+  const {
+    data: exams = [],
+    isLoading,
+    isError,
+    error,
+  } = useQuery({
     queryKey: ["all-exams"],
-    queryFn: getAllExams,
+    queryFn: async () => {
+      const result = await getAllExams();
+      if (!result) throw new Error("No data returned");
+      return result;
+    },
     staleTime: 5 * 60 * 1000,
   });
 
   const filtered = exams.filter((exam) =>
     exam.exam_name.toLowerCase().includes(search.toLowerCase())
   );
+
+  // Show an error message if the query failed
+  if (isError) {
+    return (
+      <AdminLayout>
+        <div className="p-8 text-center text-red-600">
+          <AlertCircle size={32} className="mx-auto mb-2" />
+          <p>Failed to load exams.</p>
+          <p className="text-sm mt-1">{error?.message || "Unknown error"}</p>
+        </div>
+      </AdminLayout>
+    );
+  }
 
   return (
     <AdminLayout>

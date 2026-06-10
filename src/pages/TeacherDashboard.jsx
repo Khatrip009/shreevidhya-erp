@@ -34,14 +34,14 @@ export default function TeacherDashboard() {
         .from("teachers")
         .select("id")
         .eq("user_id", user.id)
-        .maybeSingle();                // won't throw if 0 rows
+        .maybeSingle();
       if (error) throw error;
-      return data?.id || null;         // explicitly null or number
+      return data?.id || null;
     },
     enabled: !!user?.id,
   });
 
-  // 2. Assigned batches
+  // 2. Assigned batches – now includes the unique batch_teachers.id
   const { data: batches = [], isLoading: batchesLoading } = useQuery({
     queryKey: ["teacher-batches", teacherId],
     queryFn: async () => {
@@ -49,6 +49,7 @@ export default function TeacherDashboard() {
       const { data } = await supabase
         .from("batch_teachers")
         .select(`
+          id,
           batch_id,
           batches(
             id,
@@ -306,7 +307,7 @@ export default function TeacherDashboard() {
           ) : (
             <ul className="space-y-2 text-sm">
               {batches.map((b) => (
-                <li key={b.batch_id} className="flex justify-between">
+                <li key={b.id} className="flex justify-between">  {/* unique id from batch_teachers */}
                   <span>
                     {b.batches?.batch_name} ({b.batches?.courses?.course_name})
                   </span>

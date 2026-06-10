@@ -17,7 +17,8 @@ import {
   X,
   Download,
   Upload,
-} from "lucide-react";  
+  List,
+} from "lucide-react";
 import Papa from "papaparse";
 import AdminLayout from "../layouts/AdminLayout";
 import CollectPaymentModal from "../components/CollectPaymentModal";
@@ -77,7 +78,7 @@ export default function StudentFees() {
     queryFn: async () => {
       const { data } = await supabase
         .from("fee_structures")
-        .select("id, fee_amount, courses(course_name)");
+        .select("id, fee_amount, installment_allowed, courses(course_name)");
       return data || [];
     },
     staleTime: 10 * 60 * 1000,
@@ -139,6 +140,11 @@ export default function StudentFees() {
     final_fee: "",
     status: "Pending",
   });
+
+  // ---- Installment state ----
+  const [enableInstallments, setEnableInstallments] = useState(false);
+  const [installmentCount, setInstallmentCount] = useState(1);
+  const [installments, setInstallments] = useState([]);
 
   // ---- CSV Import ----
   async function handleCSVImport(event) {
@@ -210,6 +216,9 @@ export default function StudentFees() {
       final_fee: "",
       status: "Pending",
     });
+    setEnableInstallments(false);
+    setInstallmentCount(1);
+    setInstallments([]);
     setEditingFee(null);
     setShowAssignForm(true);
   }
@@ -223,6 +232,22 @@ export default function StudentFees() {
       final_fee: fee.final_fee,
       status: fee.status,
     });
+
+    // Load existing installments (if any) for editing
+    if (fee.installments && fee.installments.length > 0) {
+      setEnableInstallments(true);
+      setInstallmentCount(fee.installments.length);
+      setInstallments(
+        fee.installments.map((inst) => ({
+          amount: inst.amount,
+          due_date: inst.due_date || "",
+        }))
+      );
+    } else {
+      setEnableInstallments(false);
+      setInstallmentCount(1);
+      setInstallments([]);
+    }
     setEditingFee(fee);
     setShowAssignForm(true);
   }
@@ -238,6 +263,14 @@ export default function StudentFees() {
       total_fee: total,
       final_fee: final,
     }));
+
+    // Reset installments if the new structure doesn't allow them
+    if (structure && !structure.installment_allowed) {
+      setEnableInstallments(false);
+      setInstallments([]);
+    } else {
+      // If installments were enabled, keep the state but don't force it off
+    }
   }
 
   function handleDiscountChange(value) {
@@ -247,16 +280,66 @@ export default function StudentFees() {
     setForm((prev) => ({ ...prev, discount, final_fee: final }));
   }
 
+  // ---- Installment handlers ----
+  function handleInstallmentCountChange(count) {
+    const num = parseInt(count) || 1;
+    setInstallmentCount(num);
+    const newInstallments = [];
+    const equalAmount = Math.floor(form.final_fee / num);
+    let remainder = form.final_fee - equalAmount * num;
+
+    for (let i = 0; i < num; i++) {
+      let amt = equalAmount + (i === 0 ? remainder : 0); // add remainder to first installment
+      newInstallments.push({
+        amount: amt,
+        due_date: "",
+      });
+    }
+    setInstallments(newInstallments);
+  }
+
+  function updateInstallment(index, field, value) {
+    setInstallments((prev) => {
+      const updated = [...prev];
+      updated[index] = { ...updated[index], [field]: value };
+      return updated;
+    });
+  }
+
   function handleSubmit(e) {
     e.preventDefault();
     if (!form.student_id || !form.fee_structure_id) {
       toast.error("Student and fee structure are required");
       return;
     }
+
+    // If installments enabled, validate total amount
+    if (enableInstallments) {
+      const totalInstallment = installments.reduce((sum, i) => sum + Number(i.amount), 0);
+      if (totalInstallment !== Number(form.final_fee)) {
+        toast.error("Installment amounts must total the final fee");
+        return;
+      }
+    }
+
+    const payload = {
+      ...form,
+      total_fee: Number(form.total_fee),
+      discount: Number(form.discount),
+      final_fee: Number(form.final_fee),
+      installment_data: enableInstallments
+        ? installments.map((inst, idx) => ({
+            installment_number: idx + 1,
+            amount: Number(inst.amount),
+            due_date: inst.due_date || null,
+          }))
+        : null,
+    };
+
     if (editingFee) {
-      updateMutation.mutate({ id: editingFee.id, payload: form });
+      updateMutation.mutate({ id: editingFee.id, payload });
     } else {
-      createMutation.mutate(form);
+      createMutation.mutate(payload);
     }
   }
 
@@ -270,6 +353,12 @@ export default function StudentFees() {
       setViewPayments({ fee: selectedFeeForPayments, payments });
     }
   }, [payments, selectedFeeForPayments]);
+
+  // ---- Determine if selected fee structure allows installments ----
+  const selectedStructure = feeStructures.find(
+    (s) => s.id === parseInt(form.fee_structure_id)
+  );
+  const structureAllowsInstallments = selectedStructure?.installment_allowed;
 
   return (
     <AdminLayout>
@@ -448,7 +537,7 @@ export default function StudentFees() {
       {/* Assign/Edit Modal (branded) */}
       {showAssignForm && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl w-full max-w-md shadow-xl">
+          <div className="bg-white rounded-xl w-full max-w-lg shadow-xl max-h-[90vh] overflow-y-auto">
             <div className="sticky top-0 bg-white border-b border-secondary-light px-6 py-4 flex items-center justify-between rounded-t-xl">
               <div className="flex items-center gap-3">
                 <img
@@ -465,6 +554,7 @@ export default function StudentFees() {
               </button>
             </div>
             <form onSubmit={handleSubmit} className="p-6 space-y-4">
+              {/* Student */}
               <div>
                 <label className="block text-sm font-montserrat text-secondary-dark mb-1">
                   <User size={14} className="inline mr-1" /> Student *
@@ -483,6 +573,8 @@ export default function StudentFees() {
                   ))}
                 </select>
               </div>
+
+              {/* Fee Structure */}
               <div>
                 <label className="block text-sm font-montserrat text-secondary-dark mb-1">
                   <BookOpen size={14} className="inline mr-1" /> Fee Structure *
@@ -501,6 +593,8 @@ export default function StudentFees() {
                   ))}
                 </select>
               </div>
+
+              {/* Total Fee */}
               <div>
                 <label className="block text-sm font-montserrat text-secondary-dark mb-1">
                   <DollarSign size={14} className="inline mr-1" /> Total Fee
@@ -512,6 +606,8 @@ export default function StudentFees() {
                   className="w-full border border-secondary-light rounded p-2.5 bg-gray-100 text-secondary-dark"
                 />
               </div>
+
+              {/* Discount */}
               <div>
                 <label className="block text-sm font-montserrat text-secondary-dark mb-1">
                   <Percent size={14} className="inline mr-1" /> Discount
@@ -523,6 +619,8 @@ export default function StudentFees() {
                   className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
                 />
               </div>
+
+              {/* Final Fee */}
               <div>
                 <label className="block text-sm font-montserrat text-secondary-dark mb-1">
                   Final Fee (auto)
@@ -534,6 +632,8 @@ export default function StudentFees() {
                   className="w-full border border-secondary-light rounded p-2.5 bg-gray-100 text-secondary-dark"
                 />
               </div>
+
+              {/* Status */}
               <div>
                 <label className="block text-sm font-montserrat text-secondary-dark mb-1">
                   <Tag size={14} className="inline mr-1" /> Status
@@ -547,6 +647,73 @@ export default function StudentFees() {
                   <option>Paid</option>
                 </select>
               </div>
+
+              {/* Installments Section (only if structure allows installments) */}
+              {structureAllowsInstallments && (
+                <div className="border-t border-secondary-light pt-4 mt-4">
+                  <label className="flex items-center gap-2 text-sm font-montserrat text-secondary-dark mb-3">
+                    <input
+                      type="checkbox"
+                      checked={enableInstallments}
+                      onChange={(e) => {
+                        setEnableInstallments(e.target.checked);
+                        if (e.target.checked && installments.length === 0) {
+                          setInstallmentCount(1);
+                          setInstallments([{ amount: form.final_fee, due_date: "" }]);
+                        }
+                      }}
+                      className="rounded accent-primary h-4 w-4"
+                    />
+                    Enable Installments
+                  </label>
+
+                  {enableInstallments && (
+                    <div className="space-y-3">
+                      <div>
+                        <label className="text-xs font-montserrat text-secondary-dark">
+                          Number of Installments
+                        </label>
+                        <input
+                          type="number"
+                          min="1"
+                          value={installmentCount}
+                          onChange={(e) => handleInstallmentCountChange(e.target.value)}
+                          className="w-full border border-secondary-light rounded p-2 text-sm focus:ring-1 focus:ring-primary outline-none"
+                        />
+                      </div>
+
+                      {installments.map((inst, idx) => (
+                        <div key={idx} className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="text-xs font-montserrat text-secondary-dark">
+                              Amount {idx + 1}
+                            </label>
+                            <input
+                              type="number"
+                              value={inst.amount}
+                              onChange={(e) => updateInstallment(idx, "amount", Number(e.target.value))}
+                              className="w-full border border-secondary-light rounded p-2 text-sm focus:ring-1 focus:ring-primary outline-none"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-xs font-montserrat text-secondary-dark">
+                              Due Date {idx + 1}
+                            </label>
+                            <input
+                              type="date"
+                              value={inst.due_date}
+                              onChange={(e) => updateInstallment(idx, "due_date", e.target.value)}
+                              className="w-full border border-secondary-light rounded p-2 text-sm focus:ring-1 focus:ring-primary outline-none"
+                            />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Buttons */}
               <div className="flex flex-col sm:flex-row-reverse gap-3 pt-2">
                 <button type="submit" className="w-full sm:w-auto bg-primary hover:bg-primary-light text-white px-6 py-2.5 rounded-lg font-montserrat transition">
                   {editingFee ? "Update Fee" : "Assign Fee"}
@@ -560,7 +727,7 @@ export default function StudentFees() {
         </div>
       )}
 
-      {/* Collect Payment Modal (already branded) */}
+      {/* Collect Payment Modal */}
       {collectingFee && (
         <CollectPaymentModal
           fee={collectingFee}
@@ -572,7 +739,7 @@ export default function StudentFees() {
         />
       )}
 
-      {/* View Payments Modal (branded) */}
+      {/* View Payments Modal */}
       {viewPayments && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl w-full max-w-xl shadow-xl max-h-[90vh] overflow-y-auto">

@@ -12,7 +12,6 @@ import {
   Download,
   Upload,
   FileDown,
-  Filter,
 } from "lucide-react";
 import Papa from "papaparse";
 import AdminLayout from "../layouts/AdminLayout";
@@ -27,25 +26,28 @@ export default function EnterResults() {
   const { examId } = useParams();
   const navigate = useNavigate();
 
+  // Redirect if examId is missing or "undefined"
+  useEffect(() => {
+    if (!examId || examId === "undefined") {
+      navigate("/results", { replace: true });
+    }
+  }, [examId, navigate]);
+
   const [exam, setExam] = useState(null);
-  const [allStudents, setAllStudents] = useState([]);       // all students of the batch
-  const [filterStandard, setFilterStandard] = useState("");  // standard filter
+  const [allStudents, setAllStudents] = useState([]);   // all students of the batch
   const [marks, setMarks] = useState({});
   const [remarks, setRemarks] = useState({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const fileInputRef = useRef(null);
 
-  // Derived: filtered students based on selected standard
-  const students = filterStandard
-    ? allStudents.filter((s) => s.standard?.toString() === filterStandard)
-    : allStudents;
-
-  // Unique standards for filter dropdown
-  const standards = [...new Set(allStudents.map((s) => s.standard).filter(Boolean))].sort();
+  // Course name from exam info
+  const courseName = exam?.batches?.courses?.course_name || "—";
 
   useEffect(() => {
-    loadData();
+    if (examId && examId !== "undefined") {
+      loadData();
+    }
   }, [examId]);
 
   async function loadData() {
@@ -60,7 +62,6 @@ export default function EnterResults() {
       setExam(examData);
 
       const batchStudents = await getBatchStudents(examData.batch_id);
-      // batchStudents already contains standard field from students table
       setAllStudents(batchStudents);
 
       const existingResults = await getResultsByExam(examId);
@@ -87,13 +88,13 @@ export default function EnterResults() {
     setRemarks((prev) => ({ ...prev, [studentId]: value }));
   }
 
-  // ---------- CSV Export (filtered students) ----------
+  // ---------- CSV Export ----------
   function handleExportCSV() {
-    const data = students.map((s) => ({
+    const data = allStudents.map((s) => ({
       admission_no: s.admission_no,
       first_name: s.first_name,
       last_name: s.last_name,
-      standard: s.standard || "",
+      course: courseName,
       marks_obtained: marks[s.id] ?? "",
       remarks: remarks[s.id] ?? "",
     }));
@@ -108,13 +109,13 @@ export default function EnterResults() {
     URL.revokeObjectURL(url);
   }
 
-  // ---------- Download Template (filtered students) ----------
+  // ---------- Download Template ----------
   function handleDownloadTemplate() {
-    const data = students.map((s) => ({
+    const data = allStudents.map((s) => ({
       admission_no: s.admission_no,
       first_name: s.first_name,
       last_name: s.last_name,
-      standard: s.standard || "",
+      course: courseName,
       marks_obtained: "",
       remarks: "",
     }));
@@ -129,7 +130,7 @@ export default function EnterResults() {
     URL.revokeObjectURL(url);
   }
 
-  // ---------- CSV Import (updates only filtered students) ----------
+  // ---------- CSV Import ----------
   function handleCSVImport(event) {
     const file = event.target.files[0];
     if (!file) return;
@@ -143,7 +144,7 @@ export default function EnterResults() {
         let importedCount = 0;
 
         results.data.forEach((row) => {
-          const student = students.find(
+          const student = allStudents.find(
             (s) =>
               s.admission_no?.toString() === row.admission_no?.toString()
           );
@@ -169,7 +170,6 @@ export default function EnterResults() {
   }
 
   async function handleSave() {
-    // Save results for ALL students of the batch (not just filtered ones)
     const resultsPayload = allStudents.map((student) => ({
       student_id: student.id,
       marks_obtained: marks[student.id] !== undefined ? Number(marks[student.id]) : 0,
@@ -187,6 +187,8 @@ export default function EnterResults() {
       setSaving(false);
     }
   }
+
+  if (!examId || examId === "undefined") return null; // waiting for redirect
 
   if (loading) {
     return (
@@ -228,21 +230,8 @@ export default function EnterResults() {
         )}
       </div>
 
-      {/* Bulk action buttons + Standard filter */}
+      {/* Action buttons */}
       <div className="flex flex-wrap items-end gap-3 mb-4">
-        <div>
-          <label className="text-xs font-montserrat text-secondary-dark block">Standard</label>
-          <select
-            value={filterStandard}
-            onChange={(e) => setFilterStandard(e.target.value)}
-            className="border border-secondary-light rounded p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none"
-          >
-            <option value="">All Standards</option>
-            {standards.map((std) => (
-              <option key={std} value={std}>{std}</option>
-            ))}
-          </select>
-        </div>
         <button
           onClick={handleExportCSV}
           className="border border-secondary-light px-4 py-2.5 rounded-lg text-secondary-dark hover:bg-secondary-bg font-montserrat text-sm flex items-center gap-2"
@@ -275,7 +264,7 @@ export default function EnterResults() {
         <div className="p-4 border-b border-secondary-light flex justify-between items-center">
           <h2 className="text-lg font-semibold font-righteous text-primary-dark flex items-center gap-2">
             <User size={18} />
-            Students ({students.length}{filterStandard ? ` – Std ${filterStandard}` : ""})
+            Students ({allStudents.length})
           </h2>
         </div>
 
@@ -292,7 +281,7 @@ export default function EnterResults() {
                   Name
                 </th>
                 <th className="text-left p-3 text-sm font-montserrat text-secondary-dark">
-                  Standard
+                  Course
                 </th>
                 <th className="text-center p-3 text-sm font-montserrat text-secondary-dark w-40">
                   Marks Obtained
@@ -303,7 +292,7 @@ export default function EnterResults() {
               </tr>
             </thead>
             <tbody>
-              {students.map((student) => (
+              {allStudents.map((student) => (
                 <tr
                   key={student.id}
                   className="border-b border-secondary-light hover:bg-primary-bg transition"
@@ -312,7 +301,7 @@ export default function EnterResults() {
                   <td className="p-3 text-sm font-medium">
                     {student.first_name} {student.last_name}
                   </td>
-                  <td className="p-3 text-sm">{student.standard || "-"}</td>
+                  <td className="p-3 text-sm">{courseName}</td>
                   <td className="p-3 text-center">
                     <input
                       type="number"
@@ -333,10 +322,10 @@ export default function EnterResults() {
                   </td>
                 </tr>
               ))}
-              {students.length === 0 && (
+              {allStudents.length === 0 && (
                 <tr>
                   <td colSpan={5} className="p-6 text-center text-secondary text-sm">
-                    No students match the selected standard.
+                    No students enrolled in this batch.
                   </td>
                 </tr>
               )}

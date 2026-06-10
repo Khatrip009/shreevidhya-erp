@@ -29,8 +29,10 @@ export default function BatchForm({ onSubmit, onClose, initialData = {} }) {
     status: initialData.status || "active",
   });
 
-  // ---- Teacher-Subject assignments ----
-  const [assignments, setAssignments] = useState([]); // [{ id?, teacher_id, subject_id }]
+  // ---- Teacher-Subject-Day assignments ----
+  const [assignments, setAssignments] = useState([]); // [{ id?, teacher_id, subject_id, day }]
+
+  const DAY_OPTIONS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
   // Dropdown data
   const { data: courses = [] } = useQuery({
@@ -72,12 +74,12 @@ export default function BatchForm({ onSubmit, onClose, initialData = {} }) {
       .finally(() => setLoadingSubjects(false));
   }, [form.course_id]);
 
-  // Load existing assignments when editing
+  // Load existing assignments when editing (including day)
   useEffect(() => {
     if (initialData.id) {
       supabase
         .from("batch_teachers")
-        .select("id, teacher_id, subject_id")
+        .select("id, teacher_id, subject_id, day")
         .eq("batch_id", initialData.id)
         .then(({ data }) => {
           if (data) {
@@ -86,6 +88,7 @@ export default function BatchForm({ onSubmit, onClose, initialData = {} }) {
                 id: row.id,
                 teacher_id: row.teacher_id,
                 subject_id: row.subject_id,
+                day: row.day || "",
               }))
             );
           }
@@ -102,7 +105,7 @@ export default function BatchForm({ onSubmit, onClose, initialData = {} }) {
   function addAssignment() {
     setAssignments((prev) => [
       ...prev,
-      { teacher_id: "", subject_id: "" },
+      { teacher_id: "", subject_id: "", day: "" },
     ]);
   }
 
@@ -125,13 +128,14 @@ export default function BatchForm({ onSubmit, onClose, initialData = {} }) {
       return;
     }
 
-    // Build payload
+    // Build payload (now includes day)
     const payload = {
       ...form,
       capacity: form.capacity ? Number(form.capacity) : null,
       teacher_subjects: assignments.map((a) => ({
         teacher_id: a.teacher_id || null,
         subject_id: a.subject_id || null,
+        day: a.day || null,
       })),
     };
 
@@ -299,10 +303,10 @@ export default function BatchForm({ onSubmit, onClose, initialData = {} }) {
             </div>
           </div>
 
-          {/* Teacher-Subject Assignments Section */}
+          {/* Teacher-Subject-Day Assignments Section */}
           <div className="border-t border-secondary-light pt-5">
             <h3 className="text-lg font-righteous text-primary-dark mb-3 flex items-center gap-2">
-              <Users size={18} /> Teacher Assignments
+              <Users size={18} /> Teacher Assignments (Day‑wise)
             </h3>
             {loadingSubjects && <p className="text-sm text-secondary">Loading subjects…</p>}
             {!loadingSubjects && form.course_id && subjects.length === 0 && (
@@ -313,7 +317,7 @@ export default function BatchForm({ onSubmit, onClose, initialData = {} }) {
 
             {assignments.map((a, idx) => (
               <div key={idx} className="flex flex-wrap items-end gap-3 mb-3 p-3 bg-gray-50 rounded-lg">
-                <div className="flex-1 min-w-[150px]">
+                <div className="flex-1 min-w-[120px]">
                   <label className="block text-xs font-montserrat text-secondary-dark mb-1">
                     Teacher
                   </label>
@@ -322,7 +326,7 @@ export default function BatchForm({ onSubmit, onClose, initialData = {} }) {
                     onChange={(e) => updateAssignment(idx, "teacher_id", e.target.value ? Number(e.target.value) : "")}
                     className="w-full border border-secondary-light rounded p-2 text-sm focus:ring-1 focus:ring-primary outline-none"
                   >
-                    <option value="">Select Teacher</option>
+                    <option value="">Select</option>
                     {teachers.map((t) => (
                       <option key={t.id} value={t.id}>
                         {t.first_name} {t.last_name}
@@ -330,7 +334,7 @@ export default function BatchForm({ onSubmit, onClose, initialData = {} }) {
                     ))}
                   </select>
                 </div>
-                <div className="flex-1 min-w-[150px]">
+                <div className="flex-1 min-w-[120px]">
                   <label className="block text-xs font-montserrat text-secondary-dark mb-1">
                     Subject
                   </label>
@@ -340,11 +344,27 @@ export default function BatchForm({ onSubmit, onClose, initialData = {} }) {
                     className="w-full border border-secondary-light rounded p-2 text-sm focus:ring-1 focus:ring-primary outline-none"
                     disabled={!form.course_id || subjects.length === 0}
                   >
-                    <option value="">Select Subject</option>
+                    <option value="">Select</option>
                     {subjects.map((s) => (
                       <option key={s.id} value={s.id}>
                         {s.subject_name}
                       </option>
+                    ))}
+                  </select>
+                </div>
+                {/* ---- Day dropdown ---- */}
+                <div className="w-24 min-w-[80px]">
+                  <label className="block text-xs font-montserrat text-secondary-dark mb-1">
+                    Day
+                  </label>
+                  <select
+                    value={a.day || ""}
+                    onChange={(e) => updateAssignment(idx, "day", e.target.value)}
+                    className="w-full border border-secondary-light rounded p-2 text-sm focus:ring-1 focus:ring-primary outline-none"
+                  >
+                    <option value="">-</option>
+                    {DAY_OPTIONS.map((d) => (
+                      <option key={d} value={d}>{d}</option>
                     ))}
                   </select>
                 </div>

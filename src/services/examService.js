@@ -113,25 +113,31 @@ export async function getBatchStudents(batchId) {
   return data.map((item) => item.students);
 }
 
+// FIXED: uses the correct table name "student_results"
 export async function getResultsByExam(examId) {
+  if (!examId) return [];
   const { data, error } = await supabase
-    .from("student_results")
+    .from("student_results")                             // <-- changed
     .select(`*, students(first_name, last_name, admission_no)`)
-    .eq("exam_id", examId);
+    .eq("exam_id", examId)
+    .order("marks_obtained", { ascending: false });
   if (error) throw error;
-  return data;
+  return data || [];
 }
 
+// FIXED: uses "student_results"
 export async function saveResults(examId, resultsPayload) {
+  // Delete old marks
   const { error: deleteError } = await supabase
-    .from("student_results")
+    .from("student_results")                            // <-- changed
     .delete()
     .eq("exam_id", examId);
   if (deleteError) throw deleteError;
 
   if (resultsPayload.length === 0) return;
+
   const { error: insertError } = await supabase
-    .from("student_results")
+    .from("student_results")                            // <-- changed
     .insert(
       resultsPayload.map((r) => ({
         exam_id: examId,
@@ -144,6 +150,7 @@ export async function saveResults(examId, resultsPayload) {
 }
 
 export async function getExamById(id) {
+  if (!id) throw new Error("Exam ID is required");
   const { data, error } = await supabase
     .from("exams")
     .select(`*, batches(batch_name, course_id, courses(course_name))`)
@@ -174,22 +181,20 @@ export async function getCourseOptions() {
   if (error) throw error;
   return data || [];
 }
-// Get all exams (unpaginated) – used by Results page
+
 export async function getAllExams() {
   const { data, error } = await supabase
     .from("exams")
     .select(`*, batches(batch_name, course_id, courses(course_name))`)
     .order("exam_date", { ascending: false });
-
   if (error) throw error;
   return data || [];
 }
 
-// Get all exams with results for a specific student, grouped by subject
+// FIXED: uses "student_results"
 export async function getStudentProgress(studentId) {
-  // 1. Get all exams where the student has results, with subject info
   const { data: results, error } = await supabase
-    .from("student_results")
+    .from("student_results")                            // <-- changed
     .select(
       `marks_obtained,
       exams!inner(
@@ -197,8 +202,6 @@ export async function getStudentProgress(studentId) {
         exam_name,
         exam_date,
         total_marks,
-        subject_id,
-        subjects(subject_name),
         batches(course_id, courses(course_name))
       )`
     )
@@ -207,19 +210,18 @@ export async function getStudentProgress(studentId) {
 
   if (error) throw error;
 
-  // 2. Group by subject
   const grouped = {};
   results.forEach((r) => {
-    const subjId = r.exams?.subject_id;
-    const subjName = r.exams?.subjects?.subject_name || "Unknown Subject";
-    if (!grouped[subjId]) {
-      grouped[subjId] = {
-        subject_id: subjId,
-        subject_name: subjName,
+    const courseId = r.exams?.batches?.course_id;
+    const courseName = r.exams?.batches?.courses?.course_name || "Unknown Course";
+    if (!grouped[courseId]) {
+      grouped[courseId] = {
+        course_id: courseId,
+        course_name: courseName,
         exams: [],
       };
     }
-    grouped[subjId].exams.push({
+    grouped[courseId].exams.push({
       exam_id: r.exams.id,
       exam_name: r.exams.exam_name,
       exam_date: r.exams.exam_date,
