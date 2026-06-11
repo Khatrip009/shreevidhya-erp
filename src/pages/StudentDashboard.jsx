@@ -1,24 +1,21 @@
-import { useEffect, useLayoutEffect, useRef } from "react";
+import { useEffect, useLayoutEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation, Link } from "react-router-dom";
 import {
   User, Calendar, IndianRupee, Award, Clock, FileText,
-  Phone, Mail, MapPin, School, Layers, TrendingUp,
+  Phone, Mail, MapPin, School, Layers,
 } from "lucide-react";
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line,
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
 } from "recharts";
 import AdminLayout from "../layouts/AdminLayout";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../api/supabase";
 
-const COLORS = ["#0D47A1", "#FF1070", "#00C49F", "#FFBB28", "#0088FE"];
-
 export default function StudentDashboard() {
   const { user } = useAuth();
 
-  // ---------- 1. Student info ----------
+  // 1. Student info
   const { data: student, isLoading: studentLoading } = useQuery({
     queryKey: ["student-info", user?.id],
     queryFn: async () => {
@@ -34,7 +31,7 @@ export default function StudentDashboard() {
 
   const studentId = student?.id;
 
-  // ---------- 2. Batches ----------
+  // 2. Batches
   const { data: batches = [] } = useQuery({
     queryKey: ["student-batches", studentId],
     queryFn: async () => {
@@ -49,11 +46,12 @@ export default function StudentDashboard() {
     enabled: !!studentId,
   });
 
-  // ---------- 3. Attendance ----------
+  // 3. Attendance – FIXED: added .eq("student_id", studentId)
   const { data: attendance = { percentage: 0, present: 0, total: 0, trend: [] } } = useQuery({
     queryKey: ["student-attendance", studentId],
     queryFn: async () => {
       if (!studentId) return { percentage: 0, present: 0, total: 0, trend: [] };
+
       const { data: batchRows } = await supabase
         .from("student_batches")
         .select("batch_id")
@@ -62,6 +60,7 @@ export default function StudentDashboard() {
       const batchIds = batchRows?.map((b) => b.batch_id) || [];
       if (!batchIds.length) return { percentage: 0, present: 0, total: 0, trend: [] };
 
+      // Get last 10 sessions for these batches
       const { data: sessions } = await supabase
         .from("attendance_sessions")
         .select("id, attendance_date")
@@ -69,30 +68,40 @@ export default function StudentDashboard() {
         .order("attendance_date", { ascending: false })
         .limit(10);
 
-      const sessionIds = sessions?.map((s) => s.id) || [];
-      if (!sessionIds.length) return { percentage: 0, present: 0, total: 0, trend: [] };
+      if (!sessions || sessions.length === 0)
+        return { percentage: 0, present: 0, total: 0, trend: [] };
 
+      const sessionIds = sessions.map((s) => s.id);
+
+      // FIX: filter marks by studentId as well
       const { data: marks } = await supabase
         .from("student_attendance")
         .select("session_id, status")
-        .in("session_id", sessionIds);
+        .in("session_id", sessionIds)
+        .eq("student_id", studentId);   // ← this was missing
 
       const total = sessionIds.length;
       const present = marks?.filter((m) => m.status === "Present").length || 0;
 
-      // Build trend data for chart
-      const trend = sessions.map((session) => ({
-        date: session.attendance_date,
-        status: marks?.find((m) => m.session_id === session.id)?.status || "Absent",
-        present: marks?.find((m) => m.session_id === session.id)?.status === "Present" ? 1 : 0,
-      })).reverse();
+      // Build trend data for small chart (sessions ordered from old to new)
+      const trend = [...sessions]
+        .reverse()
+        .map((session) => ({
+          date: session.attendance_date,
+          present: marks?.find((m) => m.session_id === session.id)?.status === "Present" ? 1 : 0,
+        }));
 
-      return { percentage: ((present / total) * 100).toFixed(1), present, total, trend };
+      return {
+        percentage: total ? ((present / total) * 100).toFixed(1) : 0,
+        present,
+        total,
+        trend,
+      };
     },
     enabled: !!studentId,
   });
 
-  // ---------- 4. Fees ----------
+  // 4. Fees
   const { data: fees = { total: 0, paid: 0, pending: 0 } } = useQuery({
     queryKey: ["student-fees", studentId],
     queryFn: async () => {
@@ -116,7 +125,7 @@ export default function StudentDashboard() {
     enabled: !!studentId,
   });
 
-  // ---------- 5. Results (with subject‑wise data) ----------
+  // 5. Results
   const { data: results = [] } = useQuery({
     queryKey: ["student-results", studentId],
     queryFn: async () => {
@@ -132,7 +141,7 @@ export default function StudentDashboard() {
     enabled: !!studentId,
   });
 
-  // ---------- 6. Homework ----------
+  // 6. Homework
   const { data: homeworks = [] } = useQuery({
     queryKey: ["student-homeworks", studentId],
     queryFn: async () => {
@@ -156,7 +165,7 @@ export default function StudentDashboard() {
     enabled: !!studentId,
   });
 
-  // ---------- 7. Certificates ----------
+  // 7. Certificates
   const { data: certificateCount = 0 } = useQuery({
     queryKey: ["student-certificates", studentId],
     queryFn: async () => {
@@ -170,9 +179,8 @@ export default function StudentDashboard() {
     enabled: !!studentId,
   });
 
-  // ---------- Scroll Logic (unchanged) ----------
+  // Scroll logic (unchanged)
   const location = useLocation();
-
   const scrollToSection = (sectionId) => {
     const container = document.getElementById("main-content") || window;
     const element = document.getElementById(sectionId);
@@ -198,7 +206,6 @@ export default function StudentDashboard() {
     return () => { delete window.studentScrollToSection; };
   }, []);
 
-  // ---------- Render ----------
   if (studentLoading) {
     return (
       <AdminLayout>
@@ -217,7 +224,6 @@ export default function StudentDashboard() {
     );
   }
 
-  // Calculate paid percentage for the fee gauge
   const paidPercent = fees.total > 0 ? ((fees.paid / fees.total) * 100).toFixed(0) : 0;
 
   return (
@@ -253,7 +259,7 @@ export default function StudentDashboard() {
           </div>
         </div>
 
-        {/* Batch & Attendance (with mini chart) */}
+        {/* Batch & Attendance */}
         <div className="space-y-6">
           <div id="batch" className="bg-white rounded-xl p-5 shadow-sm border border-secondary-light">
             <h2 className="text-lg font-righteous text-primary-dark mb-4"><Layers size={18} /> Current Batch</h2>
@@ -273,11 +279,13 @@ export default function StudentDashboard() {
             </h2>
             <div className="flex items-center gap-2 mb-2">
               <div className="w-full bg-gray-200 rounded-full h-3">
-                <div className="bg-green-500 h-3 rounded-full" style={{ width: `${attendance.percentage}%` }}></div>
+                <div className="bg-green-500 h-3 rounded-full" style={{ width: `${Math.min(attendance.percentage, 100)}%` }}></div>
               </div>
               <span className="font-bold text-sm">{attendance.percentage}%</span>
             </div>
-            <p className="text-xs text-secondary mb-3">{attendance.present} present / {attendance.total} sessions</p>
+            <p className="text-xs text-secondary mb-3">
+              {attendance.present} present / {attendance.total} sessions
+            </p>
             {attendance.trend.length > 0 && (
               <ResponsiveContainer width="100%" height={80}>
                 <BarChart data={attendance.trend}>
@@ -290,7 +298,7 @@ export default function StudentDashboard() {
           </div>
         </div>
 
-        {/* Fee Summary (with gauge) */}
+        {/* Fee Summary */}
         <div id="fees" className="bg-white rounded-xl p-5 shadow-sm border border-secondary-light">
           <h2 className="text-lg font-righteous text-primary-dark mb-4"><IndianRupee size={18} /> Fee Summary</h2>
           <div className="space-y-2 text-sm">
@@ -306,7 +314,7 @@ export default function StudentDashboard() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
-        {/* Recent Results (with subject‑wise bar chart) */}
+        {/* Recent Results */}
         <div id="results" className="bg-white rounded-xl p-5 shadow-sm border border-secondary-light">
           <h2 className="text-lg font-righteous text-primary-dark mb-4 flex items-center gap-2">
             <Award size={18} /> Recent Results

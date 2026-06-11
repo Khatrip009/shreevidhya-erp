@@ -141,7 +141,6 @@ export async function getAllStudentFeesForExport(filters = {}) {
 export async function createStudentFee(payload) {
   const { installment_data, ...feeData } = payload;
 
-  // 1. Insert the student fee
   const { data: fee, error } = await supabase
     .from("student_fees")
     .insert([feeData])
@@ -149,7 +148,6 @@ export async function createStudentFee(payload) {
     .single();
   if (error) throw error;
 
-  // 2. If installments provided, insert them
   if (installment_data && installment_data.length > 0) {
     const inserts = installment_data.map((inst) => ({
       student_fee_id: fee.id,
@@ -170,7 +168,6 @@ export async function createStudentFee(payload) {
 export async function updateStudentFee(id, payload) {
   const { installment_data, ...feeData } = payload;
 
-  // 1. Update the student fee record
   const { data: fee, error } = await supabase
     .from("student_fees")
     .update(feeData)
@@ -179,7 +176,6 @@ export async function updateStudentFee(id, payload) {
     .single();
   if (error) throw error;
 
-  // 2. Replace installments if provided
   if (installment_data !== undefined) {
     await supabase
       .from("fee_installments")
@@ -259,21 +255,19 @@ export async function collectPayment(paymentPayload, studentId) {
     },
   ]);
 
-  // 4. Update fee status AND installment statuses
+  // 4. Update fee status and installments
   await updateFeeStatusAutomatically(paymentPayload.student_fee_id);
 
   return payment;
 }
 
 async function updateFeeStatusAutomatically(studentFeeId) {
-  // Sum all payments for this fee
   const { data: payments } = await supabase
     .from("fee_payments")
     .select("amount")
     .eq("student_fee_id", studentFeeId);
   const totalPaid = (payments || []).reduce((sum, p) => sum + Number(p.amount), 0);
 
-  // Get final fee amount
   const { data: fee } = await supabase
     .from("student_fees")
     .select("final_fee")
@@ -281,7 +275,6 @@ async function updateFeeStatusAutomatically(studentFeeId) {
     .single();
   if (!fee) return;
 
-  // Update overall status
   const newStatus = totalPaid >= Number(fee.final_fee) ? "Paid" : "Pending";
   await supabase
     .from("student_fees")
@@ -298,9 +291,6 @@ async function updateFeeStatusAutomatically(studentFeeId) {
   if (installments && installments.length > 0) {
     let runningTotal = 0;
     for (const inst of installments) {
-      // An installment is paid if the running total (before this instalment) is already >= its amount,
-      // or if after adding its amount the running total doesn't exceed totalPaid.
-      // More precisely: the installment is fully covered if the remaining unpaid amount (totalPaid - already accounted) >= inst.amount.
       const alreadyAccounted = installments
         .filter((_, i) => i < installments.indexOf(inst))
         .reduce((s, i) => s + Number(i.amount), 0);
@@ -315,4 +305,28 @@ async function updateFeeStatusAutomatically(studentFeeId) {
       }
     }
   }
+}
+
+// ------------------------------
+// NEW: Student payment request
+// ------------------------------
+export async function submitPaymentRequest({ student_fee_id, amount, transaction_no, remarks, installment_id }) {
+  const { data, error } = await supabase
+    .from("fee_payments")
+    .insert([
+      {
+        student_fee_id,
+        payment_date: new Date().toISOString().split("T")[0],
+        amount: Number(amount),
+        payment_mode: "Online",
+        transaction_no,
+        remarks,
+        status: "Pending",
+        installment_id: installment_id || null,
+      },
+    ])
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
 }

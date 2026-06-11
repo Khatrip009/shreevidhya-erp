@@ -184,3 +184,38 @@ export async function getBatchStudents(batchId) {
   if (error) throw error;
   return data.map((item) => item.students);
 }
+
+export async function submitHomework({ homeworkId, studentId, file, remarks }) {
+  // Upload file to storage
+  const fileExt = file.name.split(".").pop();
+  const fileName = `${Date.now()}-${Math.random().toString(36).substring(2)}.${fileExt}`;
+  const filePath = `homework-submissions/${studentId}/${homeworkId}/${fileName}`;
+
+  const { error: uploadError } = await supabase.storage
+    .from("ShreeVidhya_Academy")
+    .upload(filePath, file, { cacheControl: "3600", upsert: false });
+  if (uploadError) throw uploadError;
+
+  // Get public URL
+  const { data: urlData } = supabase.storage
+    .from("ShreeVidhya_Academy")
+    .getPublicUrl(filePath);
+  const fileUrl = urlData.publicUrl;
+
+  // Insert submission record using correct column name
+  const { data, error } = await supabase
+    .from("homework_submissions")
+    .insert([
+      {
+        homework_id: homeworkId,
+        student_id: studentId,
+        submission_file: fileUrl,          // ← correct column
+        remarks: remarks || "",
+        status: "Pending",
+      },
+    ])
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
