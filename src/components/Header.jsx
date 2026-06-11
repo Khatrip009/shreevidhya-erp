@@ -1,16 +1,13 @@
 import { useState, useRef, useEffect } from "react";
 import {
-  Bell,
-  LogOut,
-  UserCircle2,
-  Check,
-  Menu,
+  Bell, LogOut, UserCircle2, Check, Menu, Download,
 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../api/supabase";
 import { useAuth } from "../context/AuthContext";
 import GlobalSearch from "./GlobalSearch";
+import { useInstallPrompt } from "../hooks/useInstallPrompt";   // <-- NEW
 
 export default function Header({ onMenuClick }) {
   const { profile } = useAuth();
@@ -18,6 +15,9 @@ export default function Header({ onMenuClick }) {
   const navigate = useNavigate();
   const dropdownRef = useRef(null);
   const [dropdownOpen, setDropdownOpen] = useState(false);
+
+  // Install prompt hook
+  const { isInstallable, promptInstall } = useInstallPrompt();    // <-- NEW
 
   const role = (profile?.role || "").toLowerCase().replace(/\s+/g, "_");
   const isStudent = role === "student";
@@ -238,6 +238,19 @@ export default function Header({ onMenuClick }) {
           </div>
         </div>
 
+        {/* ---- Install App button (NEW) ---- */}
+        {isInstallable && (
+          <button
+            onClick={promptInstall}
+            className="flex items-center gap-1 bg-primary hover:bg-primary-light text-white px-3 py-2 rounded-lg transition font-montserrat text-sm"
+            title="Install App"
+          >
+            <Download size={16} />
+            <span className="hidden sm:inline">Install</span>
+          </button>
+        )}
+
+        {/* Logout button */}
         <button
           onClick={handleLogout}
           className="flex items-center gap-1 sm:gap-2 bg-accent hover:bg-accent-light text-white px-2 sm:px-4 py-2 rounded-lg transition font-montserrat text-sm"
