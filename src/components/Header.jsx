@@ -7,7 +7,8 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "../api/supabase";
 import { useAuth } from "../context/AuthContext";
 import GlobalSearch from "./GlobalSearch";
-import { useInstallPrompt } from "../hooks/useInstallPrompt";   // <-- NEW
+import { useInstallPrompt } from "../hooks/useInstallPrompt";
+import toast from "react-hot-toast";
 
 export default function Header({ onMenuClick }) {
   const { profile } = useAuth();
@@ -17,7 +18,7 @@ export default function Header({ onMenuClick }) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
 
   // Install prompt hook
-  const { isInstallable, promptInstall } = useInstallPrompt();    // <-- NEW
+  const { isInstallable, promptInstall } = useInstallPrompt();
 
   const role = (profile?.role || "").toLowerCase().replace(/\s+/g, "_");
   const isStudent = role === "student";
@@ -120,6 +121,18 @@ export default function Header({ onMenuClick }) {
   const avatarUrl = profile?.avatar_url;
   const studentPhotoUrl = student?.photo_url;
   const userAvatar = avatarUrl || studentPhotoUrl || null;
+
+  // ------ Install button handler ------
+  const handleInstallClick = () => {
+    if (isInstallable) {
+      promptInstall();
+    } else {
+      toast(
+        "To install the app, open the browser menu (⋮) and tap 'Install' or 'Add to Home screen'.",
+        { duration: 5000 }
+      );
+    }
+  };
 
   return (
     <header className="bg-white border-b border-secondary-light px-4 lg:px-6 py-3 lg:py-4 flex items-center justify-between">
@@ -238,17 +251,15 @@ export default function Header({ onMenuClick }) {
           </div>
         </div>
 
-        {/* ---- Install App button (NEW) ---- */}
-        {isInstallable && (
-          <button
-            onClick={promptInstall}
-            className="flex items-center gap-1 bg-primary hover:bg-primary-light text-white px-3 py-2 rounded-lg transition font-montserrat text-sm"
-            title="Install App"
-          >
-            <Download size={16} />
-            <span className="hidden sm:inline">Install</span>
-          </button>
-        )}
+        {/* ---- Install App button – always visible ---- */}
+        <button
+          onClick={handleInstallClick}
+          className="flex items-center gap-1 bg-primary hover:bg-primary-light text-white px-3 py-2 rounded-lg transition font-montserrat text-sm"
+          title="Install App"
+        >
+          <Download size={16} />
+          <span className="hidden sm:inline">Install</span>
+        </button>
 
         {/* Logout button */}
         <button
