@@ -35,7 +35,6 @@ export default function SalaryPayments() {
     payment_mode: "Cash",
     remarks: "",
   });
-  const [editing, setEditing] = useState(null);
   const fileInputRef = useRef(null);
 
   // Fetch teachers for dropdown
@@ -92,7 +91,8 @@ export default function SalaryPayments() {
       toast.error("Teacher and amount are required");
       return;
     }
-    createMutation.mutate({ ...form, amount: Number(form.amount), created_by: 1 });
+    // No more created_by – will default to null
+    createMutation.mutate({ ...form, amount: Number(form.amount) });
   }
 
   return (
