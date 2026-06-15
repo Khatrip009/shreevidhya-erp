@@ -12,7 +12,7 @@ export async function getAttendanceSessions({ pageParam = 0, filters = {} } = {}
   let query = supabase
     .from("attendance_sessions")
     .select(
-      `id, batch_id, attendance_date, topic_covered, batches(batch_name)`,
+      `id, batch_id, attendance_date, topic_covered, batches(batch_name, medium_id, mediums(name))`,
       { count: "exact" }
     )
     .order("attendance_date", { ascending: false })
@@ -26,11 +26,21 @@ export async function getAttendanceSessions({ pageParam = 0, filters = {} } = {}
   }
   if (filters.startDate) query = query.gte("attendance_date", filters.startDate);
   if (filters.endDate) query = query.lte("attendance_date", filters.endDate);
+  if (filters.medium_id) {
+    // Filter sessions whose batch has the given medium_id
+    const { data: batchIds } = await supabase
+      .from("batches")
+      .select("id")
+      .eq("medium_id", filters.medium_id);
+    const ids = batchIds?.map((b) => b.id) || [];
+    if (ids.length > 0) query = query.in("batch_id", ids);
+    else return { data: [], count: 0 };
+  }
 
   const { data, error, count } = await query;
   if (error) throw error;
 
-  // Enrich with attendance counts
+  // Enrich with attendance counts and medium name
   const enriched = await Promise.all(
     data.map(async (session) => {
       const { data: presentRows } = await supabase
@@ -47,6 +57,7 @@ export async function getAttendanceSessions({ pageParam = 0, filters = {} } = {}
       return {
         ...session,
         batch_name: session.batches?.batch_name,
+        medium_name: session.batches?.mediums?.name || "",
         present_count: presentRows ? presentRows.length : 0,
         total_count: allRows ? allRows.length : 0,
       };
@@ -56,11 +67,11 @@ export async function getAttendanceSessions({ pageParam = 0, filters = {} } = {}
   return { data: enriched, count };
 }
 
-// Export for CSV (unpaginated, same filters)
+// Export for CSV (unpaginated, same filters, now includes medium)
 export async function getAllAttendanceSessionsForExport(filters = {}) {
   let query = supabase
     .from("attendance_sessions")
-    .select(`id, batch_id, attendance_date, topic_covered, batches(batch_name)`)
+    .select(`id, batch_id, attendance_date, topic_covered, batches(batch_name, medium_id, mediums(name))`)
     .order("attendance_date", { ascending: false });
 
   if (filters.batchId) query = query.eq("batch_id", filters.batchId);
@@ -71,6 +82,15 @@ export async function getAllAttendanceSessionsForExport(filters = {}) {
   }
   if (filters.startDate) query = query.gte("attendance_date", filters.startDate);
   if (filters.endDate) query = query.lte("attendance_date", filters.endDate);
+  if (filters.medium_id) {
+    const { data: batchIds } = await supabase
+      .from("batches")
+      .select("id")
+      .eq("medium_id", filters.medium_id);
+    const ids = batchIds?.map((b) => b.id) || [];
+    if (ids.length > 0) query = query.in("batch_id", ids);
+    else return [];
+  }
 
   const { data, error } = await query;
   if (error) throw error;
@@ -91,6 +111,7 @@ export async function getAllAttendanceSessionsForExport(filters = {}) {
       return {
         ...session,
         batch_name: session.batches?.batch_name,
+        medium_name: session.batches?.mediums?.name || "",
         present_count: presentRows ? presentRows.length : 0,
         total_count: allRows ? allRows.length : 0,
       };
@@ -101,11 +122,10 @@ export async function getAllAttendanceSessionsForExport(filters = {}) {
 }
 
 // ============================
-// CRUD
+// CRUD (unchanged)
 // ============================
 
 export async function createAttendanceSession(payload) {
-  // Use the provided created_by, or null if not present
   const { created_by, ...rest } = payload;
 
   const { data, error } = await supabase
@@ -137,7 +157,7 @@ export async function deleteAttendanceSession(id) {
 }
 
 // ============================
-// MARKING ATTENDANCE HELPERS
+// MARKING ATTENDANCE HELPERS (unchanged)
 // ============================
 
 export async function getStudentsByBatch(batchId) {
@@ -199,6 +219,16 @@ export async function getBatchOptions() {
     .from("batches")
     .select("id, batch_name")
     .eq("status", "active");
+  if (error) throw error;
+  return data || [];
+}
+
+// NEW – get mediums for attendance filter dropdown
+export async function getMediumOptions() {
+  const { data, error } = await supabase
+    .from("mediums")
+    .select("id, name")
+    .order("name");
   if (error) throw error;
   return data || [];
 }

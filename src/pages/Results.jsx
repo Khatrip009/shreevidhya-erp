@@ -15,7 +15,7 @@ export default function Results() {
   const role = (profile?.role || "").toLowerCase().replace(/\s+/g, "_");
   const isAdmin = role === "admin" || role === "super_admin";
 
-  // Fetch exams with error handling built into the query
+  // Fetch exams (now includes medium via batches)
   const {
     data: exams = [],
     isLoading,
@@ -73,11 +73,12 @@ export default function Results() {
 
       <div className="bg-white rounded-xl shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[600px]">
+          <table className="w-full min-w-[700px]">
             <thead className="bg-slate-100 border-b border-secondary-light">
               <tr>
                 <th className="p-3 text-left text-sm font-montserrat text-secondary-dark">Exam</th>
                 <th className="text-left text-sm font-montserrat text-secondary-dark">Batch</th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">Medium</th> {/* NEW */}
                 <th className="text-left text-sm font-montserrat text-secondary-dark">Date</th>
                 <th className="text-left text-sm font-montserrat text-secondary-dark">Total Marks</th>
                 <th className="text-left text-sm font-montserrat text-secondary-dark">Actions</th>
@@ -86,11 +87,11 @@ export default function Results() {
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan={5} className="p-6 text-center text-secondary">Loading exams…</td>
+                  <td colSpan={6} className="p-6 text-center text-secondary">Loading exams…</td>
                 </tr>
               ) : filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="p-6 text-center text-secondary">
+                  <td colSpan={6} className="p-6 text-center text-secondary">
                     <div className="flex flex-col items-center gap-2">
                       <Award size={32} className="text-secondary-light" />
                       <span>No exams found</span>
@@ -105,6 +106,7 @@ export default function Results() {
                   >
                     <td className="p-3 text-sm font-medium">{exam.exam_name}</td>
                     <td className="text-sm">{exam.batches?.batch_name}</td>
+                    <td className="text-sm">{exam.batches?.mediums?.name || "—"}</td> {/* NEW */}
                     <td className="text-sm">{exam.exam_date}</td>
                     <td className="text-sm">{exam.total_marks || "-"}</td>
                     <td className="text-sm">

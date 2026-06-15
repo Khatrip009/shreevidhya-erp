@@ -3,7 +3,6 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import {
   Download,
-  Filter,
   X,
   BarChart3,
   Calendar,
@@ -14,6 +13,7 @@ import AdminLayout from "../layouts/AdminLayout";
 import {
   getAttendanceReport,
   getActiveBatches,
+  getMediumOptions,
 } from "../services/attendanceReportService";
 
 export default function AttendanceReports() {
@@ -21,16 +21,21 @@ export default function AttendanceReports() {
     batch_id: "",
     start_date: "",
     end_date: "",
+    medium_id: "",
   });
 
-  // Fetch batches for filter dropdown
   const { data: batches = [] } = useQuery({
     queryKey: ["active-batches"],
     queryFn: getActiveBatches,
     staleTime: 10 * 60 * 1000,
   });
 
-  // Mutation to generate report
+  const { data: mediums = [] } = useQuery({
+    queryKey: ["report-mediums"],
+    queryFn: getMediumOptions,
+    staleTime: 10 * 60 * 1000,
+  });
+
   const {
     mutate: fetchReport,
     data: report = [],
@@ -40,7 +45,8 @@ export default function AttendanceReports() {
       getAttendanceReport(
         filters.batch_id || null,
         filters.start_date || null,
-        filters.end_date || null
+        filters.end_date || null,
+        filters.medium_id || null,
       ),
     onError: () => toast.error("Failed to load report"),
     onSuccess: (data) => {
@@ -57,16 +63,17 @@ export default function AttendanceReports() {
   }
 
   function clearFilters() {
-    setFilters({ batch_id: "", start_date: "", end_date: "" });
+    setFilters({ batch_id: "", start_date: "", end_date: "", medium_id: "" });
   }
 
-  // Export report as CSV
   function exportCSV() {
     if (report.length === 0) return;
     const csv = Papa.unparse(
       report.map((r) => ({
         admission_no: r.admission_no,
         student_name: r.student_name,
+        batch: r.batch_name,         // NEW
+        medium: r.medium_name,       // NEW
         total_sessions: r.total_sessions,
         present_count: r.present_count,
         percentage: r.percentage,
@@ -83,7 +90,6 @@ export default function AttendanceReports() {
 
   return (
     <AdminLayout>
-      {/* Header */}
       <div className="mb-6">
         <h1 className="text-3xl font-righteous text-primary-dark">
           Attendance Reports
@@ -95,7 +101,7 @@ export default function AttendanceReports() {
 
       {/* Filters Card */}
       <div className="bg-white rounded-xl p-5 shadow-sm mb-6 border border-secondary-light">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 items-end">
           <div>
             <label className="block text-sm font-montserrat text-secondary-dark mb-1">
               <Layers size={14} className="inline mr-1" />
@@ -111,6 +117,25 @@ export default function AttendanceReports() {
               {batches.map((b) => (
                 <option key={b.id} value={b.id}>
                   {b.batch_name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-montserrat text-secondary-dark mb-1">
+              <Layers size={14} className="inline mr-1" />
+              Medium
+            </label>
+            <select
+              name="medium_id"
+              value={filters.medium_id}
+              onChange={handleFilterChange}
+              className="w-full border border-secondary-light rounded p-2.5 text-sm focus:ring-1 focus:ring-primary focus:border-primary outline-none"
+            >
+              <option value="">All Mediums</option>
+              {mediums.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name}
                 </option>
               ))}
             </select>
@@ -182,7 +207,7 @@ export default function AttendanceReports() {
           </div>
         ) : report.length > 0 ? (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[600px]">
+            <table className="w-full min-w-[800px]">
               <thead className="bg-slate-100 border-b border-secondary-light">
                 <tr>
                   <th className="p-3 text-left text-sm font-montserrat text-secondary-dark">
@@ -190,6 +215,12 @@ export default function AttendanceReports() {
                   </th>
                   <th className="text-left text-sm font-montserrat text-secondary-dark">
                     Student
+                  </th>
+                  <th className="text-left text-sm font-montserrat text-secondary-dark">
+                    Batch
+                  </th>
+                  <th className="text-left text-sm font-montserrat text-secondary-dark">
+                    Medium
                   </th>
                   <th className="text-left text-sm font-montserrat text-secondary-dark">
                     Total Sessions
@@ -213,6 +244,8 @@ export default function AttendanceReports() {
                   >
                     <td className="p-3 text-sm">{row.admission_no}</td>
                     <td className="text-sm font-medium">{row.student_name}</td>
+                    <td className="text-sm">{row.batch_name || "—"}</td>
+                    <td className="text-sm">{row.medium_name || "—"}</td>
                     <td className="text-sm">{row.total_sessions}</td>
                     <td className="text-sm">{row.present_count}</td>
                     <td className="text-sm">

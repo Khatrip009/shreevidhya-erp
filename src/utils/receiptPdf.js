@@ -2,7 +2,7 @@ import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import { supabase } from "../api/supabase";
 
-// Helper: load image as base64
+// ─── Helpers ────────────────────────────────────────────────────────────────
 async function loadImageAsBase64(url) {
   const response = await fetch(url);
   const blob = await response.blob();
@@ -14,7 +14,6 @@ async function loadImageAsBase64(url) {
   });
 }
 
-// Convert number to Indian English words
 function numberToWords(num) {
   const a = [
     "", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten",
@@ -34,8 +33,9 @@ function numberToWords(num) {
   return num === 0 ? "Zero" : convert(num);
 }
 
+// ─── Main generator ─────────────────────────────────────────────────────────
 export async function generateReceiptPdf(receipt) {
-  // 1. Fetch full organization details
+  // 1. Fetch organization
   const { data: org } = await supabase
     .from("organization")
     .select("logo_dark_url, company_name, address, phone, email")
@@ -48,24 +48,76 @@ export async function generateReceiptPdf(receipt) {
   const phone = org?.phone || "";
   const email = org?.email || "";
 
-  // 2. Load logo
   const logoBase64 = await loadImageAsBase64(logoUrl).catch(() => null);
 
-  // 3. Create PDF
+  // 2. Fetch student data with medium, batch, course
+  const studentId = receipt.students?.id;
+  let mediumName = "", batchName = "", courseName = "";
+
+  if (studentId) {
+    const { data: s } = await supabase
+      .from("students")
+      .select("*, mediums(name)")
+      .eq("id", studentId)
+      .single();
+    if (s) {
+      mediumName = s.mediums?.name || "";
+    }
+    const { data: sb } = await supabase
+      .from("student_batches")
+      .select("batch_id, batches(batch_name, courses(course_name))")
+      .eq("student_id", studentId)
+      .eq("status", "active")
+      .maybeSingle();
+    if (sb) {
+      batchName = sb.batches?.batch_name || "";
+      courseName = sb.batches?.courses?.course_name || "";
+    }
+  }
+
+  // 3. Fetch fee details & installments
+  const payment = receipt.fee_payments;
+  let installments = [], totalFee = 0, paidSoFar = 0;
+
+  if (payment?.student_fee_id) {
+    const { data: studentFee } = await supabase
+      .from("student_fees")
+      .select("*, fee_structures(fee_amount), fee_installments(*)")
+      .eq("id", payment.student_fee_id)
+      .single();
+
+    if (studentFee) {
+      totalFee = Number(studentFee.final_fee);
+      installments = studentFee.fee_installments || [];
+
+      // calculate total paid for this student_fee
+      const { data: allPayments } = await supabase
+        .from("fee_payments")
+        .select("amount")
+        .eq("student_fee_id", payment.student_fee_id);
+      paidSoFar = allPayments?.reduce((sum, p) => sum + Number(p.amount), 0) || 0;
+    }
+  }
+
+  const amount = Number(receipt.amount);
+  const amountWords = numberToWords(amount) + " Only";
+  const balance = totalFee - paidSoFar;
+
+  // ─── Build PDF ──────────────────────────────────────────────────────────
   const doc = new jsPDF();
   const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
   const margin = 14;
   let y = 20;
 
-  // ---------- Header ----------
+  // Header
   if (logoBase64) {
     doc.addImage(logoBase64, "PNG", margin, y, 30, 30);
     doc.setFontSize(24);
     doc.setTextColor("#0D47A1");
     doc.text(academyName, margin + 35, y + 12);
-    doc.setFontSize(10);
+    doc.setFontSize(9);
     doc.setTextColor("#616161");
-    // Contact details
     let lineY = y + 18;
     if (address) {
       doc.text(address, margin + 35, lineY);
@@ -82,84 +134,148 @@ export async function generateReceiptPdf(receipt) {
     doc.setFontSize(24);
     doc.setTextColor("#0D47A1");
     doc.text(academyName, margin, y + 8);
-    y += 6;
-    // Fallback contact lines
-    doc.setFontSize(10);
+    doc.setFontSize(9);
     doc.setTextColor("#616161");
-    if (address) doc.text(address, margin, y + 14);
-    if (phone) doc.text(`Phone: ${phone}`, margin, y + 19);
-    if (email) doc.text(`Email: ${email}`, margin, y + 24);
+    let lineY = y + 14;
+    if (address) doc.text(address, margin, lineY);
+    lineY += 5;
+    if (phone) doc.text(`Phone: ${phone}`, margin, lineY);
+    lineY += 5;
+    if (email) doc.text(`Email: ${email}`, margin, lineY);
   }
-  y += 35;
+  y += 38;
 
-  // Decorative line
+  // Title
   doc.setDrawColor("#0D47A1");
   doc.setLineWidth(0.5);
   doc.line(margin, y, pageWidth - margin, y);
-  y += 8;
-
-  // "Fee Receipt" title
-  doc.setFontSize(14);
+  y += 6;
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(16);
   doc.setTextColor("#0D47A1");
   doc.text("FEE RECEIPT", pageWidth / 2, y, { align: "center" });
-  y += 10;
+  y += 12;
 
-  // ---------- Receipt Details Table ----------
-  const amount = Number(receipt.amount);
-  const amountWords = numberToWords(amount) + " Only";
+  // Student info box
+  const studentName = `${receipt.students?.first_name || ""} ${receipt.students?.last_name || ""}`.trim();
+  const infoLines = [
+    `Student: ${studentName}`,
+    `Admission No: ${receipt.students?.admission_no || "-"}`,
+    mediumName ? `Medium: ${mediumName}` : null,
+    batchName ? `Batch: ${batchName}` : null,
+    courseName ? `Course: ${courseName}` : null,
+  ].filter(Boolean);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(10);
+  doc.setTextColor("#333");
+  doc.text(infoLines, margin, y);
+  y += infoLines.length * 5 + 4;
 
-  const body = [
-    ["Receipt No", receipt.receipt_no],
-    ["Date", receipt.receipt_date],
-    ["Student", `${receipt.students?.first_name} ${receipt.students?.last_name} (${receipt.students?.admission_no})`],
-    ["Amount Paid", `₹${amount.toLocaleString("en-IN")}`],
-    ["Amount in Words", amountWords],
-    ["Payment Mode", receipt.fee_payments?.payment_mode || "N/A"],
-    ...(receipt.fee_payments?.transaction_no
-      ? [["Transaction No", receipt.fee_payments.transaction_no]]
-      : []),
-  ];
-
+  // Receipt details table
   autoTable(doc, {
     startY: y,
     head: [["Field", "Details"]],
-    body,
+    body: [
+      ["Receipt No", receipt.receipt_no],
+      ["Date", receipt.receipt_date],
+      ["Amount Paid", `₹${amount.toLocaleString("en-IN")}`],
+      ["Amount in Words", amountWords],
+      ["Payment Mode", payment?.payment_mode || "N/A"],
+      ...(payment?.transaction_no
+        ? [["Transaction No", payment.transaction_no]]
+        : []),
+      ...(payment?.cheque_no
+        ? [["Cheque No", payment.cheque_no]]
+        : []),
+      ...(payment?.remarks
+        ? [["Remarks", payment.remarks]]
+        : []),
+    ],
     theme: "grid",
-    styles: { fontSize: 10 },
-    headStyles: { fillColor: [13, 71, 161], textColor: 255 },
+    styles: { fontSize: 10, cellPadding: 4 },
+    headStyles: { fillColor: "#0D47A1", textColor: "#FFFFFF" },
     columnStyles: { 0: { cellWidth: 50 } },
     margin: { left: margin, right: margin },
   });
-  y = doc.lastAutoTable.finalY + 12;
+  y = doc.lastAutoTable.finalY + 10;
 
-  // ---------- Signature Section ----------
+  // Installment breakdown (if any)
+  if (installments.length > 0) {
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(12);
+    doc.setTextColor("#0D47A1");
+    doc.text("Installment Details", margin, y);
+    y += 6;
+
+    const installmentBody = installments.map((inst) => {
+      const due = Number(inst.amount);
+      // Determine payment status for this installment (paid completely, partially, or pending)
+      const paidOnThis = payment?.id ? due : 0; // simplified: actual allocation logic would be complex
+      // But we can just show due amount and status
+      return [
+        inst.due_date || "-",
+        `₹${due.toLocaleString("en-IN")}`,
+        inst.status || "pending",
+      ];
+    });
+
+    autoTable(doc, {
+      startY: y,
+      head: [["Due Date", "Amount", "Status"]],
+      body: installmentBody,
+      theme: "striped",
+      styles: { fontSize: 9, cellPadding: 3 },
+      headStyles: { fillColor: "#0D47A1", textColor: "#FFFFFF" },
+      margin: { left: margin, right: margin },
+    });
+    y = doc.lastAutoTable.finalY + 8;
+
+    // Fee summary
+    autoTable(doc, {
+      startY: y,
+      head: [["Total Fee", "Paid Till Date", "Balance"]],
+      body: [[
+        `₹${totalFee.toLocaleString("en-IN")}`,
+        `₹${paidSoFar.toLocaleString("en-IN")}`,
+        `₹${balance.toLocaleString("en-IN")}`,
+      ]],
+      theme: "grid",
+      styles: { fontSize: 10, fontStyle: "bold" },
+      headStyles: { fillColor: "#0D47A1", textColor: "#FFFFFF" },
+      margin: { left: margin, right: margin },
+    });
+    y = doc.lastAutoTable.finalY + 12;
+  }
+
+  // Signature
   doc.setFontSize(10);
   doc.setTextColor("#333");
   doc.text("Authorized Signatory", margin, y);
-  doc.line(margin, y + 6, margin + 40, y + 6);   // signature line
+  doc.line(margin, y + 6, margin + 40, y + 6);
   doc.text("Parent / Guardian", pageWidth - margin - 40, y);
   doc.line(pageWidth - margin - 40, y + 6, pageWidth - margin, y + 6);
   y += 15;
 
-  // ---------- Notes ----------
+  // Notes
   doc.setFontSize(8);
   doc.setTextColor("#777");
   doc.text("* This is a computer-generated receipt and does not require a physical signature.", margin, y);
   y += 5;
-  doc.text("* Payment subject to realization of cheque / UPI.", margin, y);
+  doc.text("* Payment subject to realisation.", margin, y);
   y += 5;
   doc.text("* Please retain this receipt for future reference.", margin, y);
 
-  // ---------- Footer ----------
-  doc.setFontSize(8);
-  doc.setTextColor("#9A9C9B");
+  // Footer
+  const footerY = pageHeight - 12;
+  doc.setFont("helvetica", "italic");
+  doc.setFontSize(7);
+  doc.setTextColor("#999");
   doc.text(
     `${academyName} – ${address}`,
     pageWidth / 2,
-    290,
+    footerY,
     { align: "center" }
   );
 
-  // Save the PDF
   doc.save(`Receipt_${receipt.receipt_no}.pdf`);
 }

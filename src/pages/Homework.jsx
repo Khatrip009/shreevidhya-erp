@@ -15,7 +15,7 @@ import {
   Upload,
   X,
   BookOpen,
-  Layers,   // <-- added missing import
+  Layers,
 } from "lucide-react";
 import Papa from "papaparse";
 import AdminLayout from "../layouts/AdminLayout";
@@ -27,6 +27,7 @@ import {
   updateHomework,
   deleteHomework,
   getBatchOptions,
+  getMediumOptions,
   getAllHomeworksForExport,
 } from "../services/homeworkService";
 import { useAuth } from "../context/AuthContext";
@@ -34,7 +35,6 @@ import { useAuth } from "../context/AuthContext";
 export default function Homework() {
   const { profile } = useAuth();
 
-  // ── Normalise role ──
   const role = (profile?.role || "").toLowerCase().replace(/\s+/g, "_");
   const isAdmin = role === "admin" || role === "super_admin";
   const isTeacher = role === "teacher";
@@ -42,11 +42,18 @@ export default function Homework() {
   const queryClient = useQueryClient();
 
   const [batchFilter, setBatchFilter] = useState("");
+  const [mediumFilter, setMediumFilter] = useState("");   // NEW
   const [search, setSearch] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [showFilters, setShowFilters] = useState(false);
-  const allFilters = { batchId: batchFilter, search, startDate, endDate };
+  const allFilters = {
+    batchId: batchFilter,
+    medium_id: mediumFilter,    // NEW
+    search,
+    startDate,
+    endDate,
+  };
 
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
@@ -56,6 +63,13 @@ export default function Homework() {
   const { data: batches = [] } = useQuery({
     queryKey: ["batches-dropdown"],
     queryFn: getBatchOptions,
+    staleTime: 10 * 60 * 1000,
+  });
+
+  // Fetch mediums for filter dropdown
+  const { data: mediums = [] } = useQuery({
+    queryKey: ["mediums-dropdown"],
+    queryFn: getMediumOptions,
     staleTime: 10 * 60 * 1000,
   });
 
@@ -150,6 +164,7 @@ export default function Homework() {
           title: h.title,
           description: h.description,
           batch: h.batches?.batch_name,
+          medium: h.medium_name || "",
           subject: h.subjects?.subject_name,
           assigned_date: h.assigned_date,
           due_date: h.due_date,
@@ -192,7 +207,6 @@ export default function Homework() {
           </p>
         </div>
 
-        {/* Show Add Homework for both admins and teachers */}
         {(isAdmin || isTeacher) && (
           <div className="flex flex-wrap gap-2">
             <button
@@ -248,7 +262,7 @@ export default function Homework() {
       </div>
 
       {showFilters && (
-        <div className="bg-white rounded-xl p-4 shadow-sm mb-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 border border-secondary-light">
+        <div className="bg-white rounded-xl p-4 shadow-sm mb-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 border border-secondary-light">
           <div>
             <label className="text-xs font-montserrat text-secondary-dark">Batch</label>
             <select
@@ -261,6 +275,19 @@ export default function Homework() {
                 <option key={b.id} value={b.id}>
                   {b.batch_name}
                 </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs font-montserrat text-secondary-dark">Medium</label>
+            <select
+              value={mediumFilter}
+              onChange={(e) => setMediumFilter(e.target.value)}
+              className="w-full border border-secondary-light rounded p-2 text-sm mt-1 focus:ring-1 focus:ring-primary"
+            >
+              <option value="">All Mediums</option>
+              {mediums.map((m) => (
+                <option key={m.id} value={m.id}>{m.name}</option>
               ))}
             </select>
           </div>
@@ -287,6 +314,7 @@ export default function Homework() {
               onClick={() => {
                 setSearch("");
                 setBatchFilter("");
+                setMediumFilter("");
                 setStartDate("");
                 setEndDate("");
               }}
@@ -301,11 +329,12 @@ export default function Homework() {
       {/* Table */}
       <div className="bg-white rounded-xl shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[800px]">
+          <table className="w-full min-w-[900px]">
             <thead className="bg-slate-100 border-b border-secondary-light">
               <tr>
                 <th className="p-3 text-left text-sm font-montserrat text-secondary-dark">Title</th>
                 <th className="text-left text-sm font-montserrat text-secondary-dark">Batch</th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">Medium</th>   {/* NEW */}
                 <th className="text-left text-sm font-montserrat text-secondary-dark">Subject</th>
                 <th className="text-left text-sm font-montserrat text-secondary-dark">Assigned</th>
                 <th className="text-left text-sm font-montserrat text-secondary-dark">Due</th>
@@ -316,16 +345,16 @@ export default function Homework() {
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan={7} className="p-6 text-center text-secondary">Loading homework…</td>
+                  <td colSpan={8} className="p-6 text-center text-secondary">Loading homework…</td>
                 </tr>
               ) : homeworks.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="p-6 text-center text-secondary">
+                  <td colSpan={8} className="p-6 text-center text-secondary">
                     <div className="flex flex-col items-center gap-2">
                       <BookOpen size={32} className="text-secondary-light" />
                       <span>No homework found</span>
                       <span className="text-xs text-secondary-light">
-                        {search || batchFilter || startDate || endDate
+                        {search || batchFilter || mediumFilter || startDate || endDate
                           ? "Try adjusting your filters"
                           : "Add new homework to get started"}
                       </span>
@@ -340,6 +369,13 @@ export default function Homework() {
                   >
                     <td className="p-3 text-sm font-medium">{hw.title}</td>
                     <td className="text-sm">{hw.batches?.batch_name}</td>
+                    <td className="text-sm">
+                      {hw.medium_name ? (
+                        <span className="bg-primary-bg text-primary px-2 py-0.5 rounded-full text-xs">
+                          {hw.medium_name}
+                        </span>
+                      ) : "-"}
+                    </td>
                     <td className="text-sm">{hw.subjects?.subject_name}</td>
                     <td className="text-sm">{hw.assigned_date}</td>
                     <td className="text-sm">{hw.due_date || "-"}</td>
@@ -352,7 +388,6 @@ export default function Homework() {
                         >
                           <Layers size={15} /> Submissions
                         </button>
-                        {/* Edit/Delete only for admins */}
                         {isAdmin && (
                           <>
                             <button

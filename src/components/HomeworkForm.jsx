@@ -1,12 +1,13 @@
 import { useState, useEffect } from "react";
 import toast from "react-hot-toast";
 import {
-  X, Layers, BookOpen, FileText, AlignLeft, Calendar, Link2, User,
+  X, Layers, BookOpen, FileText, AlignLeft, Calendar, Link2, User, Filter,
 } from "lucide-react";
 import {
   getBatchOptions,
   getSubjectsByCourse,
   getTeacherOptions,
+  getMediumOptions,
 } from "../services/homeworkService";
 import { useOrgDarkLogo } from "../hooks/useOrgDarkLogo";
 import { useAuth } from "../context/AuthContext";
@@ -17,10 +18,12 @@ export default function HomeworkForm({ onSubmit, onClose, initialData = {} }) {
   const { user, profile } = useAuth();
 
   const [batches, setBatches] = useState([]);
+  const [mediums, setMediums] = useState([]);
+  const [selectedMediumId, setSelectedMediumId] = useState("");
   const [subjects, setSubjects] = useState([]);
   const [teachers, setTeachers] = useState([]);
   const [loadingTeacherId, setLoadingTeacherId] = useState(false);
-  const [loadingSubjects, setLoadingSubjects] = useState(false);   // NEW
+  const [loadingSubjects, setLoadingSubjects] = useState(false);
 
   const [form, setForm] = useState({
     batch_id: initialData.batch_id || "",
@@ -40,7 +43,7 @@ export default function HomeworkForm({ onSubmit, onClose, initialData = {} }) {
     autoSetTeacher();
   }, []);
 
-  // Fetch subjects whenever batch_id changes (using direct Supabase query)
+  // Fetch subjects whenever batch_id changes
   useEffect(() => {
     if (!form.batch_id) {
       setSubjects([]);
@@ -50,7 +53,6 @@ export default function HomeworkForm({ onSubmit, onClose, initialData = {} }) {
     async function fetchSubjects() {
       setLoadingSubjects(true);
       try {
-        // 1. Get the course_id for the selected batch
         const { data: batchData, error: batchError } = await supabase
           .from("batches")
           .select("course_id")
@@ -63,7 +65,6 @@ export default function HomeworkForm({ onSubmit, onClose, initialData = {} }) {
           return;
         }
 
-        // 2. Fetch subjects for that course
         const subj = await getSubjectsByCourse(batchData.course_id);
         setSubjects(subj);
       } catch (err) {
@@ -99,12 +100,14 @@ export default function HomeworkForm({ onSubmit, onClose, initialData = {} }) {
 
   async function loadDropdowns() {
     try {
-      const [batchData, teacherData] = await Promise.all([
+      const [batchData, teacherData, mediumData] = await Promise.all([
         getBatchOptions(),
         getTeacherOptions(),
+        getMediumOptions(),
       ]);
       setBatches(batchData);
       setTeachers(teacherData);
+      setMediums(mediumData);
     } catch {
       toast.error("Failed to load form data");
     }
@@ -113,6 +116,11 @@ export default function HomeworkForm({ onSubmit, onClose, initialData = {} }) {
   function handleChange(e) {
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
   }
+
+  // Filter batches by selected medium
+  const filteredBatches = batches.filter((b) =>
+    !selectedMediumId ? true : b.medium_id === parseInt(selectedMediumId)
+  );
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -144,6 +152,29 @@ export default function HomeworkForm({ onSubmit, onClose, initialData = {} }) {
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-5">
+          {/* Medium Filter – NEW */}
+          <div>
+            <label className="block text-sm font-montserrat text-secondary-dark mb-1">
+              <Filter size={14} className="inline mr-1" />
+              Medium
+            </label>
+            <select
+              value={selectedMediumId}
+              onChange={(e) => {
+                setSelectedMediumId(e.target.value);
+                setForm((prev) => ({ ...prev, batch_id: "", subject_id: "" }));
+              }}
+              className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
+            >
+              <option value="">All Mediums</option>
+              {mediums.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
           {/* Batch & Subject */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
             <div>
@@ -159,7 +190,7 @@ export default function HomeworkForm({ onSubmit, onClose, initialData = {} }) {
                 required
               >
                 <option value="">Select Batch</option>
-                {batches.map((b) => (
+                {filteredBatches.map((b) => (
                   <option key={b.id} value={b.id}>
                     {b.batch_name}
                   </option>

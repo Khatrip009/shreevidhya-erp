@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { BookOpen, Calendar, Upload, FileText } from "lucide-react";
+import { BookOpen, Calendar, Upload, FileText, Layers } from "lucide-react";
 import toast from "react-hot-toast";
 import AdminLayout from "../layouts/AdminLayout";
 import { useStudentId } from "../hooks/useStudentId";
@@ -15,9 +15,10 @@ export default function StudentHomeworkPage() {
 
   const [uploadingFor, setUploadingFor] = useState(null);
   const [selectedFile, setSelectedFile] = useState(null);
+  const [filePreviewUrl, setFilePreviewUrl] = useState(null); // for image preview
   const [submissionRemarks, setSubmissionRemarks] = useState("");
 
-  // Fetch homework assignments
+  // Fetch homework assignments – now includes medium via batches
   const { data: homeworks = [], isLoading } = useQuery({
     queryKey: ["student-homeworks-list", studentId],
     queryFn: async () => {
@@ -32,7 +33,7 @@ export default function StudentHomeworkPage() {
 
       const { data } = await supabase
         .from("homework")
-        .select(`*, subjects(subject_name), batches(batch_name)`)
+        .select(`*, subjects(subject_name), batches(batch_name, mediums(name))`)
         .in("batch_id", batchIds)
         .order("due_date", { ascending: true });
       return data || [];
@@ -71,6 +72,7 @@ export default function StudentHomeworkPage() {
       toast.success("Homework submitted successfully!");
       queryClient.invalidateQueries({ queryKey: ["student-submissions"] });
       setSelectedFile(null);
+      setFilePreviewUrl(null);
       setUploadingFor(null);
       setSubmissionRemarks("");
     },
@@ -92,6 +94,14 @@ export default function StudentHomeworkPage() {
 
     setSelectedFile(file);
     setUploadingFor(homeworkId);
+
+    // Generate preview URL for images
+    if (file.type.startsWith("image/")) {
+      const url = URL.createObjectURL(file);
+      setFilePreviewUrl(url);
+    } else {
+      setFilePreviewUrl(null);
+    }
   };
 
   const handleUpload = (homeworkId) => {
@@ -106,6 +116,14 @@ export default function StudentHomeworkPage() {
     });
   };
 
+  // Clean up preview URL when component unmounts or file changes
+  const resetUpload = () => {
+    setSelectedFile(null);
+    setFilePreviewUrl(null);
+    setUploadingFor(null);
+    setSubmissionRemarks("");
+  };
+
   if (idLoading || isLoading || submissionsLoading) {
     return (
       <AdminLayout>
@@ -116,7 +134,9 @@ export default function StudentHomeworkPage() {
 
   return (
     <AdminLayout>
-      <h1 className="text-3xl font-righteous text-primary-dark mb-6">My Homework</h1>
+      <h1 className="text-3xl font-righteous text-primary-dark mb-6">
+        My Homework
+      </h1>
 
       {homeworks.length === 0 ? (
         <p className="text-secondary">No homework assigned.</p>
@@ -146,7 +166,12 @@ export default function StudentHomeworkPage() {
                   </span>
                   {hw.batches?.batch_name && (
                     <span className="flex items-center gap-1">
-                      Batch: {hw.batches.batch_name}
+                      <Layers size={14} /> {hw.batches.batch_name}
+                    </span>
+                  )}
+                  {hw.batches?.mediums?.name && (
+                    <span className="flex items-center gap-1 bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">
+                      {hw.batches.mediums.name}
                     </span>
                   )}
                 </div>
@@ -165,25 +190,36 @@ export default function StudentHomeworkPage() {
                 {/* Submission section */}
                 <div className="mt-4 border-t pt-3">
                   {alreadySubmitted ? (
-                    <div className="flex items-center gap-2 text-sm text-green-700">
-                      <FileText size={16} />
-                      <span>Submitted ({submissionsForHw.length} file(s))</span>
-                      <div className="flex gap-2 ml-2">
-                        {submissionsForHw.map((sub) => (
-                          <a
-                            key={sub.id}
-                            href={sub.submission_file}
-                            target="_blank"
-                            className="text-primary underline text-xs"
-                          >
-                            View submission
-                          </a>
-                        ))}
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 text-sm text-green-700">
+                        <FileText size={16} />
+                        <span>Submitted ({submissionsForHw.length} file(s))</span>
+                        <div className="flex gap-2 ml-2">
+                          {submissionsForHw.map((sub) => (
+                            <a
+                              key={sub.id}
+                              href={sub.submission_file}
+                              target="_blank"
+                              className="text-primary underline text-xs"
+                            >
+                              View
+                            </a>
+                          ))}
+                        </div>
                       </div>
-                      {/* Show teacher's feedback if available */}
-                      {submissionsForHw.some((s) => s.marks !== null) && (
-                        <div className="ml-4 text-xs text-secondary">
-                          Marks: {submissionsForHw[0].marks} | Remarks: {submissionsForHw[0].remarks || "—"}
+                      {/* Teacher's feedback / marks */}
+                      {submissionsForHw.some(
+                        (s) => s.marks !== null || s.remarks
+                      ) && (
+                        <div className="text-xs text-secondary">
+                          {submissionsForHw[0].marks !== null && (
+                            <span className="mr-3">
+                              Marks: {submissionsForHw[0].marks}
+                            </span>
+                          )}
+                          {submissionsForHw[0].remarks && (
+                            <span>Remarks: {submissionsForHw[0].remarks}</span>
+                          )}
                         </div>
                       )}
                     </div>
@@ -192,7 +228,7 @@ export default function StudentHomeworkPage() {
                       <p className="text-sm text-secondary mb-2">
                         No submission yet. Upload your homework (max 1 MB).
                       </p>
-                      <div className="space-y-2">
+                      <div className="space-y-3">
                         <div className="flex items-center gap-2">
                           <input
                             type="file"
@@ -200,7 +236,7 @@ export default function StudentHomeworkPage() {
                             className="hidden"
                             accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.zip"
                             onChange={(e) => handleFileChange(e, hw.id)}
-                            disabled={isUploading}
+                            disabled={uploadMutation.isLoading}
                           />
                           <label
                             htmlFor={`file-${hw.id}`}
@@ -213,24 +249,49 @@ export default function StudentHomeworkPage() {
                               {selectedFile.name}
                             </span>
                           )}
+                          {uploadingFor === hw.id && (
+                            <button
+                              onClick={() => resetUpload()}
+                              className="text-xs text-secondary hover:text-red-500"
+                            >
+                              Clear
+                            </button>
+                          )}
                         </div>
+
+                        {/* Image preview */}
+                        {filePreviewUrl && uploadingFor === hw.id && (
+                          <div className="w-32 h-32 rounded border overflow-hidden">
+                            <img
+                              src={filePreviewUrl}
+                              alt="Preview"
+                              className="w-full h-full object-cover"
+                            />
+                          </div>
+                        )}
+
                         {/* Remarks input */}
                         <div>
                           <textarea
                             placeholder="Any remarks (optional)"
-                            value={submissionRemarks}
+                            value={
+                              uploadingFor === hw.id ? submissionRemarks : ""
+                            }
                             onChange={(e) => setSubmissionRemarks(e.target.value)}
                             rows={2}
                             className="w-full border border-secondary-light rounded p-2 text-sm focus:ring-1 focus:ring-primary outline-none resize-none"
                           />
                         </div>
+
                         {selectedFile && uploadingFor === hw.id && (
                           <button
                             onClick={() => handleUpload(hw.id)}
                             disabled={uploadMutation.isLoading}
                             className="bg-primary hover:bg-primary-light text-white px-4 py-2 rounded-lg text-sm"
                           >
-                            {uploadMutation.isLoading ? "Uploading…" : "Submit Homework"}
+                            {uploadMutation.isLoading
+                              ? "Uploading…"
+                              : "Submit Homework"}
                           </button>
                         )}
                       </div>

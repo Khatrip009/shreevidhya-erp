@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import {
@@ -37,7 +37,7 @@ export default function TeacherProfile() {
     enabled: !!user?.id,
   });
 
-  // ---- Fetch assigned batches ----
+  // ---- Fetch assigned batches with medium ----
   const { data: batches = [] } = useQuery({
     queryKey: ["teacher-batches", teacher?.id],
     queryFn: async () => {
@@ -51,6 +51,8 @@ export default function TeacherProfile() {
             start_time,
             end_time,
             days,
+            medium_id,
+            mediums ( name ),
             courses ( course_name )
           )
         `)
@@ -78,8 +80,8 @@ export default function TeacherProfile() {
     reason: "",
   });
 
-  // ---- Set form when teacher data loads ----
-  useState(() => {
+  // Set form when teacher data loads (fixed: useEffect)
+  useEffect(() => {
     if (teacher) {
       setForm({
         first_name: teacher.first_name || "",
@@ -328,11 +330,25 @@ export default function TeacherProfile() {
             {batches.length === 0 ? (
               <p className="text-sm text-secondary">No batches assigned.</p>
             ) : (
-              <ul className="space-y-2 text-sm">
+              <ul className="space-y-3 text-sm">
                 {batches.map((b) => (
-                  <li key={b.batch_id} className="flex justify-between">
-                    <span>{b.batches?.batch_name} ({b.batches?.courses?.course_name})</span>
-                    <span className="text-secondary">{b.batches?.start_time} - {b.batches?.end_time}</span>
+                  <li key={b.batch_id} className="border-b pb-2 last:border-b-0">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <span className="font-medium">{b.batches?.batch_name}</span>
+                        <span className="text-secondary ml-1">
+                          ({b.batches?.courses?.course_name})
+                        </span>
+                        {b.batches?.mediums?.name && (
+                          <span className="ml-2 inline-block bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full text-xs">
+                            {b.batches.mediums.name}
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-secondary text-xs whitespace-nowrap">
+                        {b.batches?.start_time} - {b.batches?.end_time}
+                      </span>
+                    </div>
                   </li>
                 ))}
               </ul>

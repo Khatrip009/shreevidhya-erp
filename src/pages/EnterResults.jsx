@@ -26,7 +26,6 @@ export default function EnterResults() {
   const { examId } = useParams();
   const navigate = useNavigate();
 
-  // Redirect if examId is missing or "undefined"
   useEffect(() => {
     if (!examId || examId === "undefined") {
       navigate("/results", { replace: true });
@@ -34,15 +33,15 @@ export default function EnterResults() {
   }, [examId, navigate]);
 
   const [exam, setExam] = useState(null);
-  const [allStudents, setAllStudents] = useState([]);   // all students of the batch
+  const [allStudents, setAllStudents] = useState([]);
   const [marks, setMarks] = useState({});
   const [remarks, setRemarks] = useState({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const fileInputRef = useRef(null);
 
-  // Course name from exam info
   const courseName = exam?.batches?.courses?.course_name || "—";
+  const mediumName = exam?.batches?.mediums?.name || "";   // NEW
 
   useEffect(() => {
     if (examId && examId !== "undefined") {
@@ -88,13 +87,13 @@ export default function EnterResults() {
     setRemarks((prev) => ({ ...prev, [studentId]: value }));
   }
 
-  // ---------- CSV Export ----------
   function handleExportCSV() {
     const data = allStudents.map((s) => ({
       admission_no: s.admission_no,
       first_name: s.first_name,
       last_name: s.last_name,
       course: courseName,
+      medium: mediumName,                  // NEW
       marks_obtained: marks[s.id] ?? "",
       remarks: remarks[s.id] ?? "",
     }));
@@ -109,13 +108,13 @@ export default function EnterResults() {
     URL.revokeObjectURL(url);
   }
 
-  // ---------- Download Template ----------
   function handleDownloadTemplate() {
     const data = allStudents.map((s) => ({
       admission_no: s.admission_no,
       first_name: s.first_name,
       last_name: s.last_name,
       course: courseName,
+      medium: mediumName,
       marks_obtained: "",
       remarks: "",
     }));
@@ -130,7 +129,6 @@ export default function EnterResults() {
     URL.revokeObjectURL(url);
   }
 
-  // ---------- CSV Import ----------
   function handleCSVImport(event) {
     const file = event.target.files[0];
     if (!file) return;
@@ -145,8 +143,7 @@ export default function EnterResults() {
 
         results.data.forEach((row) => {
           const student = allStudents.find(
-            (s) =>
-              s.admission_no?.toString() === row.admission_no?.toString()
+            (s) => s.admission_no?.toString() === row.admission_no?.toString()
           );
           if (student) {
             if (row.marks_obtained !== undefined && row.marks_obtained !== "") {
@@ -188,7 +185,7 @@ export default function EnterResults() {
     }
   }
 
-  if (!examId || examId === "undefined") return null; // waiting for redirect
+  if (!examId || examId === "undefined") return null;
 
   if (loading) {
     return (
@@ -202,7 +199,6 @@ export default function EnterResults() {
 
   return (
     <AdminLayout>
-      {/* Back button and header */}
       <div className="mb-6">
         <button
           onClick={() => navigate("/results")}
@@ -220,6 +216,11 @@ export default function EnterResults() {
             <span className="flex items-center gap-1 bg-primary-bg text-primary px-3 py-1 rounded-full">
               <Layers size={14} /> {exam.batches?.batch_name}
             </span>
+            {mediumName && (
+              <span className="flex items-center gap-1 bg-accent/10 text-accent px-3 py-1 rounded-full text-xs">
+                {mediumName}
+              </span>
+            )}
             <span className="flex items-center gap-1 bg-primary-bg text-primary px-3 py-1 rounded-full">
               <Calendar size={14} /> {exam.exam_date}
             </span>
@@ -230,7 +231,6 @@ export default function EnterResults() {
         )}
       </div>
 
-      {/* Action buttons */}
       <div className="flex flex-wrap items-end gap-3 mb-4">
         <button
           onClick={handleExportCSV}
@@ -259,7 +259,6 @@ export default function EnterResults() {
         />
       </div>
 
-      {/* Students Table */}
       <div className="bg-white rounded-xl shadow-sm overflow-hidden">
         <div className="p-4 border-b border-secondary-light flex justify-between items-center">
           <h2 className="text-lg font-semibold font-righteous text-primary-dark flex items-center gap-2">
@@ -333,7 +332,6 @@ export default function EnterResults() {
           </table>
         </div>
 
-        {/* Action Buttons */}
         <div className="p-4 border-t border-secondary-light flex flex-col sm:flex-row justify-end gap-3">
           <button
             onClick={() => navigate("/results")}

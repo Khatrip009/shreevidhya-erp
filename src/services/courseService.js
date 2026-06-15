@@ -1,6 +1,6 @@
 import { supabase } from "../api/supabase";
 
-// Paginated fetch with search filter
+// Paginated fetch with search filter – now includes medium name
 export async function getCourses({ pageParam = 0, filters = {} } = {}) {
   const limit = 10;
   const from = pageParam * limit;
@@ -8,36 +8,51 @@ export async function getCourses({ pageParam = 0, filters = {} } = {}) {
 
   let query = supabase
     .from("courses")
-    .select("*", { count: "exact" })
+    .select("*, mediums(name)", { count: "exact" })
     .order("id", { ascending: false })
     .range(from, to);
 
   if (filters.search) {
     query = query.ilike("course_name", `%${filters.search}%`);
   }
+  if (filters.medium_id) {
+    query = query.eq("medium_id", filters.medium_id);
+  }
 
   const { data, error, count } = await query;
   if (error) throw error;
-  return { data, count };
+
+  const enriched = (data || []).map((course) => ({
+    ...course,
+    medium_name: course.mediums?.name || "",
+  }));
+
+  return { data: enriched, count };
 }
 
-// Export all courses (unpaginated, respecting search)
+// Export all courses (unpaginated, respecting search and medium filter)
 export async function getAllCoursesForExport(filters = {}) {
   let query = supabase
     .from("courses")
-    .select("*")
+    .select("*, mediums(name)")
     .order("id", { ascending: false });
 
   if (filters.search) {
     query = query.ilike("course_name", `%${filters.search}%`);
   }
+  if (filters.medium_id) {
+    query = query.eq("medium_id", filters.medium_id);
+  }
 
   const { data, error } = await query;
   if (error) throw error;
-  return data || [];
+  return (data || []).map((course) => ({
+    ...course,
+    medium_name: course.mediums?.name || "",
+  }));
 }
 
-// CRUD
+// CRUD – medium_id is accepted inside payload
 export async function createCourse(payload) {
   const { data, error } = await supabase
     .from("courses")
@@ -116,4 +131,14 @@ export async function deleteCourseLevel(id) {
     .delete()
     .eq("id", id);
   if (error) throw error;
+}
+
+// NEW – get mediums for filter dropdowns
+export async function getMediumOptions() {
+  const { data, error } = await supabase
+    .from("mediums")
+    .select("id, name")
+    .order("name");
+  if (error) throw error;
+  return data || [];
 }

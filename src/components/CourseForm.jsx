@@ -1,14 +1,31 @@
 import { useState } from "react";
 import toast from "react-hot-toast";
-import { X, BookOpen, FileText, Clock } from "lucide-react";
+import { X, BookOpen, FileText, Clock, Layers } from "lucide-react";
 import { useOrgDarkLogo } from "../hooks/useOrgDarkLogo";
+import { supabase } from "../api/supabase";
+import { useQuery } from "@tanstack/react-query";
 
 export default function CourseForm({ onSubmit, onClose, initialData = {} }) {
   const darkLogo = useOrgDarkLogo();
+
   const [form, setForm] = useState({
     course_name: initialData.course_name || "",
     description: initialData.description || "",
     duration_months: initialData.duration_months || "",
+    medium_id: initialData.medium_id || "",   // NEW
+  });
+
+  // Fetch mediums for dropdown
+  const { data: mediums = [] } = useQuery({
+    queryKey: ["mediums-dropdown"],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("mediums")
+        .select("id, name")
+        .order("name");
+      return data || [];
+    },
+    staleTime: 10 * 60 * 1000,
   });
 
   function handleChange(e) {
@@ -24,6 +41,7 @@ export default function CourseForm({ onSubmit, onClose, initialData = {} }) {
     await onSubmit({
       ...form,
       duration_months: Number(form.duration_months),
+      medium_id: form.medium_id || null,    // NEW
     });
   }
 
@@ -98,6 +116,28 @@ export default function CourseForm({ onSubmit, onClose, initialData = {} }) {
               className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light"
               min="1"
             />
+          </div>
+
+          {/* Medium – NEW */}
+          <div>
+            <label className="block text-sm font-montserrat text-secondary-dark mb-1">
+              <Layers size={14} className="inline mr-1" />
+              Medium *
+            </label>
+            <select
+              name="medium_id"
+              value={form.medium_id}
+              onChange={handleChange}
+              required
+              className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
+            >
+              <option value="">Select Medium</option>
+              {mediums.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name}
+                </option>
+              ))}
+            </select>
           </div>
 
           {/* Buttons */}

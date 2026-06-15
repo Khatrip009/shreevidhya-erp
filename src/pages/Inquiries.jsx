@@ -29,6 +29,7 @@ import {
   deleteInquiry,
   getAllInquiriesForExport,
   getCourseOptions,
+  getMediumOptions,
 } from "../services/inquiryService";
 
 export default function Inquiries() {
@@ -39,6 +40,7 @@ export default function Inquiries() {
   const [filters, setFilters] = useState({
     status: "",
     interested_course_id: "",
+    medium_id: "",
     source: "",
     start_date: "",
     end_date: "",
@@ -60,7 +62,8 @@ export default function Inquiries() {
     isFetchingNextPage,
   } = useInfiniteQuery({
     queryKey: ["inquiries", allFilters],
-    queryFn: ({ pageParam = 0 }) => getInquiries({ pageParam, filters: allFilters }),
+    queryFn: ({ pageParam = 0 }) =>
+      getInquiries({ pageParam, filters: allFilters }),
     getNextPageParam: (lastPage, allPages) => {
       const totalFetched = allPages.reduce((sum, page) => sum + page.data.length, 0);
       if (lastPage.count && totalFetched < lastPage.count) {
@@ -74,10 +77,16 @@ export default function Inquiries() {
 
   const inquiries = data?.pages.flatMap((page) => page.data) || [];
 
-  // Dropdown for course filter
+  // Dropdowns for filters
   const { data: courses = [] } = useQuery({
     queryKey: ["coursesDropdown"],
     queryFn: getCourseOptions,
+    staleTime: 10 * 60 * 1000,
+  });
+
+  const { data: mediums = [] } = useQuery({
+    queryKey: ["mediumsDropdown"],
+    queryFn: getMediumOptions,
     staleTime: 10 * 60 * 1000,
   });
 
@@ -140,13 +149,15 @@ export default function Inquiries() {
         for (const row of results.data) {
           try {
             const payload = {
-              inquiry_no: "INQ-" + Date.now() + Math.random().toString(36).substr(2, 5),
+              inquiry_no:
+                "INQ-" + Date.now() + Math.random().toString(36).substr(2, 5),
               student_name: row.student_name,
               parent_name: row.parent_name,
               mobile: row.mobile,
               whatsapp: row.whatsapp,
               email: row.email,
               interested_course_id: row.interested_course_id || null,
+              medium_id: row.medium_id || null, // NEW – accept medium_id from CSV
               source: row.source || "",
               remarks: row.remarks || "",
               followup_date: row.followup_date || null,
@@ -177,7 +188,10 @@ export default function Inquiries() {
           mobile: inq.mobile,
           whatsapp: inq.whatsapp,
           email: inq.email,
-          interested_course: courses.find(c => c.id === inq.interested_course_id)?.course_name,
+          interested_course: courses.find(
+            (c) => c.id === inq.interested_course_id
+          )?.course_name,
+          medium: inq.medium_name || "", // NEW – export medium name
           source: inq.source,
           status: inq.status,
           followup_date: inq.followup_date,
@@ -220,12 +234,20 @@ export default function Inquiries() {
     convertMutation.mutate(inquiry);
   }
 
+  // Helper to get course name
+  function getCourseName(courseId) {
+    const course = courses.find((c) => c.id === courseId);
+    return course ? course.course_name : "—";
+  }
+
   return (
     <AdminLayout>
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
         <div>
-          <h1 className="text-3xl font-righteous text-primary-dark">Inquiries</h1>
+          <h1 className="text-3xl font-righteous text-primary-dark">
+            Inquiries
+          </h1>
           <p className="text-sm text-secondary-dark font-montserrat mt-1">
             Manage prospective student inquiries
           </p>
@@ -262,7 +284,10 @@ export default function Inquiries() {
       {/* Search & Filter Toggle */}
       <div className="flex flex-col sm:flex-row gap-3 mb-4">
         <div className="relative flex-1">
-          <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-secondary" />
+          <Search
+            size={18}
+            className="absolute left-3 top-1/2 -translate-y-1/2 text-secondary"
+          />
           <input
             type="text"
             placeholder="Search by student, parent, mobile, or inquiry no..."
@@ -284,10 +309,14 @@ export default function Inquiries() {
       {showFilters && (
         <div className="bg-white rounded-xl p-4 shadow-sm mb-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 border border-secondary-light">
           <div>
-            <label className="text-xs font-montserrat text-secondary-dark">Status</label>
+            <label className="text-xs font-montserrat text-secondary-dark">
+              Status
+            </label>
             <select
               value={filters.status}
-              onChange={(e) => setFilters((prev) => ({ ...prev, status: e.target.value }))}
+              onChange={(e) =>
+                setFilters((prev) => ({ ...prev, status: e.target.value }))
+              }
               className="w-full border border-secondary-light rounded p-2 text-sm mt-1 focus:ring-1 focus:ring-primary"
             >
               <option value="">All Statuses</option>
@@ -299,49 +328,101 @@ export default function Inquiries() {
               <option>Closed</option>
             </select>
           </div>
+
           <div>
-            <label className="text-xs font-montserrat text-secondary-dark">Interested Course</label>
+            <label className="text-xs font-montserrat text-secondary-dark">
+              Interested Course
+            </label>
             <select
               value={filters.interested_course_id}
-              onChange={(e) => setFilters((prev) => ({ ...prev, interested_course_id: e.target.value }))}
+              onChange={(e) =>
+                setFilters((prev) => ({
+                  ...prev,
+                  interested_course_id: e.target.value,
+                }))
+              }
               className="w-full border border-secondary-light rounded p-2 text-sm mt-1 focus:ring-1 focus:ring-primary"
             >
               <option value="">All Courses</option>
               {courses.map((c) => (
-                <option key={c.id} value={c.id}>{c.course_name}</option>
+                <option key={c.id} value={c.id}>
+                  {c.course_name}
+                </option>
               ))}
             </select>
           </div>
+
+          {/* NEW – Medium filter */}
           <div>
-            <label className="text-xs font-montserrat text-secondary-dark">Source</label>
+            <label className="text-xs font-montserrat text-secondary-dark">
+              Medium
+            </label>
+            <select
+              value={filters.medium_id}
+              onChange={(e) =>
+                setFilters((prev) => ({ ...prev, medium_id: e.target.value }))
+              }
+              className="w-full border border-secondary-light rounded p-2 text-sm mt-1 focus:ring-1 focus:ring-primary"
+            >
+              <option value="">All Mediums</option>
+              {mediums.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="text-xs font-montserrat text-secondary-dark">
+              Source
+            </label>
             <input
               type="text"
               value={filters.source}
-              onChange={(e) => setFilters((prev) => ({ ...prev, source: e.target.value }))}
+              onChange={(e) =>
+                setFilters((prev) => ({ ...prev, source: e.target.value }))
+              }
               placeholder="e.g., Walk-in, Online"
               className="w-full border border-secondary-light rounded p-2 text-sm mt-1 focus:ring-1 focus:ring-primary"
             />
           </div>
+
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <label className="text-xs font-montserrat text-secondary-dark">From Date</label>
+              <label className="text-xs font-montserrat text-secondary-dark">
+                From Date
+              </label>
               <input
                 type="date"
                 value={filters.start_date}
-                onChange={(e) => setFilters((prev) => ({ ...prev, start_date: e.target.value }))}
+                onChange={(e) =>
+                  setFilters((prev) => ({
+                    ...prev,
+                    start_date: e.target.value,
+                  }))
+                }
                 className="w-full border border-secondary-light rounded p-2 text-sm mt-1 focus:ring-1 focus:ring-primary"
               />
             </div>
             <div>
-              <label className="text-xs font-montserrat text-secondary-dark">To Date</label>
+              <label className="text-xs font-montserrat text-secondary-dark">
+                To Date
+              </label>
               <input
                 type="date"
                 value={filters.end_date}
-                onChange={(e) => setFilters((prev) => ({ ...prev, end_date: e.target.value }))}
+                onChange={(e) =>
+                  setFilters((prev) => ({
+                    ...prev,
+                    end_date: e.target.value,
+                  }))
+                }
                 className="w-full border border-secondary-light rounded p-2 text-sm mt-1 focus:ring-1 focus:ring-primary"
               />
             </div>
           </div>
+
           <div className="flex items-end">
             <button
               onClick={() => {
@@ -349,6 +430,7 @@ export default function Inquiries() {
                 setFilters({
                   status: "",
                   interested_course_id: "",
+                  medium_id: "",
                   source: "",
                   start_date: "",
                   end_date: "",
@@ -368,22 +450,42 @@ export default function Inquiries() {
           <table className="w-full min-w-[800px]">
             <thead className="bg-slate-100 border-b border-secondary-light">
               <tr>
-                <th className="p-3 text-left text-sm font-montserrat text-secondary-dark">Inquiry No</th>
-                <th className="text-left text-sm font-montserrat text-secondary-dark">Student</th>
-                <th className="text-left text-sm font-montserrat text-secondary-dark">Parent</th>
-                <th className="text-left text-sm font-montserrat text-secondary-dark">Mobile</th>
-                <th className="text-left text-sm font-montserrat text-secondary-dark">Status</th>
-                <th className="text-left text-sm font-montserrat text-secondary-dark">Actions</th>
+                <th className="p-3 text-left text-sm font-montserrat text-secondary-dark">
+                  Inquiry No
+                </th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">
+                  Student
+                </th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">
+                  Parent
+                </th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">
+                  Mobile
+                </th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">
+                  Course
+                </th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">
+                  Medium
+                </th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">
+                  Status
+                </th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">
+                  Actions
+                </th>
               </tr>
             </thead>
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan={6} className="p-6 text-center text-secondary">Loading inquiries…</td>
+                  <td colSpan={8} className="p-6 text-center text-secondary">
+                    Loading inquiries…
+                  </td>
                 </tr>
               ) : inquiries.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="p-6 text-center text-secondary">
+                  <td colSpan={8} className="p-6 text-center text-secondary">
                     <div className="flex flex-col items-center gap-2">
                       <PhoneCall size={32} className="text-secondary-light" />
                       <span>No inquiries found</span>
@@ -401,10 +503,18 @@ export default function Inquiries() {
                     key={inquiry.id}
                     className="border-b border-secondary-light hover:bg-primary-bg transition"
                   >
-                    <td className="p-3 text-sm font-medium">{inquiry.inquiry_no}</td>
+                    <td className="p-3 text-sm font-medium">
+                      {inquiry.inquiry_no}
+                    </td>
                     <td className="text-sm">{inquiry.student_name}</td>
                     <td className="text-sm">{inquiry.parent_name || "-"}</td>
                     <td className="text-sm">{inquiry.mobile}</td>
+                    <td className="text-sm">
+                      {getCourseName(inquiry.interested_course_id)}
+                    </td>
+                    <td className="text-sm">
+                      {inquiry.medium_name || "—"}
+                    </td>
                     <td className="text-sm">
                       <span
                         className={`px-2 py-0.5 rounded-full text-xs font-medium ${
@@ -467,7 +577,10 @@ export default function Inquiries() {
 
       {/* Modals */}
       {showForm && (
-        <InquiryForm onSubmit={handleCreate} onClose={() => setShowForm(false)} />
+        <InquiryForm
+          onSubmit={handleCreate}
+          onClose={() => setShowForm(false)}
+        />
       )}
       {editing && (
         <InquiryForm

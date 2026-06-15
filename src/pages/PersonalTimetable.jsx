@@ -75,7 +75,7 @@ export default function PersonalTimetable() {
         const { data, error } = await supabase
           .from("batches")
           .select(
-            `id, batch_name, start_time, end_time, days, courses(course_name), batch_teachers(teacher_id, subject_id, day, teachers(first_name, last_name), subjects(subject_name))`
+            `id, batch_name, start_time, end_time, days, courses(course_name), mediums(name), batch_teachers(teacher_id, subject_id, day, teachers(first_name, last_name), subjects(subject_name))`
           )
           .in("id", batchIds)
           .eq("status", "active");
@@ -221,6 +221,11 @@ export default function PersonalTimetable() {
                         <div key={batch.id} className="bg-primary-bg text-primary-dark p-2 rounded mb-1 text-xs">
                           <div className="font-semibold">{batch.batch_name}</div>
                           <div className="text-secondary">{batch.courses?.course_name}</div>
+                          {batch.mediums?.name && (
+                            <div className="text-secondary-dark text-xs mt-0.5">
+                              Medium: {batch.mediums.name}
+                            </div>
+                          )}
                           {batch.batch_teachers.length > 0 && (
                             <div className="mt-1 space-y-0.5">
                               {batch.batch_teachers.map(bt => (

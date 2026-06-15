@@ -1,6 +1,6 @@
 import { supabase } from "../api/supabase";
 
-// Paginated fetch with filters
+// Paginated fetch with filters – now includes medium info
 export async function getProgressEvaluations({ pageParam = 0, filters = {} } = {}) {
   const limit = 10;
   const from = pageParam * limit;
@@ -11,13 +11,23 @@ export async function getProgressEvaluations({ pageParam = 0, filters = {} } = {
     .select(
       `*,
       students!inner( first_name, last_name, admission_no ),
-      batches!inner( batch_name, course_id, courses ( course_name ) )`,
+      batches!inner( batch_name, course_id, medium_id, mediums(name), courses ( course_name ) )`,
       { count: "exact" }
     )
     .order("evaluation_date", { ascending: false })
     .range(from, to);
 
   if (filters.batchId) query = query.eq("batch_id", filters.batchId);
+  if (filters.medium_id) {
+    // Filter evaluations whose batch has the specified medium
+    const { data: mediumBatches } = await supabase
+      .from("batches")
+      .select("id")
+      .eq("medium_id", filters.medium_id);
+    const batchIds = mediumBatches?.map((b) => b.id) || [];
+    if (batchIds.length > 0) query = query.in("batch_id", batchIds);
+    else return { data: [], count: 0 };
+  }
   if (filters.search) {
     query = query.or(
       `students.first_name.ilike.%${filters.search}%,students.last_name.ilike.%${filters.search}%`
@@ -28,21 +38,37 @@ export async function getProgressEvaluations({ pageParam = 0, filters = {} } = {
 
   const { data, error, count } = await query;
   if (error) throw error;
-  return { data, count };
+
+  // Flatten medium name (FIXED: renamed 'eval' to 'item')
+  const enriched = (data || []).map((item) => ({
+    ...item,
+    medium_name: item.batches?.mediums?.name || "",
+  }));
+
+  return { data: enriched, count };
 }
 
-// Export all evaluations matching filters (for CSV)
+// Export all evaluations matching filters (for CSV) – now includes medium name
 export async function getAllProgressEvaluationsForExport(filters = {}) {
   let query = supabase
     .from("student_progress")
     .select(
       `*,
       students!inner( first_name, last_name, admission_no ),
-      batches!inner( batch_name, course_id, courses ( course_name ) )`
+      batches!inner( batch_name, course_id, medium_id, mediums(name), courses ( course_name ) )`
     )
     .order("evaluation_date", { ascending: false });
 
   if (filters.batchId) query = query.eq("batch_id", filters.batchId);
+  if (filters.medium_id) {
+    const { data: mediumBatches } = await supabase
+      .from("batches")
+      .select("id")
+      .eq("medium_id", filters.medium_id);
+    const batchIds = mediumBatches?.map((b) => b.id) || [];
+    if (batchIds.length > 0) query = query.in("batch_id", batchIds);
+    else return [];
+  }
   if (filters.search) {
     query = query.or(
       `students.first_name.ilike.%${filters.search}%,students.last_name.ilike.%${filters.search}%`
@@ -53,10 +79,14 @@ export async function getAllProgressEvaluationsForExport(filters = {}) {
 
   const { data, error } = await query;
   if (error) throw error;
-  return data || [];
+  // FIXED: renamed 'eval' to 'item'
+  return (data || []).map((item) => ({
+    ...item,
+    medium_name: item.batches?.mediums?.name || "",
+  }));
 }
 
-// CRUD
+// CRUD (unchanged)
 export async function createProgressEvaluation(payload) {
   const { data, error } = await supabase
     .from("student_progress")
@@ -105,4 +135,14 @@ export async function getStudentsByBatch(batchId) {
     .eq("status", "active");
   if (error) throw error;
   return data.map((item) => item.students);
+}
+
+// NEW – get mediums for filter dropdown
+export async function getMediumOptions() {
+  const { data, error } = await supabase
+    .from("mediums")
+    .select("id, name")
+    .order("name");
+  if (error) throw error;
+  return data || [];
 }

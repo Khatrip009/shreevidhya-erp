@@ -23,7 +23,7 @@ export default function StudentBatchPage() {
       if (studentError) throw studentError;
       if (!student?.id) return { studentId: null, batch: null, subjects: [], teachers: [] };
 
-      // 2. Get active batch with all nested data
+      // 2. Get active batch with all nested data – now includes medium
       const { data: batchAssignment, error: batchError } = await supabase
         .from("student_batches")
         .select(`
@@ -32,6 +32,8 @@ export default function StudentBatchPage() {
           batches (
             id, batch_name, start_time, end_time, days, start_date, end_date,
             course_id,
+            medium_id,
+            mediums ( name ),
             courses ( course_name, subjects ( id, subject_name ) ),
             batch_teachers ( teacher_id, subject_id, teachers ( first_name, last_name ), subjects ( subject_name ) )
           )
@@ -62,6 +64,7 @@ export default function StudentBatchPage() {
         batch: {
           ...batch,
           enrollment_date: batchAssignment.enrollment_date,
+          medium_name: batch?.mediums?.name || "",    // flattened medium name
         },
         subjects,
         teachers,
@@ -120,6 +123,11 @@ export default function StudentBatchPage() {
           <span className="bg-primary-bg text-primary px-2 py-0.5 rounded-full text-xs">
             {batch.courses?.course_name}
           </span>
+          {batch.medium_name && (
+            <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full text-xs">
+              {batch.medium_name}
+            </span>
+          )}
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm text-secondary-dark">

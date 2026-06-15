@@ -8,10 +8,12 @@ import {
   TrendingUp,
   Star,
   MessageSquareText,
+  Filter,
 } from "lucide-react";
 import {
   getActiveBatches,
   getStudentsByBatch,
+  getMediumOptions,
 } from "../services/progressService";
 import { useOrgDarkLogo } from "../hooks/useOrgDarkLogo";
 
@@ -22,6 +24,8 @@ export default function ProgressEvaluationForm({
 }) {
   const darkLogo = useOrgDarkLogo();
   const [batches, setBatches] = useState([]);
+  const [mediums, setMediums] = useState([]);
+  const [selectedMediumId, setSelectedMediumId] = useState("");
   const [students, setStudents] = useState([]);
 
   const [form, setForm] = useState({
@@ -35,7 +39,7 @@ export default function ProgressEvaluationForm({
   });
 
   useEffect(() => {
-    loadBatches();
+    loadDropdowns();
   }, []);
 
   useEffect(() => {
@@ -46,9 +50,17 @@ export default function ProgressEvaluationForm({
     }
   }, [form.batch_id]);
 
-  async function loadBatches() {
-    const data = await getActiveBatches();
-    setBatches(data);
+  async function loadDropdowns() {
+    try {
+      const [batchData, mediumData] = await Promise.all([
+        getActiveBatches(),
+        getMediumOptions(),
+      ]);
+      setBatches(batchData);
+      setMediums(mediumData);
+    } catch {
+      toast.error("Failed to load data");
+    }
   }
 
   async function loadStudents(batchId) {
@@ -63,6 +75,11 @@ export default function ProgressEvaluationForm({
   function handleChange(e) {
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
   }
+
+  // Filter batches by selected medium
+  const filteredBatches = batches.filter((b) =>
+    !selectedMediumId ? true : b.medium_id === parseInt(selectedMediumId)
+  );
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -110,6 +127,29 @@ export default function ProgressEvaluationForm({
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-5">
+          {/* Medium Filter – NEW */}
+          <div>
+            <label className="block text-sm font-montserrat text-secondary-dark mb-1">
+              <Filter size={14} className="inline mr-1" />
+              Medium
+            </label>
+            <select
+              value={selectedMediumId}
+              onChange={(e) => {
+                setSelectedMediumId(e.target.value);
+                setForm((prev) => ({ ...prev, batch_id: "", student_id: "" }));
+              }}
+              className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
+            >
+              <option value="">All Mediums</option>
+              {mediums.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
           {/* Batch */}
           <div>
             <label className="block text-sm font-montserrat text-secondary-dark mb-1">
@@ -124,7 +164,7 @@ export default function ProgressEvaluationForm({
               required
             >
               <option value="">Select Batch</option>
-              {batches.map((b) => (
+              {filteredBatches.map((b) => (
                 <option key={b.id} value={b.id}>
                   {b.batch_name}
                 </option>

@@ -5,7 +5,7 @@ import AdminLayout from "../layouts/AdminLayout";
 import BatchForm from "../components/BatchForm";
 import { updateBatch } from "../services/batchService";
 import toast from "react-hot-toast";
-import { Clock } from "lucide-react";
+import { Clock, Layers } from "lucide-react";
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const TIME_SLOTS = Array.from({ length: 14 }, (_, i) => `${i + 7}:00`); // 7 AM to 8 PM
@@ -13,19 +13,38 @@ const TIME_SLOTS = Array.from({ length: 14 }, (_, i) => `${i + 7}:00`); // 7 AM 
 export default function AdminTimetable() {
   const queryClient = useQueryClient();
   const [editingBatch, setEditingBatch] = useState(null);
+  const [selectedMediumId, setSelectedMediumId] = useState("");   // NEW
 
-  const { data: batches = [], isLoading } = useQuery({
-    queryKey: ["timetable-batches"],
+  // Fetch mediums for filter dropdown
+  const { data: mediums = [] } = useQuery({
+    queryKey: ["timetable-mediums"],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data } = await supabase.from("mediums").select("id, name").order("name");
+      return data || [];
+    },
+    staleTime: 10 * 60 * 1000,
+  });
+
+  // Fetch all active batches with nested data – now includes medium name
+  const { data: batches = [], isLoading } = useQuery({
+    queryKey: ["timetable-batches", selectedMediumId],
+    queryFn: async () => {
+      let query = supabase
         .from("batches")
         .select(`
           *,
           courses ( course_name ),
+          mediums ( name ),
           batch_teachers ( teacher_id, subject_id, day, teachers ( first_name, last_name ), subjects ( subject_name ) )
         `)
         .eq("status", "active")
         .order("batch_name");
+
+      if (selectedMediumId) {
+        query = query.eq("medium_id", selectedMediumId);
+      }
+
+      const { data, error } = await query;
       if (error) throw error;
       return data || [];
     },
@@ -93,6 +112,23 @@ export default function AdminTimetable() {
         </p>
       </div>
 
+      {/* Medium Filter – NEW */}
+      <div className="flex items-center gap-2 mb-4">
+        <Layers size={18} className="text-secondary" />
+        <select
+          value={selectedMediumId}
+          onChange={(e) => setSelectedMediumId(e.target.value)}
+          className="border border-secondary-light rounded-lg p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none"
+        >
+          <option value="">All Mediums</option>
+          {mediums.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.name}
+            </option>
+          ))}
+        </select>
+      </div>
+
       <div className="overflow-x-auto">
         <div className="min-w-[900px]">
           {/* Header: day names */}
@@ -136,6 +172,7 @@ export default function AdminTimetable() {
                           <div className="font-semibold">{batch.batch_name}</div>
                           <div className="text-secondary">
                             {batch.courses?.course_name}
+                            {batch.mediums?.name ? ` (${batch.mediums.name})` : ""}
                           </div>
                           {batch.batch_teachers.length > 0 ? (
                             <div className="mt-1 space-y-0.5">

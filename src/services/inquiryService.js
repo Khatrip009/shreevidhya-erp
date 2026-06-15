@@ -1,6 +1,6 @@
 import { supabase } from "../api/supabase";
 
-// Paginated fetch with filters
+// Paginated fetch with filters – now includes medium name
 export async function getInquiries({ pageParam = 0, filters = {} } = {}) {
   const limit = 10;
   const from = pageParam * limit;
@@ -8,7 +8,7 @@ export async function getInquiries({ pageParam = 0, filters = {} } = {}) {
 
   let query = supabase
     .from("inquiries")
-    .select("*", { count: "exact" })
+    .select("*, mediums(name)", { count: "exact" })
     .order("created_at", { ascending: false })
     .range(from, to);
 
@@ -19,20 +19,28 @@ export async function getInquiries({ pageParam = 0, filters = {} } = {}) {
   }
   if (filters.status) query = query.eq("status", filters.status);
   if (filters.interested_course_id) query = query.eq("interested_course_id", filters.interested_course_id);
+  if (filters.medium_id) query = query.eq("medium_id", filters.medium_id);
   if (filters.source) query = query.eq("source", filters.source);
   if (filters.start_date) query = query.gte("created_at", filters.start_date);
   if (filters.end_date) query = query.lte("created_at", filters.end_date);
 
   const { data, error, count } = await query;
   if (error) throw error;
-  return { data, count };
+
+  // Flatten medium name
+  const enriched = (data || []).map((inq) => ({
+    ...inq,
+    medium_name: inq.mediums?.name || "",
+  }));
+
+  return { data: enriched, count };
 }
 
-// Export all inquiries matching filters (for CSV)
+// Export all inquiries matching filters (for CSV) – now includes medium name
 export async function getAllInquiriesForExport(filters = {}) {
   let query = supabase
     .from("inquiries")
-    .select("*")
+    .select("*, mediums(name)")
     .order("created_at", { ascending: false });
 
   if (filters.search) {
@@ -42,16 +50,20 @@ export async function getAllInquiriesForExport(filters = {}) {
   }
   if (filters.status) query = query.eq("status", filters.status);
   if (filters.interested_course_id) query = query.eq("interested_course_id", filters.interested_course_id);
+  if (filters.medium_id) query = query.eq("medium_id", filters.medium_id);
   if (filters.source) query = query.eq("source", filters.source);
   if (filters.start_date) query = query.gte("created_at", filters.start_date);
   if (filters.end_date) query = query.lte("created_at", filters.end_date);
 
   const { data, error } = await query;
   if (error) throw error;
-  return data || [];
+  return (data || []).map((inq) => ({
+    ...inq,
+    medium_name: inq.mediums?.name || "",
+  }));
 }
 
-// CRUD
+// CRUD – unchanged (medium_id can be passed in payload)
 export async function createInquiry(payload) {
   const { data, error } = await supabase
     .from("inquiries")
@@ -87,6 +99,16 @@ export async function getCourseOptions() {
     .from("courses")
     .select("id, course_name")
     .eq("status", true);
+  if (error) throw error;
+  return data || [];
+}
+
+// NEW – get mediums for filter dropdown
+export async function getMediumOptions() {
+  const { data, error } = await supabase
+    .from("mediums")
+    .select("id, name")
+    .order("name");
   if (error) throw error;
   return data || [];
 }

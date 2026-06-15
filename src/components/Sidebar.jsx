@@ -1,7 +1,7 @@
 import {
   LayoutDashboard, Users, GraduationCap, BookOpen, Award,
   IndianRupee, Settings, ChevronDown, Bell, X, CalendarClock,
-  Wallet, Building, Calendar,
+  Wallet, Building, Calendar, Layers,
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { useState } from "react";
@@ -43,19 +43,22 @@ export default function Sidebar({ onClose }) {
       <NavLink to="/student" end className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-lg transition ${isActive ? "bg-primary-light" : "hover:bg-primary-light"}`}>
         <LayoutDashboard size={18} /> Dashboard
       </NavLink>
-      <NavLink to="/student/profile" className="block py-2 ml-8 text-secondary-light hover:text-white">My Profile</NavLink>
-      <NavLink to="/student/batch" className="block py-2 ml-8 text-secondary-light hover:text-white">Batch & Course</NavLink>
-      <NavLink to="/student/attendance" className="block py-2 ml-8 text-secondary-light hover:text-white">Attendance</NavLink>
-      <NavLink to="/student/fees" className="block py-2 ml-8 text-secondary-light hover:text-white">Fees</NavLink>
-      <NavLink to="/student/homework" className="block py-2 ml-8 text-secondary-light hover:text-white">Homework</NavLink>
-      <NavLink to="/student/exams" className="block py-2 ml-8 text-secondary-light hover:text-white">Exams</NavLink>
-      <NavLink to="/student/results" className="block py-2 ml-8 text-secondary-light hover:text-white">Results</NavLink>
-      <NavLink to="/student/certificates" className="block py-2 ml-8 text-secondary-light hover:text-white">Certificates</NavLink>
-      <NavLink to="/student/timetable" className="block py-2 ml-8 text-secondary-light hover:text-white">Timetable</NavLink>
+      <div className="ml-8 space-y-1">
+        <NavLink to="/student/profile" className="block py-2 text-secondary-light hover:text-white">My Profile</NavLink>
+        <NavLink to="/student/batch" className="block py-2 text-secondary-light hover:text-white">Batch & Course</NavLink>
+        <NavLink to="/student/attendance" className="block py-2 text-secondary-light hover:text-white">Attendance</NavLink>
+        <NavLink to="/student/fees" className="block py-2 text-secondary-light hover:text-white">Fees</NavLink>
+        <NavLink to="/student/homework" className="block py-2 text-secondary-light hover:text-white">Homework</NavLink>
+        <NavLink to="/student/exams" className="block py-2 text-secondary-light hover:text-white">Exams</NavLink>
+        <NavLink to="/student/results" className="block py-2 text-secondary-light hover:text-white">Results</NavLink>
+        <NavLink to="/student/certificates" className="block py-2 text-secondary-light hover:text-white">Certificates</NavLink>
+        <NavLink to="/student/timetable" className="block py-2 text-secondary-light hover:text-white">Timetable</NavLink>
+        <NavLink to="/student/resources" className="block py-2 text-secondary-light hover:text-white">Learning Resources</NavLink>
+      </div>
       <NavLink to="/notifications" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-primary-light transition">
         <Bell size={18} /> Notifications
       </NavLink>
-      <NavLink to="/settings" className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-lg transition ${isActive ? "bg-primary-light" : "hover:bg-primary-light"}`}>
+      <NavLink to="/settings" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-primary-light transition">
         <Settings size={18} /> Settings
       </NavLink>
     </>
@@ -67,6 +70,7 @@ export default function Sidebar({ onClose }) {
       <NavLink to="/teacher" end className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-lg transition ${isActive ? "bg-primary-light" : "hover:bg-primary-light"}`}>
         <LayoutDashboard size={18} /> Dashboard
       </NavLink>
+
       <button onClick={() => setAcademicOpen(!academicOpen)} className="w-full flex justify-between items-center px-4 py-3 rounded-lg hover:bg-primary-light transition">
         <span className="flex items-center gap-3"><GraduationCap size={18} />Academics</span>
         <ChevronDown size={16} className={`transition ${academicOpen ? "rotate-180" : ""}`} />
@@ -77,8 +81,10 @@ export default function Sidebar({ onClose }) {
           <NavLink to="/homework" className="block py-2 text-secondary-light hover:text-white">Homework</NavLink>
           <NavLink to="/exams" className="block py-2 text-secondary-light hover:text-white">Exams</NavLink>
           <NavLink to="/results" className="block py-2 text-secondary-light hover:text-white">Results</NavLink>
+          <NavLink to="/teacher/resources" className="block py-2 text-secondary-light hover:text-white">Learning Resources</NavLink>
         </div>
       )}
+
       <NavLink to="/teacher/salary" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-primary-light transition">
         <Wallet size={18} /> My Salary
       </NavLink>
@@ -100,12 +106,13 @@ export default function Sidebar({ onClose }) {
     </>
   );
 
-  // ---------- Admin / Super Admin full links ----------
+  // ---------- Admin / Super Admin links ----------
   const adminLinks = (
     <>
       <NavLink to="/" end className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-lg transition ${isActive ? "bg-primary-light" : "hover:bg-primary-light"}`}>
         <LayoutDashboard size={18} /> Dashboard
       </NavLink>
+
       {/* Admissions */}
       <button onClick={() => setAdmissionOpen(!admissionOpen)} className="w-full flex justify-between items-center px-4 py-3 rounded-lg hover:bg-primary-light transition">
         <span className="flex items-center gap-3"><Users size={18} />Admissions</span>
@@ -113,11 +120,14 @@ export default function Sidebar({ onClose }) {
       </button>
       {admissionOpen && (
         <div className="ml-8 space-y-1">
-          {[["/inquiries","Inquiries"],["/students","Students"],["/parents","Parents"],["/student-batches","Batch Assign"],["/student-documents","Documents"]].map(([to,label]) => (
-            <NavLink key={to} to={to} className={({ isActive }) => `block py-2 transition ${isActive ? "text-white font-medium" : "text-secondary-light hover:text-white"}`}>{label}</NavLink>
-          ))}
+          <NavLink to="/inquiries" className="block py-2 text-secondary-light hover:text-white">Inquiries</NavLink>
+          <NavLink to="/students" className="block py-2 text-secondary-light hover:text-white">Students</NavLink>
+          <NavLink to="/parents" className="block py-2 text-secondary-light hover:text-white">Parents</NavLink>
+          <NavLink to="/student-batches" className="block py-2 text-secondary-light hover:text-white">Batch Assign</NavLink>
+          <NavLink to="/student-documents" className="block py-2 text-secondary-light hover:text-white">Documents</NavLink>
         </div>
       )}
+
       {/* Academics */}
       <button onClick={() => setAcademicOpen(!academicOpen)} className="w-full flex justify-between items-center px-4 py-3 rounded-lg hover:bg-primary-light transition">
         <span className="flex items-center gap-3"><GraduationCap size={18} />Academics</span>
@@ -125,9 +135,18 @@ export default function Sidebar({ onClose }) {
       </button>
       {academicOpen && (
         <div className="ml-8 space-y-1">
-          {[["/courses","Courses"],["/subjects","Subjects"],["/batches","Batches"],["/attendance","Attendance"],["/attendance/reports","Attendance Reports"],["/progress","Progress"],["/student-progress","Progress Report"],["/homework","Homework"],["/exams","Exams"],["/results","Results"],["/timetable","Class Timetable"]].map(([to,label]) => (
-            <NavLink key={to} to={to} className={({ isActive }) => `block py-2 transition ${isActive ? "text-white font-medium" : "text-secondary-light hover:text-white"}`}>{label}</NavLink>
-          ))}
+          <NavLink to="/courses" className="block py-2 text-secondary-light hover:text-white">Courses</NavLink>
+          <NavLink to="/subjects" className="block py-2 text-secondary-light hover:text-white">Subjects</NavLink>
+          <NavLink to="/mediums" className="block py-2 text-secondary-light hover:text-white">Mediums</NavLink>
+          <NavLink to="/batches" className="block py-2 text-secondary-light hover:text-white">Batches</NavLink>
+          <NavLink to="/attendance" className="block py-2 text-secondary-light hover:text-white">Attendance</NavLink>
+          <NavLink to="/attendance/reports" className="block py-2 text-secondary-light hover:text-white">Attendance Reports</NavLink>
+          <NavLink to="/progress" className="block py-2 text-secondary-light hover:text-white">Progress</NavLink>
+          <NavLink to="/student-progress" className="block py-2 text-secondary-light hover:text-white">Progress Report</NavLink>
+          <NavLink to="/homework" className="block py-2 text-secondary-light hover:text-white">Homework</NavLink>
+          <NavLink to="/exams" className="block py-2 text-secondary-light hover:text-white">Exams</NavLink>
+          <NavLink to="/results" className="block py-2 text-secondary-light hover:text-white">Results</NavLink>
+          <NavLink to="/timetable" className="block py-2 text-secondary-light hover:text-white">Class Timetable</NavLink>
         </div>
       )}
 
@@ -138,39 +157,41 @@ export default function Sidebar({ onClose }) {
       </button>
       {financeOpen && (
         <div className="ml-8 space-y-1">
-          {[["/fees/structures", "Fee Structures"],["/fees","Fees"],["/receipts","Receipts"],["/income","Income"],["/expenses","Expenses"],["/salary-payments","Salary Payments"]].map(([to,label]) => (
-            <NavLink key={to} to={to} className={({ isActive }) => `block py-2 transition ${isActive ? "text-white font-medium" : "text-secondary-light hover:text-white"}`}>{label}</NavLink>
-          ))}
+          <NavLink to="/fees/structures" className="block py-2 text-secondary-light hover:text-white">Fee Structures</NavLink>
+          <NavLink to="/fees" className="block py-2 text-secondary-light hover:text-white">Fees</NavLink>
+          <NavLink to="/receipts" className="block py-2 text-secondary-light hover:text-white">Receipts</NavLink>
+          <NavLink to="/income" className="block py-2 text-secondary-light hover:text-white">Income</NavLink>
+          <NavLink to="/expenses" className="block py-2 text-secondary-light hover:text-white">Expenses</NavLink>
+          <NavLink to="/salary-payments" className="block py-2 text-secondary-light hover:text-white">Salary Payments</NavLink>
+          <NavLink to="/profit-loss" className="block py-2 text-secondary-light hover:text-white">Profit & Loss</NavLink>
+          <NavLink to="/learning-resources" className="block py-2 text-secondary-light hover:text-white">Learning Resources</NavLink>
         </div>
       )}
-      <NavLink to="/profit-loss" className={({ isActive }) => `block py-2 transition ${isActive ? "text-white font-medium" : "text-secondary-light hover:text-white"}`}>
-  Profit & Loss
-</NavLink>
 
-      {/* Admin timetable link – standalone */}
-      <NavLink to="/timetable" className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-lg transition ${isActive ? "bg-primary-light" : "hover:bg-primary-light"}`}>
-        <Calendar size={18} /> Timetable
+      {/* HR & Staff */}
+      <NavLink to="/teachers" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-primary-light transition">
+        <BookOpen size={18} /> Teachers
       </NavLink>
-
       <NavLink to="/leave-management" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-primary-light transition">
         <CalendarClock size={18} /> Leave Management
       </NavLink>
-      <NavLink to="/teachers" className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-lg transition ${isActive ? "bg-primary-light" : "hover:bg-primary-light"}`}>
-        <BookOpen size={18} /> Teachers
-      </NavLink>
-      <NavLink to="/certificates" className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-lg transition ${isActive ? "bg-primary-light" : "hover:bg-primary-light"}`}>
+
+      {/* Awards & Certificates */}
+      <NavLink to="/certificates" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-primary-light transition">
         <Award size={18} /> Certificates
       </NavLink>
-      <NavLink to="/notifications" className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-lg transition ${isActive ? "bg-primary-light" : "hover:bg-primary-light"}`}>
+
+      {/* Communication & System */}
+      <NavLink to="/notifications" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-primary-light transition">
         <Bell size={18} /> Notifications
       </NavLink>
-      <NavLink to="/user-management" className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-lg transition ${isActive ? "bg-primary-light" : "hover:bg-primary-light"}`}>
+      <NavLink to="/user-management" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-primary-light transition">
         <Users size={18} /> Users
       </NavLink>
-      <NavLink to="/settings" className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-lg transition ${isActive ? "bg-primary-light" : "hover:bg-primary-light"}`}>
+      <NavLink to="/settings" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-primary-light transition">
         <Settings size={18} /> Settings
       </NavLink>
-      <NavLink to="/organization-settings" className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-lg transition ${isActive ? "bg-primary-light" : "hover:bg-primary-light"}`}>
+      <NavLink to="/organization-settings" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-primary-light transition">
         <Building size={18} /> Organization
       </NavLink>
     </>

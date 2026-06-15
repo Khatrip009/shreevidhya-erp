@@ -30,6 +30,7 @@ import {
   deleteExam,
   getBatchOptions,
   getCourseOptions,
+  getMediumOptions,
   getAllExamsForExport,
 } from "../services/examService";
 import { useAuth } from "../context/AuthContext";
@@ -38,7 +39,6 @@ export default function Exams() {
   const { profile } = useAuth();
   const navigate = useNavigate();
 
-  // Normalise role
   const role = (profile?.role || "").toLowerCase().replace(/\s+/g, "_");
   const isAdmin = role === "admin" || role === "super_admin";
 
@@ -47,6 +47,7 @@ export default function Exams() {
   const [search, setSearch] = useState("");
   const [batchFilter, setBatchFilter] = useState("");
   const [courseFilter, setCourseFilter] = useState("");
+  const [mediumFilter, setMediumFilter] = useState("");   // NEW
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [showFilters, setShowFilters] = useState(false);
@@ -54,6 +55,7 @@ export default function Exams() {
     search,
     batchId: batchFilter,
     courseId: courseFilter,
+    medium_id: mediumFilter,   // NEW
     startDate,
     endDate,
   };
@@ -70,6 +72,11 @@ export default function Exams() {
   const { data: courses = [] } = useQuery({
     queryKey: ["courses-dropdown"],
     queryFn: getCourseOptions,
+    staleTime: 10 * 60 * 1000,
+  });
+  const { data: mediums = [] } = useQuery({
+    queryKey: ["mediums-dropdown"],
+    queryFn: getMediumOptions,
     staleTime: 10 * 60 * 1000,
   });
 
@@ -161,6 +168,7 @@ export default function Exams() {
           exam_name: e.exam_name,
           batch: e.batches?.batch_name,
           course: e.batches?.courses?.course_name,
+          medium: e.medium_name || "",
           exam_date: e.exam_date,
           total_marks: e.total_marks,
         }))
@@ -254,7 +262,7 @@ export default function Exams() {
       </div>
 
       {showFilters && (
-        <div className="bg-white rounded-xl p-4 shadow-sm mb-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 border border-secondary-light">
+        <div className="bg-white rounded-xl p-4 shadow-sm mb-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 border border-secondary-light">
           <div>
             <label className="text-xs font-montserrat text-secondary-dark">Batch</label>
             <select
@@ -286,6 +294,21 @@ export default function Exams() {
             </select>
           </div>
           <div>
+            <label className="text-xs font-montserrat text-secondary-dark">Medium</label>
+            <select
+              value={mediumFilter}
+              onChange={(e) => setMediumFilter(e.target.value)}
+              className="w-full border border-secondary-light rounded p-2 text-sm mt-1 focus:ring-1 focus:ring-primary"
+            >
+              <option value="">All Mediums</option>
+              {mediums.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
             <label className="text-xs font-montserrat text-secondary-dark">From Date</label>
             <input
               type="date"
@@ -300,6 +323,7 @@ export default function Exams() {
                 setSearch("");
                 setBatchFilter("");
                 setCourseFilter("");
+                setMediumFilter("");
                 setStartDate("");
                 setEndDate("");
               }}
@@ -313,12 +337,13 @@ export default function Exams() {
 
       <div className="bg-white rounded-xl shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[700px]">
+          <table className="w-full min-w-[800px]">
             <thead className="bg-slate-100 border-b border-secondary-light">
               <tr>
                 <th className="p-3 text-left text-sm font-montserrat text-secondary-dark">Exam</th>
                 <th className="text-left text-sm font-montserrat text-secondary-dark">Batch</th>
                 <th className="text-left text-sm font-montserrat text-secondary-dark">Course</th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">Medium</th>
                 <th className="text-left text-sm font-montserrat text-secondary-dark">Date</th>
                 <th className="text-left text-sm font-montserrat text-secondary-dark">Total Marks</th>
                 <th className="text-left text-sm font-montserrat text-secondary-dark">Actions</th>
@@ -327,16 +352,16 @@ export default function Exams() {
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan={6} className="p-6 text-center text-secondary">Loading exams…</td>
+                  <td colSpan={7} className="p-6 text-center text-secondary">Loading exams…</td>
                 </tr>
               ) : exams.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="p-6 text-center text-secondary">
+                  <td colSpan={7} className="p-6 text-center text-secondary">
                     <div className="flex flex-col items-center gap-2">
                       <Award size={32} className="text-secondary-light" />
                       <span>No exams found</span>
                       <span className="text-xs text-secondary-light">
-                        {search || batchFilter || courseFilter || startDate || endDate
+                        {search || batchFilter || courseFilter || mediumFilter || startDate || endDate
                           ? "Try adjusting your filters"
                           : "Add a new exam to get started"}
                       </span>
@@ -352,11 +377,17 @@ export default function Exams() {
                     <td className="p-3 text-sm font-medium">{exam.exam_name}</td>
                     <td className="text-sm">{exam.batches?.batch_name}</td>
                     <td className="text-sm">{exam.batches?.courses?.course_name}</td>
+                    <td className="text-sm">
+                      {exam.medium_name ? (
+                        <span className="bg-primary-bg text-primary px-2 py-0.5 rounded-full text-xs">
+                          {exam.medium_name}
+                        </span>
+                      ) : "-"}
+                    </td>
                     <td className="text-sm">{exam.exam_date}</td>
                     <td className="text-sm">{exam.total_marks || "-"}</td>
                     <td className="text-sm">
                       <div className="flex gap-2">
-                        {/* Always show Enter Results link (admin & teacher) */}
                         <button
                           onClick={() => navigate(`/results/enter/${exam.id}`)}
                           className="text-purple-600 hover:underline"

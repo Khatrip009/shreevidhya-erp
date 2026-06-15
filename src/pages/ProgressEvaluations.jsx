@@ -28,6 +28,7 @@ import {
   deleteProgressEvaluation,
   getActiveBatches,
   getAllProgressEvaluationsForExport,
+  getMediumOptions,
 } from "../services/progressService";
 
 export default function ProgressEvaluations() {
@@ -35,12 +36,14 @@ export default function ProgressEvaluations() {
 
   // Filters
   const [batchFilter, setBatchFilter] = useState("");
+  const [mediumFilter, setMediumFilter] = useState("");  // NEW
   const [search, setSearch] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [showFilters, setShowFilters] = useState(false);
   const allFilters = {
     batchId: batchFilter,
+    medium_id: mediumFilter,   // NEW
     search,
     startDate,
     endDate,
@@ -51,10 +54,16 @@ export default function ProgressEvaluations() {
   const [editing, setEditing] = useState(null);
   const fileInputRef = useRef(null);
 
-  // Dropdown for batches
+  // Dropdown for batches & mediums
   const { data: batches = [] } = useQuery({
     queryKey: ["active-batches"],
     queryFn: getActiveBatches,
+    staleTime: 10 * 60 * 1000,
+  });
+
+  const { data: mediums = [] } = useQuery({
+    queryKey: ["mediums"],
+    queryFn: getMediumOptions,
     staleTime: 10 * 60 * 1000,
   });
 
@@ -154,6 +163,7 @@ export default function ProgressEvaluations() {
           admission_no: e.students?.admission_no,
           batch: e.batches?.batch_name,
           course: e.batches?.courses?.course_name,
+          medium: e.medium_name || "",          // NEW
           evaluation_date: e.evaluation_date,
           attendance_percentage: e.attendance_percentage,
           performance_score: e.performance_score,
@@ -263,6 +273,22 @@ export default function ProgressEvaluations() {
               ))}
             </select>
           </div>
+          {/* NEW: Medium filter */}
+          <div>
+            <label className="text-xs font-montserrat text-secondary-dark">Medium</label>
+            <select
+              value={mediumFilter}
+              onChange={(e) => setMediumFilter(e.target.value)}
+              className="w-full border border-secondary-light rounded p-2 text-sm mt-1 focus:ring-1 focus:ring-primary"
+            >
+              <option value="">All Mediums</option>
+              {mediums.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name}
+                </option>
+              ))}
+            </select>
+          </div>
           <div>
             <label className="text-xs font-montserrat text-secondary-dark">From Date</label>
             <input
@@ -286,6 +312,7 @@ export default function ProgressEvaluations() {
               onClick={() => {
                 setSearch("");
                 setBatchFilter("");
+                setMediumFilter("");
                 setStartDate("");
                 setEndDate("");
               }}
@@ -305,6 +332,7 @@ export default function ProgressEvaluations() {
               <tr>
                 <th className="p-3 text-left text-sm font-montserrat text-secondary-dark">Student</th>
                 <th className="text-left text-sm font-montserrat text-secondary-dark">Batch</th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">Medium</th> {/* NEW */}
                 <th className="text-left text-sm font-montserrat text-secondary-dark">Date</th>
                 <th className="text-left text-sm font-montserrat text-secondary-dark">Attendance %</th>
                 <th className="text-left text-sm font-montserrat text-secondary-dark">Score</th>
@@ -315,16 +343,16 @@ export default function ProgressEvaluations() {
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan={7} className="p-6 text-center text-secondary">Loading evaluations…</td>
+                  <td colSpan={8} className="p-6 text-center text-secondary">Loading evaluations…</td>
                 </tr>
               ) : evaluations.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="p-6 text-center text-secondary">
+                  <td colSpan={8} className="p-6 text-center text-secondary">
                     <div className="flex flex-col items-center gap-2">
                       <TrendingUp size={32} className="text-secondary-light" />
                       <span>No evaluations found</span>
                       <span className="text-xs text-secondary-light">
-                        {search || batchFilter || startDate || endDate
+                        {search || batchFilter || mediumFilter || startDate || endDate
                           ? "Try adjusting your filters"
                           : "Add a new evaluation to get started"}
                       </span>
@@ -346,6 +374,7 @@ export default function ProgressEvaluations() {
                       </div>
                     </td>
                     <td className="text-sm">{evalItem.batches?.batch_name}</td>
+                    <td className="text-sm">{evalItem.medium_name || "—"}</td>  {/* NEW */}
                     <td className="text-sm">{evalItem.evaluation_date}</td>
                     <td className="text-sm">
                       {evalItem.attendance_percentage != null

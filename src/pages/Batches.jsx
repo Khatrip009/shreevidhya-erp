@@ -28,6 +28,7 @@ import {
   getAllBatchesForExport,
   getCourseOptions,
   getTeacherOptions,
+  getMediumOptions,
 } from "../services/batchService";
 
 export default function Batches() {
@@ -39,6 +40,7 @@ export default function Batches() {
     course_id: "",
     teacher_id: "",
     status: "",
+    medium_id: "",
   });
   const [showFilters, setShowFilters] = useState(false);
   const allFilters = { ...filters, search };
@@ -75,6 +77,11 @@ export default function Batches() {
   const { data: teachers = [] } = useQuery({
     queryKey: ["teachersDropdown"],
     queryFn: getTeacherOptions,
+    staleTime: 10 * 60 * 1000,
+  });
+  const { data: mediums = [] } = useQuery({
+    queryKey: ["mediumsDropdown"],
+    queryFn: getMediumOptions,
     staleTime: 10 * 60 * 1000,
   });
 
@@ -134,6 +141,7 @@ export default function Batches() {
               end_time: row.end_time || null,
               capacity: row.capacity ? Number(row.capacity) : null,
               status: row.status || "active",
+              medium_id: row.medium_id ? Number(row.medium_id) : null,   // NEW
             };
             await createBatch(payload);
             successCount++;
@@ -156,6 +164,7 @@ export default function Batches() {
         allData.map((b) => ({
           batch_name: b.batch_name,
           course: b.courses?.course_name,
+          medium: b.medium_name || "",
           teacher: `${b.teachers?.first_name} ${b.teachers?.last_name}`,
           start_date: b.start_date,
           end_date: b.end_date,
@@ -252,7 +261,7 @@ export default function Batches() {
 
       {/* Advanced Filters */}
       {showFilters && (
-        <div className="bg-white rounded-xl p-4 shadow-sm mb-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 border border-secondary-light">
+        <div className="bg-white rounded-xl p-4 shadow-sm mb-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 border border-secondary-light">
           <div>
             <label className="text-xs font-montserrat text-secondary-dark">Course</label>
             <select
@@ -261,9 +270,7 @@ export default function Batches() {
               className="w-full border border-secondary-light rounded p-2 text-sm mt-1 focus:ring-1 focus:ring-primary"
             >
               <option value="">All Courses</option>
-              {courses.map((c) => (
-                <option key={c.id} value={c.id}>{c.course_name}</option>
-              ))}
+              {courses.map((c) => <option key={c.id} value={c.id}>{c.course_name}</option>)}
             </select>
           </div>
           <div>
@@ -274,9 +281,18 @@ export default function Batches() {
               className="w-full border border-secondary-light rounded p-2 text-sm mt-1 focus:ring-1 focus:ring-primary"
             >
               <option value="">All Teachers</option>
-              {teachers.map((t) => (
-                <option key={t.id} value={t.id}>{t.first_name} {t.last_name}</option>
-              ))}
+              {teachers.map((t) => <option key={t.id} value={t.id}>{t.first_name} {t.last_name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs font-montserrat text-secondary-dark">Medium</label>
+            <select
+              value={filters.medium_id}
+              onChange={(e) => setFilters((prev) => ({ ...prev, medium_id: e.target.value }))}
+              className="w-full border border-secondary-light rounded p-2 text-sm mt-1 focus:ring-1 focus:ring-primary"
+            >
+              <option value="">All Mediums</option>
+              {mediums.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
             </select>
           </div>
           <div>
@@ -295,7 +311,7 @@ export default function Batches() {
             <button
               onClick={() => {
                 setSearch("");
-                setFilters({ course_id: "", teacher_id: "", status: "" });
+                setFilters({ course_id: "", teacher_id: "", status: "", medium_id: "" });
               }}
               className="text-primary text-sm hover:underline"
             >
@@ -313,6 +329,7 @@ export default function Batches() {
               <tr>
                 <th className="p-3 text-left text-sm font-montserrat text-secondary-dark">Batch</th>
                 <th className="text-left text-sm font-montserrat text-secondary-dark">Course</th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">Medium</th>
                 <th className="text-left text-sm font-montserrat text-secondary-dark">Teacher</th>
                 <th className="text-left text-sm font-montserrat text-secondary-dark">Schedule</th>
                 <th className="text-left text-sm font-montserrat text-secondary-dark">Capacity</th>
@@ -322,70 +339,39 @@ export default function Batches() {
             </thead>
             <tbody>
               {isLoading ? (
-                <tr>
-                  <td colSpan={7} className="p-6 text-center text-secondary">Loading batches…</td>
-                </tr>
+                <tr><td colSpan={8} className="p-6 text-center text-secondary">Loading batches…</td></tr>
               ) : batches.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="p-6 text-center text-secondary">
-                    <div className="flex flex-col items-center gap-2">
-                      <Layers size={32} className="text-secondary-light" />
-                      <span>No batches found</span>
-                      <span className="text-xs text-secondary-light">
-                        {search || Object.values(filters).some(Boolean)
-                          ? "Try adjusting your filters"
-                          : "Add a new batch to get started"}
-                      </span>
-                    </div>
-                  </td>
-                </tr>
+                <tr><td colSpan={8} className="p-6 text-center text-secondary">
+                  <div className="flex flex-col items-center gap-2">
+                    <Layers size={32} className="text-secondary-light" />
+                    <span>No batches found</span>
+                  </div>
+                </td></tr>
               ) : (
                 batches.map((batch) => (
-                  <tr
-                    key={batch.id}
-                    className="border-b border-secondary-light hover:bg-primary-bg transition"
-                  >
+                  <tr key={batch.id} className="border-b border-secondary-light hover:bg-primary-bg transition">
                     <td className="p-3 text-sm font-medium">{batch.batch_name}</td>
                     <td className="text-sm">{batch.courses?.course_name || "-"}</td>
                     <td className="text-sm">
-                      {batch.teachers
-                        ? `${batch.teachers.first_name} ${batch.teachers.last_name}`
-                        : "-"}
+                      {batch.medium_name || "-"}
                     </td>
                     <td className="text-sm">
-                      <div>
-                        {batch.start_time} - {batch.end_time}
-                      </div>
-                      <div className="text-xs text-secondary-light">
-                        {batch.start_date} → {batch.end_date}
-                      </div>
+                      {batch.teachers ? `${batch.teachers.first_name} ${batch.teachers.last_name}` : "-"}
+                    </td>
+                    <td className="text-sm">
+                      <div>{batch.start_time} - {batch.end_time}</div>
+                      <div className="text-xs text-secondary-light">{batch.start_date} → {batch.end_date}</div>
                     </td>
                     <td className="text-sm">{batch.capacity || "-"}</td>
                     <td className="text-sm">
-                      <span
-                        className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                          batch.status === "active"
-                            ? "bg-green-100 text-green-700"
-                            : "bg-gray-100 text-gray-700"
-                        }`}
-                      >
-                        {batch.status}
-                      </span>
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                        batch.status === "active" ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-700"
+                      }`}>{batch.status}</span>
                     </td>
                     <td className="text-sm">
                       <div className="flex gap-2">
-                        <button
-                          onClick={() => setEditing(batch)}
-                          className="text-blue-600 hover:underline"
-                        >
-                          <Edit3 size={15} />
-                        </button>
-                        <button
-                          onClick={() => handleDelete(batch.id)}
-                          className="text-red-600 hover:underline"
-                        >
-                          <Trash2 size={15} />
-                        </button>
+                        <button onClick={() => setEditing(batch)} className="text-blue-600 hover:underline"><Edit3 size={15} /></button>
+                        <button onClick={() => handleDelete(batch.id)} className="text-red-600 hover:underline"><Trash2 size={15} /></button>
                       </div>
                     </td>
                   </tr>
@@ -399,30 +385,16 @@ export default function Batches() {
       {/* Load More */}
       {hasNextPage && (
         <div className="flex justify-center mt-6">
-          <button
-            onClick={() => fetchNextPage()}
-            disabled={isFetchingNextPage}
-            className="bg-primary hover:bg-primary-light text-white px-6 py-2.5 rounded-lg font-montserrat text-sm transition disabled:opacity-60"
-          >
+          <button onClick={() => fetchNextPage()} disabled={isFetchingNextPage}
+            className="bg-primary hover:bg-primary-light text-white px-6 py-2.5 rounded-lg font-montserrat text-sm transition disabled:opacity-60">
             {isFetchingNextPage ? "Loading more…" : "Load More"}
           </button>
         </div>
       )}
 
       {/* Batch Form Modals */}
-      {showForm && (
-        <BatchForm
-          onSubmit={handleCreate}
-          onClose={() => setShowForm(false)}
-        />
-      )}
-      {editing && (
-        <BatchForm
-          initialData={editing}
-          onSubmit={handleUpdate}
-          onClose={() => setEditing(null)}
-        />
-      )}
+      {showForm && <BatchForm onSubmit={handleCreate} onClose={() => setShowForm(false)} />}
+      {editing && <BatchForm initialData={editing} onSubmit={handleUpdate} onClose={() => setEditing(null)} />}
     </AdminLayout>
   );
 }

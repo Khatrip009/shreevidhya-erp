@@ -37,6 +37,7 @@ async function createAuthUser(email, password, fullName, role) {
 
 // ─── CRUD ───────────────────────────────────────────────
 
+// Now includes medium, course names, and filters by medium_id & course_id
 export async function getTeachers({ pageParam = 0, filters = {} }) {
   const limit = 10;
   const from = pageParam * limit;
@@ -44,7 +45,10 @@ export async function getTeachers({ pageParam = 0, filters = {} }) {
 
   let query = supabase
     .from("teachers")
-    .select("*", { count: "exact" })
+    .select(
+      "*, mediums(name), courses(course_name), profiles(email)",
+      { count: "exact" }
+    )
     .order("id", { ascending: false })
     .range(from, to);
 
@@ -53,16 +57,28 @@ export async function getTeachers({ pageParam = 0, filters = {} }) {
       `first_name.ilike.%${filters.search}%,last_name.ilike.%${filters.search}%,employee_code.ilike.%${filters.search}%`
     );
   }
+  if (filters.medium_id) query = query.eq("medium_id", filters.medium_id);
+  if (filters.course_id) query = query.eq("course_id", filters.course_id);
 
   const { data, error, count } = await query;
   if (error) throw error;
-  return { data, count };
+
+  // Flatten medium, course names and user_email
+  const enriched = (data || []).map((teacher) => ({
+    ...teacher,
+    medium_name: teacher.mediums?.name || "",
+    course_name: teacher.courses?.course_name || "",
+    user_email: teacher.profiles?.email || "",
+  }));
+
+  return { data: enriched, count };
 }
 
+// Export includes medium, course names, and filters
 export async function getAllTeachersForExport(filters = {}) {
   let query = supabase
     .from("teachers")
-    .select("*")
+    .select("*, mediums(name), courses(course_name)")
     .order("id", { ascending: false });
 
   if (filters.search) {
@@ -70,12 +86,20 @@ export async function getAllTeachersForExport(filters = {}) {
       `first_name.ilike.%${filters.search}%,last_name.ilike.%${filters.search}%,employee_code.ilike.%${filters.search}%`
     );
   }
+  if (filters.medium_id) query = query.eq("medium_id", filters.medium_id);
+  if (filters.course_id) query = query.eq("course_id", filters.course_id);
 
   const { data, error } = await query;
   if (error) throw error;
-  return data;
+
+  return (data || []).map((teacher) => ({
+    ...teacher,
+    medium_name: teacher.mediums?.name || "",
+    course_name: teacher.courses?.course_name || "",
+  }));
 }
 
+// createTeacher/updateTeacher unchanged – medium_id, course_id are accepted via payload
 export async function createTeacher(payload) {
   const { email, password, ...teacherData } = payload;
 
@@ -92,7 +116,6 @@ export async function createTeacher(payload) {
 }
 
 export async function updateTeacher(id, payload) {
-  // Does not handle auth changes for simplicity.
   const { data, error } = await supabase
     .from("teachers")
     .update(payload)
@@ -117,4 +140,24 @@ export async function getTeacherOptions() {
     .select("id, first_name, last_name");
   if (error) throw error;
   return data;
+}
+
+// NEW – get mediums for filter dropdown
+export async function getMediumOptions() {
+  const { data, error } = await supabase
+    .from("mediums")
+    .select("id, name")
+    .order("name");
+  if (error) throw error;
+  return data || [];
+}
+
+// NEW – get courses for filter dropdown (alias for clarity)
+export async function getCourseOptions() {
+  const { data, error } = await supabase
+    .from("courses")
+    .select("id, course_name")
+    .order("course_name");
+  if (error) throw error;
+  return data || [];
 }

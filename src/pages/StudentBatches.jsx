@@ -20,6 +20,7 @@ import {
 import Papa from "papaparse";
 import AdminLayout from "../layouts/AdminLayout";
 import AssignBatchModal from "../components/AssignBatchModal";
+import { supabase } from "../api/supabase"; // NEW – for fetching mediums locally
 import {
   getStudentBatches,
   assignStudentToBatch,
@@ -38,6 +39,7 @@ export default function StudentBatches() {
   const [filters, setFilters] = useState({
     batch_id: "",
     course_id: "",
+    medium_id: "", // NEW
     status: "",
   });
   const [showFilters, setShowFilters] = useState(false);
@@ -79,6 +81,18 @@ export default function StudentBatches() {
   const { data: courses = [] } = useQuery({
     queryKey: ["coursesFilter"],
     queryFn: getCoursesForFilter,
+    staleTime: 10 * 60 * 1000,
+  });
+  // NEW: fetch mediums for filter dropdown
+  const { data: mediums = [] } = useQuery({
+    queryKey: ["mediums"],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("mediums")
+        .select("id, name")
+        .order("name");
+      return data || [];
+    },
     staleTime: 10 * 60 * 1000,
   });
 
@@ -132,7 +146,8 @@ export default function StudentBatches() {
             const payload = {
               student_id: row.student_id,
               batch_id: row.batch_id,
-              enrollment_date: row.enrollment_date || new Date().toISOString().split("T")[0],
+              enrollment_date:
+                row.enrollment_date || new Date().toISOString().split("T")[0],
               status: row.status || "active",
             };
             await assignStudentToBatch(payload);
@@ -157,6 +172,7 @@ export default function StudentBatches() {
           student: `${a.students?.first_name} ${a.students?.last_name}`,
           admission_no: a.students?.admission_no,
           batch: a.batches?.batch_name,
+          medium: a.medium_name || "", // NEW – medium name from service
           course: a.batches?.courses?.course_name,
           enrollment_date: a.enrollment_date,
           status: a.status,
@@ -193,7 +209,9 @@ export default function StudentBatches() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
         <div>
-          <h1 className="text-3xl font-righteous text-primary-dark">Student Batches</h1>
+          <h1 className="text-3xl font-righteous text-primary-dark">
+            Student Batches
+          </h1>
           <p className="text-sm text-secondary-dark font-montserrat mt-1">
             Assign students to batches
           </p>
@@ -253,9 +271,11 @@ export default function StudentBatches() {
 
       {/* Advanced Filters Panel */}
       {showFilters && (
-        <div className="bg-white rounded-xl p-4 shadow-sm mb-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 border border-secondary-light">
+        <div className="bg-white rounded-xl p-4 shadow-sm mb-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 border border-secondary-light">
           <div>
-            <label className="text-xs font-montserrat text-secondary-dark">Batch</label>
+            <label className="text-xs font-montserrat text-secondary-dark">
+              Batch
+            </label>
             <select
               value={filters.batch_id}
               onChange={(e) =>
@@ -272,7 +292,9 @@ export default function StudentBatches() {
             </select>
           </div>
           <div>
-            <label className="text-xs font-montserrat text-secondary-dark">Course</label>
+            <label className="text-xs font-montserrat text-secondary-dark">
+              Course
+            </label>
             <select
               value={filters.course_id}
               onChange={(e) =>
@@ -288,8 +310,30 @@ export default function StudentBatches() {
               ))}
             </select>
           </div>
+          {/* NEW: Medium filter */}
           <div>
-            <label className="text-xs font-montserrat text-secondary-dark">Status</label>
+            <label className="text-xs font-montserrat text-secondary-dark">
+              Medium
+            </label>
+            <select
+              value={filters.medium_id}
+              onChange={(e) =>
+                setFilters((prev) => ({ ...prev, medium_id: e.target.value }))
+              }
+              className="w-full border border-secondary-light rounded p-2 text-sm mt-1 focus:ring-1 focus:ring-primary"
+            >
+              <option value="">All Mediums</option>
+              {mediums.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs font-montserrat text-secondary-dark">
+              Status
+            </label>
             <select
               value={filters.status}
               onChange={(e) =>
@@ -307,7 +351,12 @@ export default function StudentBatches() {
             <button
               onClick={() => {
                 setSearch("");
-                setFilters({ batch_id: "", course_id: "", status: "" });
+                setFilters({
+                  batch_id: "",
+                  course_id: "",
+                  medium_id: "",
+                  status: "",
+                });
               }}
               className="text-primary text-sm hover:underline"
             >
@@ -320,7 +369,7 @@ export default function StudentBatches() {
       {/* Assignments Table */}
       <div className="bg-white rounded-xl shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[800px]">
+          <table className="w-full min-w-[900px]">
             <thead className="bg-slate-100 border-b border-secondary-light">
               <tr>
                 <th className="p-3 text-left text-sm font-montserrat text-secondary-dark">
@@ -329,6 +378,9 @@ export default function StudentBatches() {
                 <th className="text-left text-sm font-montserrat text-secondary-dark">
                   Batch
                 </th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">
+                  Medium
+                </th> {/* NEW */}
                 <th className="text-left text-sm font-montserrat text-secondary-dark">
                   Course
                 </th>
@@ -346,13 +398,13 @@ export default function StudentBatches() {
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan={6} className="p-6 text-center text-secondary">
+                  <td colSpan={7} className="p-6 text-center text-secondary">
                     Loading assignments…
                   </td>
                 </tr>
               ) : assignments.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="p-6 text-center text-secondary">
+                  <td colSpan={7} className="p-6 text-center text-secondary">
                     <div className="flex flex-col items-center gap-2">
                       <UserPlus size={32} className="text-secondary-light" />
                       <span>No assignments found</span>
@@ -372,13 +424,20 @@ export default function StudentBatches() {
                   >
                     <td className="p-3 text-sm">
                       <div className="font-medium">
-                        {assignment.students?.first_name} {assignment.students?.last_name}
+                        {assignment.students?.first_name}{" "}
+                        {assignment.students?.last_name}
                       </div>
                       <div className="text-xs text-secondary-light">
                         {assignment.students?.admission_no}
                       </div>
                     </td>
-                    <td className="text-sm">{assignment.batches?.batch_name}</td>
+                    <td className="text-sm">
+                      {assignment.batches?.batch_name}
+                    </td>
+                    <td className="text-sm">
+                      {assignment.medium_name || "—"}
+                    </td>{" "}
+                    {/* NEW */}
                     <td className="text-sm">
                       {assignment.batches?.courses?.course_name || "-"}
                     </td>
@@ -467,7 +526,7 @@ export default function StudentBatches() {
         </div>
       )}
 
-      {/* Assign Batch Modal (already branded) */}
+      {/* Assign Batch Modal */}
       {showModal && (
         <AssignBatchModal
           onSubmit={handleAssign}

@@ -9,7 +9,6 @@ export default function PersonalTimetable() {
   const { user } = useAuth();
   const [debug, setDebug] = useState({});
 
-  // Log mount/unmount
   useEffect(() => {
     console.log("PersonalTimetable mounted");
     return () => console.log("PersonalTimetable unmounted");
@@ -75,7 +74,7 @@ export default function PersonalTimetable() {
         const { data, error } = await supabase
           .from("batches")
           .select(
-            `id, batch_name, start_time, end_time, days, courses(course_name), batch_teachers(teacher_id, subject_id, day, teachers(first_name, last_name), subjects(subject_name))`
+            `id, batch_name, start_time, end_time, days, courses(course_name), mediums(name), batch_teachers(teacher_id, subject_id, day, teachers(first_name, last_name), subjects(subject_name))`
           )
           .in("id", batchIds)
           .eq("status", "active");
@@ -102,7 +101,6 @@ export default function PersonalTimetable() {
     });
   }, [user, studentId, batchIds, batches, idError, batchesError, dataError]);
 
-  // Error display
   const allErrors = [idError, batchesError, dataError].filter(Boolean);
   if (allErrors.length > 0) {
     return (
@@ -150,7 +148,6 @@ export default function PersonalTimetable() {
     );
   }
 
-  // If no batches data (shouldn't happen if batchIds not empty, but just in case)
   if (batches.length === 0) {
     return (
       <AdminLayout>
@@ -162,7 +159,6 @@ export default function PersonalTimetable() {
     );
   }
 
-  // Helper functions
   const batchOnDay = (batch, day) =>
     batch.days?.split(",").map((d) => d.trim()).includes(day);
 
@@ -189,7 +185,6 @@ export default function PersonalTimetable() {
       }));
   };
 
-  // Full timetable grid
   return (
     <AdminLayout>
       <div className="mb-6">
@@ -220,7 +215,10 @@ export default function PersonalTimetable() {
                       {slots.map(batch => (
                         <div key={batch.id} className="bg-primary-bg text-primary-dark p-2 rounded mb-1 text-xs">
                           <div className="font-semibold">{batch.batch_name}</div>
-                          <div className="text-secondary">{batch.courses?.course_name}</div>
+                          <div className="text-secondary">
+                            {batch.courses?.course_name}
+                            {batch.mediums?.name ? ` (${batch.mediums.name})` : ""}
+                          </div>
                           {batch.batch_teachers.length > 0 && (
                             <div className="mt-1 space-y-0.5">
                               {batch.batch_teachers.map(bt => (

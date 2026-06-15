@@ -1,7 +1,7 @@
 import { supabase } from "../api/supabase";
 
 // ============================
-// EXAMS LIST (paginated, filters)
+// EXAMS LIST (paginated, filters) – now includes medium
 // ============================
 
 export async function getExams({ pageParam = 0, filters = {} } = {}) {
@@ -12,7 +12,7 @@ export async function getExams({ pageParam = 0, filters = {} } = {}) {
   let query = supabase
     .from("exams")
     .select(
-      `*, batches(batch_name, course_id, courses(course_name))`,
+      `*, batches(batch_name, course_id, medium_id, mediums(name), courses(course_name))`,
       { count: "exact" }
     )
     .order("exam_date", { ascending: false })
@@ -33,18 +33,35 @@ export async function getExams({ pageParam = 0, filters = {} } = {}) {
     if (batchIds.length > 0) query = query.in("batch_id", batchIds);
     else return { data: [], count: 0 };
   }
+  if (filters.medium_id) {
+    // Filter exams whose batch has the specified medium
+    const { data: mediumBatches } = await supabase
+      .from("batches")
+      .select("id")
+      .eq("medium_id", filters.medium_id);
+    const batchIds = mediumBatches?.map(b => b.id) || [];
+    if (batchIds.length > 0) query = query.in("batch_id", batchIds);
+    else return { data: [], count: 0 };
+  }
   if (filters.startDate) query = query.gte("exam_date", filters.startDate);
   if (filters.endDate) query = query.lte("exam_date", filters.endDate);
 
   const { data, error, count } = await query;
   if (error) throw error;
-  return { data, count };
+
+  // Flatten medium name for easier access
+  const enriched = (data || []).map((exam) => ({
+    ...exam,
+    medium_name: exam.batches?.mediums?.name || "",
+  }));
+
+  return { data: enriched, count };
 }
 
 export async function getAllExamsForExport(filters = {}) {
   let query = supabase
     .from("exams")
-    .select(`*, batches(batch_name, course_id, courses(course_name))`)
+    .select(`*, batches(batch_name, course_id, medium_id, mediums(name), courses(course_name))`)
     .order("exam_date", { ascending: false });
 
   if (filters.search) {
@@ -62,14 +79,28 @@ export async function getAllExamsForExport(filters = {}) {
     if (batchIds.length > 0) query = query.in("batch_id", batchIds);
     else return [];
   }
+  if (filters.medium_id) {
+    const { data: mediumBatches } = await supabase
+      .from("batches")
+      .select("id")
+      .eq("medium_id", filters.medium_id);
+    const batchIds = mediumBatches?.map(b => b.id) || [];
+    if (batchIds.length > 0) query = query.in("batch_id", batchIds);
+    else return [];
+  }
   if (filters.startDate) query = query.gte("exam_date", filters.startDate);
   if (filters.endDate) query = query.lte("exam_date", filters.endDate);
 
   const { data, error } = await query;
   if (error) throw error;
-  return data || [];
+
+  return (data || []).map((exam) => ({
+    ...exam,
+    medium_name: exam.batches?.mediums?.name || "",
+  }));
 }
 
+// CRUD – unchanged (medium is inferred from the batch, not stored on exam)
 export async function createExam(payload) {
   const { data, error } = await supabase
     .from("exams")
@@ -100,7 +131,7 @@ export async function deleteExam(id) {
 }
 
 // ============================
-// RESULTS & MARKING HELPERS
+// RESULTS & MARKING HELPERS – unchanged
 // ============================
 
 export async function getBatchStudents(batchId) {
@@ -113,11 +144,10 @@ export async function getBatchStudents(batchId) {
   return data.map((item) => item.students);
 }
 
-// FIXED: uses the correct table name "student_results"
 export async function getResultsByExam(examId) {
   if (!examId) return [];
   const { data, error } = await supabase
-    .from("student_results")                             // <-- changed
+    .from("student_results")
     .select(`*, students(first_name, last_name, admission_no)`)
     .eq("exam_id", examId)
     .order("marks_obtained", { ascending: false });
@@ -125,11 +155,9 @@ export async function getResultsByExam(examId) {
   return data || [];
 }
 
-// FIXED: uses "student_results"
 export async function saveResults(examId, resultsPayload) {
-  // Delete old marks
   const { error: deleteError } = await supabase
-    .from("student_results")                            // <-- changed
+    .from("student_results")
     .delete()
     .eq("exam_id", examId);
   if (deleteError) throw deleteError;
@@ -137,7 +165,7 @@ export async function saveResults(examId, resultsPayload) {
   if (resultsPayload.length === 0) return;
 
   const { error: insertError } = await supabase
-    .from("student_results")                            // <-- changed
+    .from("student_results")
     .insert(
       resultsPayload.map((r) => ({
         exam_id: examId,
@@ -182,6 +210,16 @@ export async function getCourseOptions() {
   return data || [];
 }
 
+// NEW – get mediums for filter dropdown
+export async function getMediumOptions() {
+  const { data, error } = await supabase
+    .from("mediums")
+    .select("id, name")
+    .order("name");
+  if (error) throw error;
+  return data || [];
+}
+
 export async function getAllExams() {
   const { data, error } = await supabase
     .from("exams")
@@ -191,10 +229,9 @@ export async function getAllExams() {
   return data || [];
 }
 
-// FIXED: uses "student_results"
 export async function getStudentProgress(studentId) {
   const { data: results, error } = await supabase
-    .from("student_results")                            // <-- changed
+    .from("student_results")
     .select(
       `marks_obtained,
       exams!inner(

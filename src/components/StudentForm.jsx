@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import {
   X, User, Phone, Mail, MapPin, School, Calendar, Hash, Upload,
-  Plus, Search, Lock, Link2,
+  Plus, Search, Lock, Link2, Layers,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { supabase } from "../api/supabase";
@@ -31,13 +31,14 @@ export default function StudentForm({ onSuccess, onClose, initialData = {} }) {
     standard: initialData.standard || "",
     joining_date: initialData.joining_date || new Date().toISOString().split("T")[0],
     status: initialData.status || "active",
+    medium_id: initialData.medium_id || "",      // NEW
   });
 
   // ---- Login account options ----
-  const [loginMode, setLoginMode] = useState("none"); // "none" | "create" | "link"
+  const [loginMode, setLoginMode] = useState("none");
   const [loginEmail, setLoginEmail] = useState(initialData.email || "");
   const [loginPassword, setLoginPassword] = useState("student123");
-  const [existingUserId, setExistingUserId] = useState(""); // uuid from profiles
+  const [existingUserId, setExistingUserId] = useState("");
 
   // ---- Parent linking ----
   const [allParents, setAllParents] = useState([]);
@@ -59,8 +60,18 @@ export default function StudentForm({ onSuccess, onClose, initialData = {} }) {
       .then(({ data }) => setExistingUsers(data || []));
   }, []);
 
+  // ---- Fetch mediums for dropdown ----
+  const [mediums, setMediums] = useState([]);
+  useEffect(() => {
+    supabase
+      .from("mediums")
+      .select("id, name")
+      .order("name")
+      .then(({ data }) => setMediums(data || []));
+  }, []);
+
   // ----------------------------------------------------------------------
-  // Auto-generate admission number (format: SRA-00001)
+  // Auto-generate admission number
   // ----------------------------------------------------------------------
   useEffect(() => {
     if (isEdit || initialData.admission_no) return;
@@ -185,7 +196,6 @@ export default function StudentForm({ onSuccess, onClose, initialData = {} }) {
       let authUserId = null;
 
       if (loginMode === "create") {
-        // Save admin session before creating new user
         const { data: sessionData } = await supabase.auth.getSession();
         const adminSession = sessionData?.session;
 
@@ -209,7 +219,6 @@ export default function StudentForm({ onSuccess, onClose, initialData = {} }) {
         authUserId = signUpData?.user?.id;
         if (!authUserId) throw new Error("Auth user creation returned no ID");
 
-        // Restore admin session
         if (adminSession) {
           await supabase.auth.setSession({
             access_token: adminSession.access_token,
@@ -217,7 +226,6 @@ export default function StudentForm({ onSuccess, onClose, initialData = {} }) {
           });
         }
 
-        // Update profile role to student (trigger already created it with default)
         await supabase
           .from("profiles")
           .update({ role: "student" })
@@ -226,7 +234,6 @@ export default function StudentForm({ onSuccess, onClose, initialData = {} }) {
         toast.success("Login account created");
       } else if (loginMode === "link") {
         authUserId = existingUserId;
-        // Ensure profile role is student and active
         const { error: roleUpdateError } = await supabase
           .from("profiles")
           .update({ role: "student", is_active: true })
@@ -272,6 +279,7 @@ export default function StudentForm({ onSuccess, onClose, initialData = {} }) {
         status: form.status,
         photo_url: photoUrl,
         user_id: authUserId,
+        medium_id: form.medium_id || null,    // NEW
       };
 
       let studentId = initialData.id;
@@ -549,15 +557,25 @@ export default function StudentForm({ onSuccess, onClose, initialData = {} }) {
                 className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
               />
             </div>
+            {/* Medium Dropdown – NEW */}
             <div>
-              <label className="block text-sm font-montserrat text-secondary-dark mb-1">Standard</label>
-              <input
-                name="standard"
-                value={form.standard}
+              <label className="block text-sm font-montserrat text-secondary-dark mb-1">
+                <Layers size={14} className="inline mr-1" />
+                Medium
+              </label>
+              <select
+                name="medium_id"
+                value={form.medium_id}
                 onChange={handleChange}
-                placeholder="e.g., 10"
                 className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
-              />
+              >
+                <option value="">Select Medium</option>
+                {mediums.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
 

@@ -3,6 +3,7 @@ import {
   useInfiniteQuery,
   useMutation,
   useQueryClient,
+  useQuery,
 } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import {
@@ -14,6 +15,8 @@ import {
   Mail,
   Link as LinkIcon,
   Unlink,
+  Filter,
+  X,
 } from "lucide-react";
 import Papa from "papaparse";
 import AdminLayout from "../layouts/AdminLayout";
@@ -24,15 +27,39 @@ import {
   updateTeacher,
   deleteTeacher,
   getAllTeachersForExport,
+  getMediumOptions,
+  getCourseOptions,
 } from "../services/teacherService";
 import { generateTeacherResumePdf } from "../utils/teacherResumePdf";
 
 export default function Teachers() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
+  const [mediumFilter, setMediumFilter] = useState("");
+  const [courseFilter, setCourseFilter] = useState("");
+  const [showFilters, setShowFilters] = useState(false);
+
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
   const fileInputRef = useRef(null);
+
+  // Dropdown data
+  const { data: mediums = [] } = useQuery({
+    queryKey: ["mediums"],
+    queryFn: getMediumOptions,
+    staleTime: 10 * 60 * 1000,
+  });
+  const { data: courses = [] } = useQuery({
+    queryKey: ["courses"],
+    queryFn: getCourseOptions,
+    staleTime: 10 * 60 * 1000,
+  });
+
+  const filters = {
+    search,
+    medium_id: mediumFilter,
+    course_id: courseFilter,
+  };
 
   const {
     data,
@@ -41,9 +68,8 @@ export default function Teachers() {
     hasNextPage,
     isFetchingNextPage,
   } = useInfiniteQuery({
-    queryKey: ["teachers", { search }],
-    queryFn: ({ pageParam = 0 }) =>
-      getTeachers({ pageParam, filters: { search } }),
+    queryKey: ["teachers", filters],
+    queryFn: ({ pageParam = 0 }) => getTeachers({ pageParam, filters }),
     getNextPageParam: (lastPage, allPages) => {
       const totalFetched = allPages.reduce(
         (sum, page) => sum + page.data.length,
@@ -110,6 +136,8 @@ export default function Teachers() {
               joining_date: row.joining_date || null,
               salary: row.salary ? Number(row.salary) : null,
               status: row.status || "active",
+              medium_id: row.medium_id || null,
+              course_id: row.course_id || null,
             };
             await createTeacher(payload);
             successCount++;
@@ -126,8 +154,22 @@ export default function Teachers() {
 
   async function handleCSVExport() {
     try {
-      const allData = await getAllTeachersForExport({ search });
-      const csv = Papa.unparse(allData);
+      const allData = await getAllTeachersForExport(filters);
+      const csv = Papa.unparse(
+        allData.map((t) => ({
+          employee_code: t.employee_code,
+          first_name: t.first_name,
+          last_name: t.last_name,
+          mobile: t.mobile,
+          email: t.email,
+          qualification: t.qualification,
+          joining_date: t.joining_date,
+          salary: t.salary,
+          status: t.status,
+          medium: t.medium_name || "",
+          course: t.course_name || "",
+        }))
+      );
       const blob = new Blob([csv], { type: "text/csv" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -161,7 +203,6 @@ export default function Teachers() {
     deleteMutation.mutate(id);
   }
 
-  // Helper to truncate UUID for display
   const truncateId = (uuid) =>
     uuid ? `${uuid.substring(0, 8)}...${uuid.substring(uuid.length - 4)}` : null;
 
@@ -203,67 +244,106 @@ export default function Teachers() {
         </div>
       </div>
 
-      <div className="relative mb-6 max-w-md">
-        <Search
-          size={18}
-          className="absolute left-3 top-1/2 -translate-y-1/2 text-secondary"
-        />
-        <input
-          type="text"
-          placeholder="Search by name or code..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="w-full border border-secondary-light rounded-lg pl-10 pr-4 py-2.5 text-sm focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light"
-        />
+      {/* Search & Filter Toggle */}
+      <div className="flex flex-col sm:flex-row gap-3 mb-4">
+        <div className="relative flex-1">
+          <Search
+            size={18}
+            className="absolute left-3 top-1/2 -translate-y-1/2 text-secondary"
+          />
+          <input
+            type="text"
+            placeholder="Search by name or code..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full border border-secondary-light rounded-lg pl-10 pr-4 py-2.5 text-sm focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light"
+          />
+        </div>
+        <button
+          onClick={() => setShowFilters(!showFilters)}
+          className="border border-secondary-light px-4 py-2.5 rounded-lg text-secondary-dark hover:bg-secondary-bg font-montserrat text-sm flex items-center gap-2"
+        >
+          <Filter size={18} /> Filters
+          {showFilters && <X size={16} />}
+        </button>
       </div>
 
+      {/* Filter Panel */}
+      {showFilters && (
+        <div className="bg-white rounded-xl p-4 shadow-sm mb-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 border border-secondary-light">
+          <div>
+            <label className="text-xs font-montserrat text-secondary-dark">Medium</label>
+            <select
+              value={mediumFilter}
+              onChange={(e) => setMediumFilter(e.target.value)}
+              className="w-full border border-secondary-light rounded p-2 text-sm mt-1 focus:ring-1 focus:ring-primary"
+            >
+              <option value="">All Mediums</option>
+              {mediums.map((m) => (
+                <option key={m.id} value={m.id}>{m.name}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs font-montserrat text-secondary-dark">Course</label>
+            <select
+              value={courseFilter}
+              onChange={(e) => setCourseFilter(e.target.value)}
+              className="w-full border border-secondary-light rounded p-2 text-sm mt-1 focus:ring-1 focus:ring-primary"
+            >
+              <option value="">All Courses</option>
+              {courses.map((c) => (
+                <option key={c.id} value={c.id}>{c.course_name}</option>
+              ))}
+            </select>
+          </div>
+          <div className="flex items-end">
+            <button
+              onClick={() => {
+                setSearch("");
+                setMediumFilter("");
+                setCourseFilter("");
+              }}
+              className="text-primary text-sm hover:underline"
+            >
+              Clear Filters
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Table */}
       <div className="bg-white rounded-xl shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[900px]">
+          <table className="w-full min-w-[1100px]">
             <thead className="bg-slate-100 border-b border-secondary-light">
               <tr>
-                <th className="p-3 text-left text-sm font-montserrat text-secondary-dark">
-                  Code
-                </th>
-                <th className="text-left text-sm font-montserrat text-secondary-dark">
-                  Name
-                </th>
-                <th className="text-left text-sm font-montserrat text-secondary-dark">
-                  Mobile
-                </th>
-                <th className="text-left text-sm font-montserrat text-secondary-dark">
-                  Email (contact)
-                </th>
-                <th className="text-left text-sm font-montserrat text-secondary-dark">
-                  Linked Account
-                </th>
-                <th className="text-left text-sm font-montserrat text-secondary-dark">
-                  Qualification
-                </th>
-                <th className="text-left text-sm font-montserrat text-secondary-dark">
-                  Salary
-                </th>
-                <th className="text-left text-sm font-montserrat text-secondary-dark">
-                  Actions
-                </th>
+                <th className="p-3 text-left text-sm font-montserrat text-secondary-dark">Code</th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">Name</th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">Mobile</th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">Email</th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">Linked Account</th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">Qualification</th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">Medium</th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">Course</th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">Salary</th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">Actions</th>
               </tr>
             </thead>
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan={8} className="p-6 text-center text-secondary">
-                    Loading teachers…
-                  </td>
+                  <td colSpan={10} className="p-6 text-center text-secondary">Loading teachers…</td>
                 </tr>
               ) : teachers.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="p-6 text-center text-secondary">
+                  <td colSpan={10} className="p-6 text-center text-secondary">
                     <div className="flex flex-col items-center gap-2">
                       <Search size={32} className="text-secondary-light" />
                       <span>No teachers found</span>
                       <span className="text-xs text-secondary-light">
-                        {search
-                          ? "Try adjusting your search"
+                        {search || mediumFilter || courseFilter
+                          ? "Try adjusting your filters"
                           : "Add a new teacher to get started"}
                       </span>
                     </div>
@@ -275,9 +355,7 @@ export default function Teachers() {
                     key={teacher.id}
                     className="border-b border-secondary-light hover:bg-primary-bg transition"
                   >
-                    <td className="p-3 text-sm">
-                      {teacher.employee_code || "-"}
-                    </td>
+                    <td className="p-3 text-sm">{teacher.employee_code || "-"}</td>
                     <td className="text-sm font-medium">
                       {teacher.first_name} {teacher.last_name}
                     </td>
@@ -301,9 +379,9 @@ export default function Teachers() {
                         </div>
                       )}
                     </td>
-                    <td className="text-sm">
-                      {teacher.qualification || "-"}
-                    </td>
+                    <td className="text-sm">{teacher.qualification || "-"}</td>
+                    <td className="text-sm">{teacher.medium_name || "—"}</td>
+                    <td className="text-sm">{teacher.course_name || "—"}</td>
                     <td className="text-sm">
                       {teacher.salary
                         ? `₹${Number(teacher.salary).toLocaleString()}`

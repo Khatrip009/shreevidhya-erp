@@ -7,7 +7,6 @@ import { supabase } from "../api/supabase";
 async function createAuthUser(email, password, fullName, role) {
   if (!email || !password) return null;
 
-  // Check if email is already taken
   const { data: existing } = await supabase
     .from("profiles")
     .select("id")
@@ -28,7 +27,6 @@ async function createAuthUser(email, password, fullName, role) {
 
   const userId = data.user.id;
 
-  // Update profile role to the correct role
   const { error: profileError } = await supabase
     .from("profiles")
     .update({ role })
@@ -40,6 +38,7 @@ async function createAuthUser(email, password, fullName, role) {
 
 // ─── CRUD ───────────────────────────────────────────────
 
+// Now includes medium name and medium_id filter
 export async function getStudents({ pageParam = 0, filters = {} }) {
   const limit = 10;
   const from = pageParam * limit;
@@ -47,7 +46,7 @@ export async function getStudents({ pageParam = 0, filters = {} }) {
 
   let query = supabase
     .from("students")
-    .select("*", { count: "exact" })
+    .select("*, mediums(name)", { count: "exact" })
     .order("id", { ascending: false })
     .range(from, to);
 
@@ -59,6 +58,7 @@ export async function getStudents({ pageParam = 0, filters = {} }) {
   if (filters.standard) query = query.eq("standard", filters.standard);
   if (filters.gender) query = query.eq("gender", filters.gender);
   if (filters.status) query = query.eq("status", filters.status);
+  if (filters.medium_id) query = query.eq("medium_id", filters.medium_id);
   if (filters.batch_id) {
     const { data: batchStudents } = await supabase
       .from("student_batches")
@@ -87,27 +87,38 @@ export async function getStudents({ pageParam = 0, filters = {} }) {
 
   const { data, error, count } = await query;
   if (error) throw error;
-  return { data, count };
+
+  // Flatten medium name
+  const enriched = (data || []).map((student) => ({
+    ...student,
+    medium_name: student.mediums?.name || "",
+  }));
+
+  return { data: enriched, count };
 }
 
+// Now returns medium name
 export async function getStudent(id) {
   const { data, error } = await supabase
     .from("students")
-    .select("*")
+    .select("*, mediums(name)")
     .eq("id", id)
     .single();
   if (error) throw error;
-  return data;
+
+  return {
+    ...data,
+    medium_name: data.mediums?.name || "",
+  };
 }
 
+// createStudent/updateStudent unchanged – medium_id is part of payload
 export async function createStudent(payload) {
   const { _parent_ids, email, password, ...studentData } = payload;
 
-  // 1. Optionally create auth user
   const fullName = `${studentData.first_name || ""} ${studentData.last_name || ""}`.trim();
   const userId = await createAuthUser(email, password, fullName, "student");
 
-  // 2. Insert student record with user_id
   const { data: student, error } = await supabase
     .from("students")
     .insert([{ ...studentData, user_id: userId }])
@@ -115,7 +126,6 @@ export async function createStudent(payload) {
     .single();
   if (error) throw error;
 
-  // 3. Link parents if any
   if (_parent_ids && _parent_ids.length > 0) {
     const links = _parent_ids.map((parentId) => ({
       student_id: student.id,
@@ -131,7 +141,6 @@ export async function createStudent(payload) {
 
 export async function updateStudent(id, payload) {
   const { _parent_ids, email, password, ...studentData } = payload;
-  // Update student record only; auth changes not handled here for simplicity.
   const { data: student, error } = await supabase
     .from("students")
     .update(studentData)
@@ -163,10 +172,11 @@ export async function deleteStudent(id) {
   if (error) throw error;
 }
 
+// Export includes medium name and medium_id filter
 export async function getAllStudentsForExport(filters = {}) {
   let query = supabase
     .from("students")
-    .select("*")
+    .select("*, mediums(name)")
     .order("id", { ascending: false });
 
   if (filters.search) {
@@ -177,8 +187,23 @@ export async function getAllStudentsForExport(filters = {}) {
   if (filters.standard) query = query.eq("standard", filters.standard);
   if (filters.gender) query = query.eq("gender", filters.gender);
   if (filters.status) query = query.eq("status", filters.status);
+  if (filters.medium_id) query = query.eq("medium_id", filters.medium_id);
 
   const { data, error } = await query;
   if (error) throw error;
-  return data;
+
+  return (data || []).map((student) => ({
+    ...student,
+    medium_name: student.mediums?.name || "",
+  }));
+}
+
+// NEW – get mediums for filter dropdown
+export async function getMediumOptions() {
+  const { data, error } = await supabase
+    .from("mediums")
+    .select("id, name")
+    .order("name");
+  if (error) throw error;
+  return data || [];
 }

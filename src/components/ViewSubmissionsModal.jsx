@@ -93,11 +93,16 @@ export default function ViewSubmissionsModal({ homework, onClose }) {
           </button>
         </div>
 
-        {/* Batch & Subject info */}
+        {/* Batch, Subject & Medium info */}
         <div className="px-6 pt-4 flex flex-wrap gap-2 items-center text-sm text-secondary-dark font-montserrat">
           <span className="flex items-center gap-1">
             <User size={14} /> {homework.batches?.batch_name}
           </span>
+          {homework.batches?.mediums?.name && (
+            <span className="bg-primary-bg text-primary px-2 py-0.5 rounded-full text-xs">
+              {homework.batches.mediums.name}
+            </span>
+          )}
           <span className="text-secondary-light">|</span>
           <span className="flex items-center gap-1">
             <FileText size={14} /> {homework.subjects?.subject_name}

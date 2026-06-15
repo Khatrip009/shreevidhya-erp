@@ -16,7 +16,7 @@ export async function getStudentBatches({ pageParam = 0, filters = {} } = {}) {
       enrollment_date,
       status,
       students ( first_name, last_name, admission_no ),
-      batches ( batch_name, course_id, courses ( course_name ) )
+      batches ( batch_name, course_id, medium_id, mediums(name), courses ( course_name ) )
       `,
       { count: "exact" }
     )
@@ -35,6 +35,15 @@ export async function getStudentBatches({ pageParam = 0, filters = {} } = {}) {
       .select("id")
       .eq("course_id", filters.course_id);
     const batchIds = courseBatches?.map((b) => b.id) || [];
+    if (batchIds.length > 0) query = query.in("batch_id", batchIds);
+    else return { data: [], count: 0 };
+  }
+  if (filters.medium_id) {
+    const { data: mediumBatches } = await supabase
+      .from("batches")
+      .select("id")
+      .eq("medium_id", filters.medium_id);
+    const batchIds = mediumBatches?.map((b) => b.id) || [];
     if (batchIds.length > 0) query = query.in("batch_id", batchIds);
     else return { data: [], count: 0 };
   }
@@ -57,7 +66,7 @@ export async function getAllStudentBatchesForExport(filters = {}) {
       enrollment_date,
       status,
       students ( first_name, last_name, admission_no ),
-      batches ( batch_name, course_id, courses ( course_name ) )
+      batches ( batch_name, course_id, medium_id, mediums(name), courses ( course_name ) )
       `
     )
     .order("enrollment_date", { ascending: false });
@@ -74,6 +83,15 @@ export async function getAllStudentBatchesForExport(filters = {}) {
       .select("id")
       .eq("course_id", filters.course_id);
     const batchIds = courseBatches?.map((b) => b.id) || [];
+    if (batchIds.length > 0) query = query.in("batch_id", batchIds);
+    else return [];
+  }
+  if (filters.medium_id) {
+    const { data: mediumBatches } = await supabase
+      .from("batches")
+      .select("id")
+      .eq("medium_id", filters.medium_id);
+    const batchIds = mediumBatches?.map((b) => b.id) || [];
     if (batchIds.length > 0) query = query.in("batch_id", batchIds);
     else return [];
   }
@@ -95,7 +113,7 @@ export async function assignStudentToBatch(payload) {
   return data;
 }
 
-// Bulk assignment (missing export)
+// Bulk assignment
 export async function bulkAssignStudents(batchId, studentIds, enrollmentDate) {
   const payload = studentIds.map((sid) => ({
     student_id: sid,
@@ -159,4 +177,14 @@ export async function getCoursesForFilter() {
     .order("course_name");
   if (error) throw error;
   return data;
+}
+
+// Get mediums for filter dropdown
+export async function getMediumOptions() {
+  const { data, error } = await supabase
+    .from("mediums")
+    .select("id, name")
+    .order("name");
+  if (error) throw error;
+  return data || [];
 }

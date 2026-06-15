@@ -10,7 +10,6 @@ import AdminLayout from "../layouts/AdminLayout";
 import { supabase } from "../api/supabase";
 import { useAuth } from "../context/AuthContext";
 
-
 export default function TeacherTimetable() {
   const { profile } = useAuth();
   const [events, setEvents] = useState([]);
@@ -33,7 +32,7 @@ export default function TeacherTimetable() {
 
   const actualTeacherId = teacherRecord?.id;
 
-  // 2. Fetch batch‑teacher assignments with batch details
+  // 2. Fetch batch‑teacher assignments with batch details (now includes medium)
   const {
     data: batchAssignments = [],
     isLoading: batchesLoading,
@@ -54,7 +53,8 @@ export default function TeacherTimetable() {
             days,
             start_time,
             end_time,
-            courses ( course_name )
+            courses ( course_name ),
+            mediums ( name )
           )
         `)
         .eq("teacher_id", actualTeacherId);
@@ -107,7 +107,7 @@ export default function TeacherTimetable() {
 
           calendarEvents.push({
             id: `${batch.id}-${current.toISOString().split("T")[0]}`,
-            title: `${batch.batch_name} (${batch.courses?.course_name || "No course"})`,
+            title: `${batch.batch_name} (${batch.courses?.course_name || "No course"})${batch.mediums?.name ? ` - ${batch.mediums.name}` : ""}`,
             start: eventStart.toISOString(),
             end: eventEnd.toISOString(),
             extendedProps: {
@@ -115,6 +115,7 @@ export default function TeacherTimetable() {
               start_time: batch.start_time,
               end_time: batch.end_time,
               days: batch.days,
+              medium_name: batch.mediums?.name || "",
             },
           });
         }
@@ -132,6 +133,7 @@ export default function TeacherTimetable() {
         <strong>{title}</strong><br />
         ⏰ Time: {extendedProps.start_time} – {extendedProps.end_time}<br />
         📅 Days: {extendedProps.days}
+        {extendedProps.medium_name && <><br />📚 Medium: {extendedProps.medium_name}</>}
       </div>,
       { duration: 5000 }
     );

@@ -1,15 +1,19 @@
 import { useState, useEffect } from "react";
 import toast from "react-hot-toast";
-import { Search, X, Users, Calendar, CheckSquare } from "lucide-react";
+import { Search, X, Users, Calendar, CheckSquare, Layers } from "lucide-react";
 import {
   getActiveStudents,
   getActiveBatches,
+  getMediumOptions,
   bulkAssignStudents,
 } from "../services/batchAssignmentService";
 
 export default function AssignBatchModal({ onSubmit, onClose }) {
   const [students, setStudents] = useState([]);
   const [batches, setBatches] = useState([]);
+  const [mediums, setMediums] = useState([]);                      // NEW
+  const [selectedMediumId, setSelectedMediumId] = useState("");    // NEW
+
   const [selectedStudents, setSelectedStudents] = useState([]);
   const [search, setSearch] = useState("");
   const [batchId, setBatchId] = useState("");
@@ -24,22 +28,32 @@ export default function AssignBatchModal({ onSubmit, onClose }) {
 
   async function loadDropdownData() {
     try {
-      const [studentData, batchData] = await Promise.all([
+      const [studentData, batchData, mediumData] = await Promise.all([
         getActiveStudents(),
         getActiveBatches(),
+        getMediumOptions(),              // NEW
       ]);
       setStudents(studentData);
       setBatches(batchData);
+      setMediums(mediumData);             // NEW
     } catch (err) {
       toast.error("Failed to load data");
     }
   }
 
-  const filteredStudents = students.filter(
-    (s) =>
+  // Filter by search + medium
+  const filteredStudents = students.filter((s) => {
+    const matchesSearch =
       s.first_name.toLowerCase().includes(search.toLowerCase()) ||
       s.last_name.toLowerCase().includes(search.toLowerCase()) ||
-      s.admission_no?.toLowerCase().includes(search.toLowerCase())
+      s.admission_no?.toLowerCase().includes(search.toLowerCase());
+    const matchesMedium = !selectedMediumId || s.medium_id === parseInt(selectedMediumId);
+    return matchesSearch && matchesMedium;
+  });
+
+  // Filter batches by medium
+  const filteredBatches = batches.filter((b) =>
+    !selectedMediumId ? true : b.medium_id === parseInt(selectedMediumId)
   );
 
   function toggleStudent(studentId) {
@@ -85,7 +99,7 @@ export default function AssignBatchModal({ onSubmit, onClose }) {
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-xl">
-        {/* Header with logo */}
+        {/* Header */}
         <div className="sticky top-0 bg-white border-b border-secondary-light px-6 py-4 flex items-center justify-between rounded-t-xl z-10">
           <div className="flex items-center gap-3">
             <img
@@ -97,15 +111,31 @@ export default function AssignBatchModal({ onSubmit, onClose }) {
               Bulk Assign to Batch
             </h2>
           </div>
-          <button
-            onClick={onClose}
-            className="p-2 hover:bg-secondary-bg rounded-lg transition"
-          >
+          <button onClick={onClose} className="p-2 hover:bg-secondary-bg rounded-lg transition">
             <X size={20} className="text-secondary-dark" />
           </button>
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-5">
+          {/* Medium Filter – NEW */}
+          <div>
+            <label className="block text-sm font-montserrat text-secondary-dark mb-1">
+              <Layers size={14} className="inline mr-1" /> Medium
+            </label>
+            <select
+              value={selectedMediumId}
+              onChange={(e) => setSelectedMediumId(e.target.value)}
+              className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
+            >
+              <option value="">All Mediums</option>
+              {mediums.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
           {/* Batch & Date */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
@@ -120,7 +150,7 @@ export default function AssignBatchModal({ onSubmit, onClose }) {
                 required
               >
                 <option value="">Select Batch</option>
-                {batches.map((b) => (
+                {filteredBatches.map((b) => (
                   <option key={b.id} value={b.id}>
                     {b.batch_name}
                   </option>
@@ -148,10 +178,7 @@ export default function AssignBatchModal({ onSubmit, onClose }) {
               Search Students
             </label>
             <div className="relative">
-              <Search
-                size={18}
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-secondary"
-              />
+              <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-secondary" />
               <input
                 type="text"
                 placeholder="Type name or admission no..."

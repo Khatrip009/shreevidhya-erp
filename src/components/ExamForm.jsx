@@ -6,13 +6,16 @@ import {
   Layers,
   Calendar,
   Award,
+  Filter,
 } from "lucide-react";
-import { getBatchOptions } from "../services/examService";
+import { getBatchOptions, getMediumOptions } from "../services/examService";
 import { useOrgDarkLogo } from "../hooks/useOrgDarkLogo";
 
 export default function ExamForm({ onSubmit, onClose, initialData = {} }) {
   const darkLogo = useOrgDarkLogo();
   const [batches, setBatches] = useState([]);
+  const [mediums, setMediums] = useState([]);
+  const [selectedMediumId, setSelectedMediumId] = useState("");
   const [form, setForm] = useState({
     exam_name: initialData.exam_name || "",
     batch_id: initialData.batch_id || "",
@@ -21,21 +24,30 @@ export default function ExamForm({ onSubmit, onClose, initialData = {} }) {
   });
 
   useEffect(() => {
-    loadBatches();
+    loadDropdowns();
   }, []);
 
-  async function loadBatches() {
+  async function loadDropdowns() {
     try {
-      const data = await getBatchOptions();
-      setBatches(data);
+      const [batchData, mediumData] = await Promise.all([
+        getBatchOptions(),
+        getMediumOptions(),
+      ]);
+      setBatches(batchData);
+      setMediums(mediumData);
     } catch {
-      toast.error("Failed to load batches");
+      toast.error("Failed to load data");
     }
   }
 
   function handleChange(e) {
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
   }
+
+  // Filter batches by selected medium (client-side)
+  const filteredBatches = batches.filter((b) =>
+    !selectedMediumId ? true : b.medium_id === parseInt(selectedMediumId)
+  );
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -93,6 +105,29 @@ export default function ExamForm({ onSubmit, onClose, initialData = {} }) {
             />
           </div>
 
+          {/* Medium Filter – NEW */}
+          <div>
+            <label className="block text-sm font-montserrat text-secondary-dark mb-1">
+              <Filter size={14} className="inline mr-1" />
+              Medium
+            </label>
+            <select
+              value={selectedMediumId}
+              onChange={(e) => {
+                setSelectedMediumId(e.target.value);
+                setForm((prev) => ({ ...prev, batch_id: "" })); // reset batch
+              }}
+              className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
+            >
+              <option value="">All Mediums</option>
+              {mediums.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
           {/* Batch */}
           <div>
             <label className="block text-sm font-montserrat text-secondary-dark mb-1">
@@ -107,7 +142,7 @@ export default function ExamForm({ onSubmit, onClose, initialData = {} }) {
               required
             >
               <option value="">Select Batch</option>
-              {batches.map((b) => (
+              {filteredBatches.map((b) => (
                 <option key={b.id} value={b.id}>
                   {b.batch_name}
                 </option>

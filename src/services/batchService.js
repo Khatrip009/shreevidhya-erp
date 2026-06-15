@@ -1,6 +1,6 @@
 import { supabase } from "../api/supabase";
 
-// Paginated fetch with filters – now includes all assigned teachers
+// Paginated fetch with filters – now includes medium info
 export async function getBatches({ pageParam = 0, filters = {} } = {}) {
   const limit = 10;
   const from = pageParam * limit;
@@ -11,6 +11,7 @@ export async function getBatches({ pageParam = 0, filters = {} } = {}) {
     .select(
       `*, 
        courses(course_name),
+       mediums(name),
        teachers(first_name, last_name),
        batch_teachers(teacher_id, subject_id, day, teachers(first_name, last_name), subjects(subject_name))
       `,
@@ -23,6 +24,7 @@ export async function getBatches({ pageParam = 0, filters = {} } = {}) {
     query = query.ilike("batch_name", `%${filters.search}%`);
   }
   if (filters.course_id) query = query.eq("course_id", filters.course_id);
+  if (filters.medium_id) query = query.eq("medium_id", filters.medium_id);
   if (filters.teacher_id) {
     const { data: linkedBatches } = await supabase
       .from("batch_teachers")
@@ -39,6 +41,7 @@ export async function getBatches({ pageParam = 0, filters = {} } = {}) {
 
   const enriched = (data || []).map((batch) => ({
     ...batch,
+    medium_name: batch.mediums?.name || "",
     assigned_teachers: (batch.batch_teachers || []).map((bt) => ({
       teacher_id: bt.teacher_id,
       teacher_name: bt.teachers
@@ -56,11 +59,12 @@ export async function getBatches({ pageParam = 0, filters = {} } = {}) {
 export async function getAllBatchesForExport(filters = {}) {
   let query = supabase
     .from("batches")
-    .select(`*, courses(course_name)`)
+    .select(`*, courses(course_name), mediums(name)`)
     .order("id", { ascending: false });
 
   if (filters.search) query = query.ilike("batch_name", `%${filters.search}%`);
   if (filters.course_id) query = query.eq("course_id", filters.course_id);
+  if (filters.medium_id) query = query.eq("medium_id", filters.medium_id);
   if (filters.teacher_id) {
     const { data: linkedBatches } = await supabase
       .from("batch_teachers")
@@ -81,6 +85,7 @@ export async function createBatch(payload) {
   const { teacher_subjects, teacher_id, ...batchData } = payload;
   console.log("Creating batch with payload:", payload);
 
+  // medium_id is already part of batchData (spread from form)
   const { data: batch, error } = await supabase
     .from("batches")
     .insert([{ ...batchData, teacher_id: teacher_id || null }])
@@ -96,6 +101,7 @@ export async function updateBatch(id, payload) {
   const { teacher_subjects, teacher_id, ...batchData } = payload;
   console.log("Updating batch", id, "with payload:", payload);
 
+  // medium_id is part of batchData
   const { data: batch, error } = await supabase
     .from("batches")
     .update({ ...batchData, teacher_id: teacher_id || null })
@@ -118,7 +124,7 @@ async function syncBatchTeachers(batchId, teacherSubjects, singleTeacherId) {
         batch_id: batchId,
         teacher_id: ts.teacher_id,
         subject_id: ts.subject_id || null,
-        day: ts.day || null,   // <-- this is the crucial field
+        day: ts.day || null,
       }));
     if (links.length > 0) {
       console.log("Inserting links:", links);
@@ -131,7 +137,6 @@ async function syncBatchTeachers(batchId, teacherSubjects, singleTeacherId) {
       }
     }
   } else if (singleTeacherId !== undefined) {
-    // Fallback for old single-teacher usage
     await supabase.from("batch_teachers").delete().eq("batch_id", batchId);
     if (singleTeacherId) {
       const { error: linkError } = await supabase
@@ -167,6 +172,16 @@ export async function getTeacherOptions() {
   const { data, error } = await supabase
     .from("teachers")
     .select("id, first_name, last_name");
+  if (error) throw error;
+  return data || [];
+}
+
+// NEW – get mediums for filter dropdowns
+export async function getMediumOptions() {
+  const { data, error } = await supabase
+    .from("mediums")
+    .select("id, name")
+    .order("name");
   if (error) throw error;
   return data || [];
 }

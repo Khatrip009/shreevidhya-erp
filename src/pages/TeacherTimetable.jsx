@@ -42,7 +42,7 @@ export default function TeacherTimetable() {
     enabled: !!teacherId,
   });
 
-  // 3. Fetch full batch data for those IDs
+  // 3. Fetch full batch data (now includes medium name)
   const { data: batches = [], isLoading: batchesLoading } = useQuery({
     queryKey: ["teacher-batches-timetable", assignedBatchIds],
     queryFn: async () => {
@@ -52,6 +52,7 @@ export default function TeacherTimetable() {
         .select(`
           *,
           courses ( course_name ),
+          mediums ( name ),
           batch_teachers ( teacher_id, subject_id, day, subjects ( subject_name ) )
         `)
         .in("id", assignedBatchIds)
@@ -148,6 +149,12 @@ export default function TeacherTimetable() {
                           <div className="text-secondary">
                             {batch.courses?.course_name}
                           </div>
+                          {/* Medium name (if available) */}
+                          {batch.mediums?.name && (
+                            <div className="text-secondary-dark text-xs">
+                              Medium: {batch.mediums.name}
+                            </div>
+                          )}
                           <div className="mt-1 space-y-0.5">
                             {batch.batch_teachers.map((bt) => (
                               <div key={bt.subject_id} className="text-secondary">

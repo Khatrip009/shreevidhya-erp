@@ -37,7 +37,7 @@ export default function StudentExamsPage() {
     enabled: !!studentId,
   });
 
-  // 3. Get upcoming exams for those batches
+  // 3. Get upcoming exams for those batches – now includes medium
   const today = new Date().toISOString().split("T")[0];
   const { data: exams = [], isLoading: examsLoading } = useQuery({
     queryKey: ["student-exams", batchIds],
@@ -45,7 +45,7 @@ export default function StudentExamsPage() {
       if (batchIds.length === 0) return [];
       const { data } = await supabase
         .from("exams")
-        .select(`*, batches(batch_name, courses(course_name))`)
+        .select(`*, batches(batch_name, courses(course_name), mediums(name))`)
         .in("batch_id", batchIds)
         .gte("exam_date", today)
         .order("exam_date", { ascending: true });
@@ -94,9 +94,14 @@ export default function StudentExamsPage() {
                   <Calendar size={16} /> {exam.exam_date}
                 </div>
               </div>
-              <p className="text-xs text-secondary mt-2">
-                Total Marks: {exam.total_marks || "N/A"}
-              </p>
+              <div className="flex flex-wrap items-center gap-3 mt-2 text-xs text-secondary-dark">
+                <span>Total Marks: {exam.total_marks || "N/A"}</span>
+                {exam.batches?.mediums?.name && (
+                  <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">
+                    {exam.batches.mediums.name}
+                  </span>
+                )}
+              </div>
             </div>
           ))}
         </div>

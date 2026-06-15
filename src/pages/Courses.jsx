@@ -3,6 +3,7 @@ import {
   useInfiniteQuery,
   useMutation,
   useQueryClient,
+  useQuery,
 } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import {
@@ -14,6 +15,7 @@ import {
   Upload,
   Layers,
   BookOpen,
+  Filter,
 } from "lucide-react";
 import Papa from "papaparse";
 import AdminLayout from "../layouts/AdminLayout";
@@ -29,14 +31,16 @@ import {
   updateCourseLevel,
   deleteCourseLevel,
   getAllCoursesForExport,
+  getMediumOptions,
 } from "../services/courseService";
 
 export default function Courses() {
   const queryClient = useQueryClient();
 
-  // Search
+  // Search & filters
   const [search, setSearch] = useState("");
-  const filters = { search };
+  const [mediumFilter, setMediumFilter] = useState("");
+  const filters = { search, medium_id: mediumFilter };
 
   // Infinite query for courses
   const {
@@ -60,6 +64,13 @@ export default function Courses() {
   });
 
   const courses = data?.pages.flatMap((page) => page.data) || [];
+
+  // Fetch mediums for filter dropdown
+  const { data: mediums = [] } = useQuery({
+    queryKey: ["mediumsDropdown"],
+    queryFn: getMediumOptions,
+    staleTime: 10 * 60 * 1000,
+  });
 
   // Mutations
   const createMutation = useMutation({
@@ -91,7 +102,7 @@ export default function Courses() {
     onError: () => toast.error("Delete failed"),
   });
 
-  // CSV Import
+  // CSV Import – now includes medium_id
   async function handleCSVImport(event) {
     const file = event.target.files[0];
     if (!file) return;
@@ -107,6 +118,7 @@ export default function Courses() {
               description: row.description || null,
               duration_months: row.duration_months ? Number(row.duration_months) : null,
               status: true,
+              medium_id: row.medium_id ? Number(row.medium_id) : null,
             };
             await createCourse(payload);
             successCount++;
@@ -121,11 +133,19 @@ export default function Courses() {
     });
   }
 
-  // CSV Export
+  // CSV Export – now includes medium name
   async function handleCSVExport() {
     try {
       const allData = await getAllCoursesForExport(filters);
-      const csv = Papa.unparse(allData);
+      const csv = Papa.unparse(
+        allData.map((c) => ({
+          course_name: c.course_name,
+          description: c.description,
+          duration_months: c.duration_months,
+          medium: c.medium_name || "",
+          status: c.status,
+        }))
+      );
       const blob = new Blob([csv], { type: "text/csv" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -138,7 +158,7 @@ export default function Courses() {
     }
   }
 
-  // Level management state
+  // Level management state (unchanged)
   const [expandedCourseId, setExpandedCourseId] = useState(null);
   const [levelForm, setLevelForm] = useState(null);
   const [levelsMap, setLevelsMap] = useState({});
@@ -247,19 +267,31 @@ export default function Courses() {
         </div>
       </div>
 
-      {/* Search */}
-      <div className="relative mb-6 max-w-md">
-        <Search
-          size={18}
-          className="absolute left-3 top-1/2 -translate-y-1/2 text-secondary"
-        />
-        <input
-          type="text"
-          placeholder="Search courses..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="w-full border border-secondary-light rounded-lg pl-10 pr-4 py-2.5 text-sm focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light"
-        />
+      {/* Search & Medium Filter */}
+      <div className="flex flex-col sm:flex-row gap-3 mb-6">
+        <div className="relative flex-1">
+          <Search
+            size={18}
+            className="absolute left-3 top-1/2 -translate-y-1/2 text-secondary"
+          />
+          <input
+            type="text"
+            placeholder="Search courses..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full border border-secondary-light rounded-lg pl-10 pr-4 py-2.5 text-sm focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light"
+          />
+        </div>
+        <select
+          value={mediumFilter}
+          onChange={(e) => setMediumFilter(e.target.value)}
+          className="border border-secondary-light rounded-lg p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none"
+        >
+          <option value="">All Mediums</option>
+          {mediums.map((m) => (
+            <option key={m.id} value={m.id}>{m.name}</option>
+          ))}
+        </select>
       </div>
 
       {/* Courses Table */}
@@ -269,6 +301,7 @@ export default function Courses() {
             <thead className="bg-slate-100 border-b border-secondary-light">
               <tr>
                 <th className="p-3 text-left text-sm font-montserrat text-secondary-dark">Course Name</th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">Medium</th>
                 <th className="text-left text-sm font-montserrat text-secondary-dark">Duration</th>
                 <th className="text-left text-sm font-montserrat text-secondary-dark">Description</th>
                 <th className="text-left text-sm font-montserrat text-secondary-dark">Actions</th>
@@ -277,16 +310,16 @@ export default function Courses() {
             <tbody>
               {coursesLoading ? (
                 <tr>
-                  <td colSpan={4} className="p-6 text-center text-secondary">Loading courses…</td>
+                  <td colSpan={5} className="p-6 text-center text-secondary">Loading courses…</td>
                 </tr>
               ) : courses.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="p-6 text-center text-secondary">
+                  <td colSpan={5} className="p-6 text-center text-secondary">
                     <div className="flex flex-col items-center gap-2">
                       <BookOpen size={32} className="text-secondary-light" />
                       <span>No courses found</span>
                       <span className="text-xs text-secondary-light">
-                        {search ? "Try adjusting your search" : "Add a new course to get started"}
+                        {search || mediumFilter ? "Try adjusting your filters" : "Add a new course to get started"}
                       </span>
                     </div>
                   </td>
@@ -296,6 +329,7 @@ export default function Courses() {
                   <React.Fragment key={course.id}>
                     <tr className="border-b border-secondary-light hover:bg-primary-bg transition">
                       <td className="p-3 text-sm font-medium">{course.course_name}</td>
+                      <td className="text-sm">{course.medium_name || "-"}</td>
                       <td className="text-sm">{course.duration_months ? `${course.duration_months} Months` : "-"}</td>
                       <td className="text-sm text-secondary-dark">{course.description || "-"}</td>
                       <td className="text-sm">
@@ -315,10 +349,10 @@ export default function Courses() {
                         </div>
                       </td>
                     </tr>
-                    {/* Level sub-table */}
+                    {/* Level sub-table – unchanged */}
                     {expandedCourseId === course.id && (
                       <tr className="bg-secondary-bg">
-                        <td colSpan={4} className="p-4">
+                        <td colSpan={5} className="p-4">
                           <div className="flex justify-between items-center mb-3">
                             <h4 className="font-semibold text-primary-dark font-righteous text-sm">
                               Levels for {course.course_name}
@@ -355,9 +389,7 @@ export default function Courses() {
                                       <td className="p-2 text-sm">{level.certificate_eligible ? "Yes" : "No"}</td>
                                       <td className="p-2 text-sm space-x-2">
                                         <button
-                                          onClick={() =>
-                                            setLevelForm({ courseId: course.id, initialData: level })
-                                          }
+                                          onClick={() => setLevelForm({ courseId: course.id, initialData: level })}
                                           className="text-blue-600 hover:underline"
                                         >
                                           <Edit3 size={14} />
@@ -400,16 +432,8 @@ export default function Courses() {
       )}
 
       {/* Course Form Modal */}
-      {showForm && (
-        <CourseForm onSubmit={handleCreate} onClose={() => setShowForm(false)} />
-      )}
-      {editing && (
-        <CourseForm
-          initialData={editing}
-          onSubmit={handleUpdate}
-          onClose={() => setEditing(null)}
-        />
-      )}
+      {showForm && <CourseForm onSubmit={handleCreate} onClose={() => setShowForm(false)} />}
+      {editing && <CourseForm initialData={editing} onSubmit={handleUpdate} onClose={() => setEditing(null)} />}
       {/* Level Form Modal */}
       {levelForm && (
         <CourseLevelForm

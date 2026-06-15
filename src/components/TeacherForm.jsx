@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import toast from "react-hot-toast";
 import {
   X, Hash, User, Phone, Mail, GraduationCap, Calendar,
-  IndianRupee, Layers, Lock, Link2,
+  IndianRupee, Layers, Lock, Link2, BookOpen,
 } from "lucide-react";
 import { useOrgDarkLogo } from "../hooks/useOrgDarkLogo";
 import { useAuth } from "../context/AuthContext";
@@ -23,23 +23,39 @@ export default function TeacherForm({ onSubmit, onClose, initialData = {} }) {
     joining_date: initialData.joining_date || "",
     salary: initialData.salary || "",
     status: initialData.status || "active",
+    course_id: initialData.course_id || "",     // NEW
+    medium_id: initialData.medium_id || "",     // NEW
   });
 
   // ---- Login account options ----
-  const [loginMode, setLoginMode] = useState("none"); // "none" | "create" | "link"
+  const [loginMode, setLoginMode] = useState("none");
   const [loginEmail, setLoginEmail] = useState(initialData.email || "");
   const [loginPassword, setLoginPassword] = useState("teacher123");
-  const [existingUserId, setExistingUserId] = useState(""); // uuid from profiles
+  const [existingUserId, setExistingUserId] = useState("");
 
-  // ---- Fetch existing profiles for linking ----
+  // ---- Dropdown data ----
+  const [courses, setCourses] = useState([]);
+  const [mediums, setMediums] = useState([]);
   const [existingUsers, setExistingUsers] = useState([]);
+
   useEffect(() => {
-    supabase
-      .from("profiles")
-      .select("id, email, full_name, role")
-      .order("email")
-      .then(({ data }) => setExistingUsers(data || []));
+    loadDropdownData();
   }, []);
+
+  async function loadDropdownData() {
+    try {
+      const [coursesRes, mediumsRes, usersRes] = await Promise.all([
+        supabase.from("courses").select("id, course_name").order("course_name"),
+        supabase.from("mediums").select("id, name").order("name"),
+        supabase.from("profiles").select("id, email, full_name, role"),
+      ]);
+      setCourses(coursesRes.data || []);
+      setMediums(mediumsRes.data || []);
+      setExistingUsers(usersRes.data || []);
+    } catch (err) {
+      toast.error("Failed to load form data");
+    }
+  }
 
   function handleChange(e) {
     const { name, value } = e.target;
@@ -72,7 +88,6 @@ export default function TeacherForm({ onSubmit, onClose, initialData = {} }) {
       let authUserId = null;
 
       if (loginMode === "create") {
-        // Save admin session before creating new user
         const { data: sessionData } = await supabase.auth.getSession();
         const adminSession = sessionData?.session;
 
@@ -96,7 +111,6 @@ export default function TeacherForm({ onSubmit, onClose, initialData = {} }) {
         authUserId = signUpData?.user?.id;
         if (!authUserId) throw new Error("Auth user creation returned no ID");
 
-        // Restore admin session
         if (adminSession) {
           await supabase.auth.setSession({
             access_token: adminSession.access_token,
@@ -104,7 +118,6 @@ export default function TeacherForm({ onSubmit, onClose, initialData = {} }) {
           });
         }
 
-        // Update profile role to teacher (trigger already created it with default)
         await supabase
           .from("profiles")
           .update({ role: "teacher" })
@@ -113,7 +126,6 @@ export default function TeacherForm({ onSubmit, onClose, initialData = {} }) {
         toast.success("Login account created");
       } else if (loginMode === "link") {
         authUserId = existingUserId;
-        // Ensure profile role is teacher and active
         const { error: roleUpdateError } = await supabase
           .from("profiles")
           .update({ role: "teacher", is_active: true })
@@ -127,7 +139,9 @@ export default function TeacherForm({ onSubmit, onClose, initialData = {} }) {
         ...form,
         salary: form.salary ? Number(form.salary) : null,
         joining_date: form.joining_date || null,
-        user_id: authUserId,   // null if no login selected
+        user_id: authUserId,
+        course_id: form.course_id || null,      // NEW
+        medium_id: form.medium_id || null,      // NEW
       };
 
       await onSubmit(payload);
@@ -138,9 +152,7 @@ export default function TeacherForm({ onSubmit, onClose, initialData = {} }) {
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      {/* Scrollable container */}
       <div className="bg-white rounded-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-xl">
-        {/* Sticky Header */}
         <div className="sticky top-0 bg-white border-b border-secondary-light px-6 py-4 flex items-center justify-between rounded-t-xl z-10">
           <div className="flex items-center gap-3">
             <img src={darkLogo} alt="ShreeVidhya Academy" className="h-10 w-auto" />
@@ -270,6 +282,44 @@ export default function TeacherForm({ onSubmit, onClose, initialData = {} }) {
               onChange={handleChange}
               className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light"
             />
+          </div>
+
+          {/* Course & Medium – NEW */}
+          <div>
+            <label className="block text-sm font-montserrat text-secondary-dark mb-1">
+              <BookOpen size={14} className="inline mr-1" />
+              Course *
+            </label>
+            <select
+              name="course_id"
+              value={form.course_id}
+              onChange={handleChange}
+              required
+              className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
+            >
+              <option value="">Select Course</option>
+              {courses.map((c) => (
+                <option key={c.id} value={c.id}>{c.course_name}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-montserrat text-secondary-dark mb-1">
+              <Layers size={14} className="inline mr-1" />
+              Medium *
+            </label>
+            <select
+              name="medium_id"
+              value={form.medium_id}
+              onChange={handleChange}
+              required
+              className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
+            >
+              <option value="">Select Medium</option>
+              {mediums.map((m) => (
+                <option key={m.id} value={m.id}>{m.name}</option>
+              ))}
+            </select>
           </div>
 
           {/* Joining Date */}

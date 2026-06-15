@@ -1,14 +1,14 @@
 import { supabase } from "../api/supabase";
 
-// Paginated fetch with search filter
+// Paginated fetch with search filter – now includes medium name
 export async function getSubjects({ pageParam = 0, filters = {} } = {}) {
-  const limit = 50; // subjects are small, so we can load more per page
+  const limit = 50;
   const from = pageParam * limit;
   const to = from + limit - 1;
 
   let query = supabase
     .from("subjects")
-    .select("*, courses(course_name)", { count: "exact" })
+    .select("*, courses(course_name, medium_id, mediums(name))", { count: "exact" })
     .order("course_id, id")
     .range(from, to);
 
@@ -17,17 +17,34 @@ export async function getSubjects({ pageParam = 0, filters = {} } = {}) {
       `subject_name.ilike.%${filters.search}%,courses.course_name.ilike.%${filters.search}%`
     );
   }
+  if (filters.medium_id) {
+    // Filter subjects whose course has the specified medium
+    const { data: courseIds } = await supabase
+      .from("courses")
+      .select("id")
+      .eq("medium_id", filters.medium_id);
+    const ids = courseIds?.map((c) => c.id) || [];
+    if (ids.length > 0) query = query.in("course_id", ids);
+    else return { data: [], count: 0 };
+  }
 
   const { data, error, count } = await query;
   if (error) throw error;
-  return { data, count };
+
+  // Flatten medium name
+  const enriched = (data || []).map((subject) => ({
+    ...subject,
+    medium_name: subject.courses?.mediums?.name || "",
+  }));
+
+  return { data: enriched, count };
 }
 
-// Export all subjects (unpaginated, respecting search)
+// Export all subjects (unpaginated, respecting search and medium filter)
 export async function getAllSubjectsForExport(filters = {}) {
   let query = supabase
     .from("subjects")
-    .select("*, courses(course_name)")
+    .select("*, courses(course_name, medium_id, mediums(name))")
     .order("course_id, id");
 
   if (filters.search) {
@@ -35,13 +52,25 @@ export async function getAllSubjectsForExport(filters = {}) {
       `subject_name.ilike.%${filters.search}%,courses.course_name.ilike.%${filters.search}%`
     );
   }
+  if (filters.medium_id) {
+    const { data: courseIds } = await supabase
+      .from("courses")
+      .select("id")
+      .eq("medium_id", filters.medium_id);
+    const ids = courseIds?.map((c) => c.id) || [];
+    if (ids.length > 0) query = query.in("course_id", ids);
+    else return [];
+  }
 
   const { data, error } = await query;
   if (error) throw error;
-  return data || [];
+  return (data || []).map((subject) => ({
+    ...subject,
+    medium_name: subject.courses?.mediums?.name || "",
+  }));
 }
 
-// CRUD
+// CRUD (unchanged)
 export async function createSubject(payload) {
   const { data, error } = await supabase
     .from("subjects")
@@ -79,4 +108,14 @@ export async function getCoursesForDropdown() {
     .order("course_name");
   if (error) throw error;
   return data;
+}
+
+// NEW – get mediums for filter dropdown
+export async function getMediumOptions() {
+  const { data, error } = await supabase
+    .from("mediums")
+    .select("id, name")
+    .order("name");
+  if (error) throw error;
+  return data || [];
 }

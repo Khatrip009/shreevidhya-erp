@@ -9,6 +9,7 @@ import {
   BookOpen,
   Calendar,
   Tag,
+  Layers,
 } from "lucide-react";
 import { supabase } from "../api/supabase";
 import { useOrgDarkLogo } from "../hooks/useOrgDarkLogo";
@@ -26,20 +27,27 @@ export default function InquiryForm({ onSubmit, onClose, initialData = {} }) {
     remarks: initialData.remarks || "",
     followup_date: initialData.followup_date || "",
     status: initialData.status || "New",
+    medium_id: initialData.medium_id || "",          // NEW
   });
 
   const [courses, setCourses] = useState([]);
+  const [mediums, setMediums] = useState([]);       // NEW
 
   useEffect(() => {
-    loadCourses();
+    loadDropdowns();
   }, []);
 
-  async function loadCourses() {
-    const { data } = await supabase
-      .from("courses")
-      .select("id, course_name")
-      .eq("status", true);
-    if (data) setCourses(data);
+  async function loadDropdowns() {
+    try {
+      const [coursesRes, mediumsRes] = await Promise.all([
+        supabase.from("courses").select("id, course_name").eq("status", true),
+        supabase.from("mediums").select("id, name").order("name"),
+      ]);
+      setCourses(coursesRes.data || []);
+      setMediums(mediumsRes.data || []);
+    } catch (err) {
+      toast.error("Failed to load form data");
+    }
   }
 
   function handleChange(e) {
@@ -52,7 +60,10 @@ export default function InquiryForm({ onSubmit, onClose, initialData = {} }) {
       toast.error("Student name and mobile are required");
       return;
     }
-    await onSubmit(form);
+    await onSubmit({
+      ...form,
+      medium_id: form.medium_id || null,
+    });
   }
 
   return (
@@ -178,8 +189,27 @@ export default function InquiryForm({ onSubmit, onClose, initialData = {} }) {
             </div>
           </div>
 
-          {/* Source & Follow-up Date */}
+          {/* Medium & Source */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-montserrat text-secondary-dark mb-1">
+                <Layers size={14} className="inline mr-1" />
+                Medium
+              </label>
+              <select
+                name="medium_id"
+                value={form.medium_id}
+                onChange={handleChange}
+                className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
+              >
+                <option value="">Select Medium</option>
+                {mediums.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name}
+                  </option>
+                ))}
+              </select>
+            </div>
             <div>
               <label className="block text-sm font-montserrat text-secondary-dark mb-1">
                 <Tag size={14} className="inline mr-1" />
@@ -193,6 +223,10 @@ export default function InquiryForm({ onSubmit, onClose, initialData = {} }) {
                 className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light"
               />
             </div>
+          </div>
+
+          {/* Follow-up Date & Status */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-montserrat text-secondary-dark mb-1">
                 <Calendar size={14} className="inline mr-1" />
@@ -206,10 +240,6 @@ export default function InquiryForm({ onSubmit, onClose, initialData = {} }) {
                 className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
               />
             </div>
-          </div>
-
-          {/* Status & Remarks */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-montserrat text-secondary-dark mb-1">
                 <FileText size={14} className="inline mr-1" />
@@ -229,20 +259,22 @@ export default function InquiryForm({ onSubmit, onClose, initialData = {} }) {
                 <option>Closed</option>
               </select>
             </div>
-            <div className="sm:col-span-2">
-              <label className="block text-sm font-montserrat text-secondary-dark mb-1">
-                <FileText size={14} className="inline mr-1" />
-                Remarks
-              </label>
-              <textarea
-                name="remarks"
-                placeholder="Additional notes..."
-                value={form.remarks}
-                onChange={handleChange}
-                rows={3}
-                className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light resize-none"
-              />
-            </div>
+          </div>
+
+          {/* Remarks */}
+          <div className="sm:col-span-2">
+            <label className="block text-sm font-montserrat text-secondary-dark mb-1">
+              <FileText size={14} className="inline mr-1" />
+              Remarks
+            </label>
+            <textarea
+              name="remarks"
+              placeholder="Additional notes..."
+              value={form.remarks}
+              onChange={handleChange}
+              rows={3}
+              className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light resize-none"
+            />
           </div>
 
           {/* Buttons */}

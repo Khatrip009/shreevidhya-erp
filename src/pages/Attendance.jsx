@@ -27,6 +27,7 @@ import {
   updateAttendanceSession,
   deleteAttendanceSession,
   getBatchOptions,
+  getMediumOptions,
   getAllAttendanceSessionsForExport,
 } from "../services/attendanceService";
 import { useAuth } from "../context/AuthContext";
@@ -43,11 +44,12 @@ export default function Attendance() {
   const queryClient = useQueryClient();
 
   const [batchFilter, setBatchFilter] = useState("");
+  const [mediumFilter, setMediumFilter] = useState("");   // NEW
   const [search, setSearch] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [showFilters, setShowFilters] = useState(false);
-  const allFilters = { batchId: batchFilter, search, startDate, endDate };
+  const allFilters = { batchId: batchFilter, medium_id: mediumFilter, search, startDate, endDate };
 
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
@@ -56,6 +58,13 @@ export default function Attendance() {
   const { data: batches = [] } = useQuery({
     queryKey: ["batches-dropdown"],
     queryFn: getBatchOptions,
+    staleTime: 10 * 60 * 1000,
+  });
+
+  // Fetch mediums for filter dropdown
+  const { data: mediums = [] } = useQuery({
+    queryKey: ["mediums-dropdown"],
+    queryFn: getMediumOptions,
     staleTime: 10 * 60 * 1000,
   });
 
@@ -240,7 +249,7 @@ export default function Attendance() {
       </div>
 
       {showFilters && (
-        <div className="bg-white rounded-xl p-4 shadow-sm mb-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 border border-secondary-light">
+        <div className="bg-white rounded-xl p-4 shadow-sm mb-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 border border-secondary-light">
           <div>
             <label className="text-xs font-montserrat text-secondary-dark">Batch</label>
             <select
@@ -252,6 +261,21 @@ export default function Attendance() {
               {batches.map((b) => (
                 <option key={b.id} value={b.id}>
                   {b.batch_name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs font-montserrat text-secondary-dark">Medium</label>
+            <select
+              value={mediumFilter}
+              onChange={(e) => setMediumFilter(e.target.value)}
+              className="w-full border border-secondary-light rounded p-2 text-sm mt-1 focus:ring-1 focus:ring-primary"
+            >
+              <option value="">All Mediums</option>
+              {mediums.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name}
                 </option>
               ))}
             </select>
@@ -279,6 +303,7 @@ export default function Attendance() {
               onClick={() => {
                 setSearch("");
                 setBatchFilter("");
+                setMediumFilter("");
                 setStartDate("");
                 setEndDate("");
               }}
@@ -292,11 +317,12 @@ export default function Attendance() {
 
       <div className="bg-white rounded-xl shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[700px]">
+          <table className="w-full min-w-[800px]">
             <thead className="bg-slate-100 border-b border-secondary-light">
               <tr>
                 <th className="p-3 text-left text-sm font-montserrat text-secondary-dark">Date</th>
                 <th className="text-left text-sm font-montserrat text-secondary-dark">Batch</th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">Medium</th>
                 <th className="text-left text-sm font-montserrat text-secondary-dark">Topic</th>
                 <th className="text-left text-sm font-montserrat text-secondary-dark">Attendance</th>
                 <th className="text-left text-sm font-montserrat text-secondary-dark">Actions</th>
@@ -305,18 +331,18 @@ export default function Attendance() {
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan={5} className="p-6 text-center text-secondary">
+                  <td colSpan={6} className="p-6 text-center text-secondary">
                     Loading sessions…
                   </td>
                 </tr>
               ) : sessions.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="p-6 text-center text-secondary">
+                  <td colSpan={6} className="p-6 text-center text-secondary">
                     <div className="flex flex-col items-center gap-2">
                       <CalendarCheck size={32} className="text-secondary-light" />
                       <span>No sessions found</span>
                       <span className="text-xs text-secondary-light">
-                        {search || batchFilter || startDate || endDate
+                        {search || batchFilter || mediumFilter || startDate || endDate
                           ? "Try adjusting your filters"
                           : "Create a new session to get started"}
                       </span>
@@ -331,6 +357,13 @@ export default function Attendance() {
                   >
                     <td className="p-3 text-sm">{session.attendance_date}</td>
                     <td className="text-sm">{session.batch_name}</td>
+                    <td className="text-sm">
+                      {session.medium_name ? (
+                        <span className="bg-primary-bg text-primary px-2 py-0.5 rounded-full text-xs">
+                          {session.medium_name}
+                        </span>
+                      ) : "-"}
+                    </td>
                     <td className="text-sm">{session.topic_covered || "-"}</td>
                     <td className="text-sm">
                       <span className="text-green-600 font-medium">

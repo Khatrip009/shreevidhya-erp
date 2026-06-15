@@ -9,6 +9,7 @@ import {
   X,
   BookOpen,
   DollarSign,
+  Layers,
 } from "lucide-react";
 import AdminLayout from "../layouts/AdminLayout";
 import {
@@ -25,6 +26,7 @@ export default function FeeStructures() {
   const darkLogo = useOrgDarkLogo();
 
   const [search, setSearch] = useState("");
+  const [mediumFilter, setMediumFilter] = useState("");   // NEW
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState({
@@ -33,7 +35,7 @@ export default function FeeStructures() {
     installment_allowed: false,
   });
 
-  // Fetch fee structures
+  // Fetch fee structures (service now returns medium_name)
   const { data: structures = [], isLoading } = useQuery({
     queryKey: ["feeStructures"],
     queryFn: getFeeStructures,
@@ -47,6 +49,19 @@ export default function FeeStructures() {
       const { data } = await supabase
         .from("courses")
         .select("id, course_name");
+      return data || [];
+    },
+    staleTime: 10 * 60 * 1000,
+  });
+
+  // Fetch mediums for filter
+  const { data: mediums = [] } = useQuery({
+    queryKey: ["mediums-dropdown"],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("mediums")
+        .select("id, name")
+        .order("name");
       return data || [];
     },
     staleTime: 10 * 60 * 1000,
@@ -82,10 +97,12 @@ export default function FeeStructures() {
     onError: () => toast.error("Delete failed"),
   });
 
-  // Search filter
-  const filteredStructures = structures.filter((s) =>
-    s.courses?.course_name?.toLowerCase().includes(search.toLowerCase())
-  );
+  // Filter by search and medium
+  const filteredStructures = structures.filter((s) => {
+    const matchesSearch = s.courses?.course_name?.toLowerCase().includes(search.toLowerCase());
+    const matchesMedium = !mediumFilter || s.courses?.medium_id == mediumFilter;
+    return matchesSearch && matchesMedium;
+  });
 
   function openCreate() {
     setForm({ course_id: "", fee_amount: "", installment_allowed: false });
@@ -137,29 +154,44 @@ export default function FeeStructures() {
         </button>
       </div>
 
-      {/* Search */}
-      <div className="relative mb-6 max-w-md">
-        <Search
-          size={18}
-          className="absolute left-3 top-1/2 -translate-y-1/2 text-secondary"
-        />
-        <input
-          type="text"
-          placeholder="Search by course name..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="w-full border border-secondary-light rounded-lg pl-10 pr-4 py-2.5 text-sm focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light"
-        />
+      {/* Search & Medium Filter */}
+      <div className="flex flex-col sm:flex-row gap-3 mb-6">
+        <div className="relative flex-1 max-w-md">
+          <Search
+            size={18}
+            className="absolute left-3 top-1/2 -translate-y-1/2 text-secondary"
+          />
+          <input
+            type="text"
+            placeholder="Search by course name..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full border border-secondary-light rounded-lg pl-10 pr-4 py-2.5 text-sm focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light"
+          />
+        </div>
+        <select
+          value={mediumFilter}
+          onChange={(e) => setMediumFilter(e.target.value)}
+          className="border border-secondary-light rounded-lg p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none"
+        >
+          <option value="">All Mediums</option>
+          {mediums.map((m) => (
+            <option key={m.id} value={m.id}>{m.name}</option>
+          ))}
+        </select>
       </div>
 
       {/* Table */}
       <div className="bg-white rounded-xl shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[500px]">
+          <table className="w-full min-w-[600px]">
             <thead className="bg-slate-100 border-b border-secondary-light">
               <tr>
                 <th className="p-3 text-left text-sm font-montserrat text-secondary-dark">
                   Course
+                </th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">
+                  Medium
                 </th>
                 <th className="text-left text-sm font-montserrat text-secondary-dark">
                   Fee Amount
@@ -175,19 +207,19 @@ export default function FeeStructures() {
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan={4} className="p-6 text-center text-secondary">
+                  <td colSpan={5} className="p-6 text-center text-secondary">
                     Loading fee structures…
                   </td>
                 </tr>
               ) : filteredStructures.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="p-6 text-center text-secondary">
+                  <td colSpan={5} className="p-6 text-center text-secondary">
                     <div className="flex flex-col items-center gap-2">
                       <DollarSign size={32} className="text-secondary-light" />
                       <span>No fee structures defined yet</span>
-                      {search && (
+                      {(search || mediumFilter) && (
                         <span className="text-xs text-secondary-light">
-                          Try adjusting your search
+                          Try adjusting your filters
                         </span>
                       )}
                     </div>
@@ -200,6 +232,9 @@ export default function FeeStructures() {
                     className="border-b border-secondary-light hover:bg-primary-bg transition"
                   >
                     <td className="p-3 text-sm">{s.courses?.course_name}</td>
+                    <td className="text-sm">
+                      {s.courses?.mediums?.name || "-"}
+                    </td>
                     <td className="text-sm font-semibold">
                       ₹{Number(s.fee_amount).toLocaleString()}
                     </td>
@@ -236,11 +271,10 @@ export default function FeeStructures() {
         </div>
       </div>
 
-      {/* Add / Edit Modal */}
+      {/* Add / Edit Modal – unchanged */}
       {showForm && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl w-full max-w-md shadow-xl">
-            {/* Modal header with logo */}
             <div className="sticky top-0 bg-white border-b border-secondary-light px-6 py-4 flex items-center justify-between rounded-t-xl">
               <div className="flex items-center gap-3">
                 <img

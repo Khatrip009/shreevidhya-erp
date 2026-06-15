@@ -10,6 +10,7 @@ import {
   Layers,
   FileText,
   CheckCircle,
+  BookOpen,
 } from "lucide-react";
 import AdminLayout from "../layouts/AdminLayout";
 import {
@@ -37,9 +38,13 @@ export default function MarkAttendance() {
   async function loadData() {
     setLoading(true);
     try {
+      // Fetch session info including batch's medium
       const { data: session } = await supabase
         .from("attendance_sessions")
-        .select("id, attendance_date, topic_covered, batch_id, batches(batch_name)")
+        .select(
+          `id, attendance_date, topic_covered, batch_id,
+           batches(batch_name, medium_id, mediums(name))`
+        )
         .eq("id", sessionId)
         .single();
 
@@ -123,12 +128,19 @@ export default function MarkAttendance() {
           <ArrowLeft size={18} />
           Back to Sessions
         </button>
-        <h1 className="text-3xl font-righteous text-primary-dark">Mark Attendance</h1>
+        <h1 className="text-3xl font-righteous text-primary-dark">
+          Mark Attendance
+        </h1>
         {sessionInfo && (
           <div className="flex flex-wrap gap-2 mt-2 text-sm text-secondary-dark font-montserrat">
             <span className="flex items-center gap-1 bg-primary-bg text-primary px-3 py-1 rounded-full">
               <Layers size={14} /> {sessionInfo.batches?.batch_name}
             </span>
+            {sessionInfo.batches?.mediums?.name && (
+              <span className="flex items-center gap-1 bg-primary-bg text-primary px-3 py-1 rounded-full">
+                <BookOpen size={14} /> {sessionInfo.batches.mediums.name}
+              </span>
+            )}
             <span className="flex items-center gap-1 bg-primary-bg text-primary px-3 py-1 rounded-full">
               <Calendar size={14} /> {sessionInfo.attendance_date}
             </span>

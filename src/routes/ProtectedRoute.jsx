@@ -14,6 +14,7 @@ const STUDENT_ROUTES = [
   "/student/profile",
   "/student/timetable",
   "/student/exams",        // ← added
+  "/student/resources", 
   "/notifications",
 ];
 

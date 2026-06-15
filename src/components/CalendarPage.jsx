@@ -7,24 +7,40 @@ import { supabase } from "../api/supabase";
 import AdminLayout from "../layouts/AdminLayout";
 import { useQuery } from "@tanstack/react-query";
 import toast from "react-hot-toast";
+import { Layers } from "lucide-react";
 
 export default function CalendarPage() {
   const [events, setEvents] = useState([]);
+  const [selectedMediumId, setSelectedMediumId] = useState("");
 
-  // Fetch batches with course and teacher info
-  const { data: batches, isLoading } = useQuery({
-    queryKey: ["calendar-batches"],
+  // Fetch mediums for filter dropdown
+  const { data: mediums = [] } = useQuery({
+    queryKey: ["calendar-mediums"],
     queryFn: async () => {
-      // 1. Fetch batches with course and teacher (via batch_teachers)
-      const { data, error } = await supabase
+      const { data } = await supabase.from("mediums").select("id, name").order("name");
+      return data || [];
+    },
+  });
+
+  // Fetch batches with course, teacher, and medium info
+  const { data: batches, isLoading } = useQuery({
+    queryKey: ["calendar-batches", selectedMediumId],
+    queryFn: async () => {
+      let query = supabase
         .from("batches")
         .select(`
           *,
           course:courses(id, course_name),
+          medium:mediums(id, name),
           batch_teachers(teacher:teachers(id, first_name, last_name))
         `)
         .eq("status", "active");
 
+      if (selectedMediumId) {
+        query = query.eq("medium_id", selectedMediumId);
+      }
+
+      const { data, error } = await query;
       if (error) throw error;
       return data;
     },
@@ -37,10 +53,9 @@ export default function CalendarPage() {
     const calendarEvents = [];
 
     batches.forEach((batch) => {
-      const { id, batch_name, start_date, end_date, days, start_time, end_time, course } = batch;
+      const { id, batch_name, start_date, end_date, days, start_time, end_time, course, medium } = batch;
       if (!start_date || !end_date || !days) return;
 
-      // Parse days of week (e.g., "Monday,Wednesday,Friday")
       const daysOfWeek = days.split(",").map((day) => {
         const dayMap = {
           Sunday: 0, Monday: 1, Tuesday: 2, Wednesday: 3,
@@ -51,16 +66,13 @@ export default function CalendarPage() {
 
       if (daysOfWeek.length === 0) return;
 
-      // Generate events for each occurrence between start_date and end_date
       const start = new Date(start_date);
       const end = new Date(end_date);
       const current = new Date(start);
 
-      // Create a map of days in the range
       while (current <= end) {
-        const dayOfWeek = current.getDay(); // 0 = Sunday
+        const dayOfWeek = current.getDay();
         if (daysOfWeek.includes(dayOfWeek)) {
-          // Create event for this specific date
           const eventStart = new Date(current);
           const [startHour, startMinute] = start_time.split(":");
           eventStart.setHours(parseInt(startHour), parseInt(startMinute), 0);
@@ -69,7 +81,6 @@ export default function CalendarPage() {
           const [endHour, endMinute] = end_time.split(":");
           eventEnd.setHours(parseInt(endHour), parseInt(endMinute), 0);
 
-          // Teacher names
           const teachers = batch.batch_teachers?.map(bt => 
             `${bt.teacher.first_name} ${bt.teacher.last_name}`
           ).join(", ") || "No teacher";
@@ -85,6 +96,7 @@ export default function CalendarPage() {
               start_time,
               end_time,
               days,
+              medium_name: medium?.name || "",    // NEW
             },
           });
         }
@@ -102,7 +114,8 @@ export default function CalendarPage() {
         <strong>{title}</strong><br />
         Teachers: {extendedProps.teachers}<br />
         Time: {extendedProps.start_time} - {extendedProps.end_time}<br />
-        Days: {extendedProps.days}
+        Days: {extendedProps.days}<br />
+        {extendedProps.medium_name && <span>Medium: {extendedProps.medium_name}</span>}
       </div>,
       { duration: 5000 }
     );
@@ -111,7 +124,26 @@ export default function CalendarPage() {
   return (
     <AdminLayout>
       <div className="p-4 bg-white rounded-xl shadow-sm">
-        <h1 className="text-2xl font-righteous text-primary-dark mb-4">Class Calendar</h1>
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-4">
+          <h1 className="text-2xl font-righteous text-primary-dark">Class Calendar</h1>
+          {/* Medium Filter – NEW */}
+          <div className="flex items-center gap-2">
+            <Layers size={18} className="text-secondary" />
+            <select
+              value={selectedMediumId}
+              onChange={(e) => setSelectedMediumId(e.target.value)}
+              className="border border-secondary-light rounded-lg p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none"
+            >
+              <option value="">All Mediums</option>
+              {mediums.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
         {isLoading ? (
           <div className="text-center py-10">Loading calendar...</div>
         ) : (
