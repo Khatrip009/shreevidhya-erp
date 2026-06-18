@@ -1,9 +1,9 @@
 import { useState, useEffect } from "react";
 import toast from "react-hot-toast";
-import { X, Calendar, BookOpen, Layers, Filter } from "lucide-react";
+import { X, Calendar, BookOpen, Layers } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { getOrganization } from "../services/organizationService";
-import { getBatchOptions, getMediumOptions } from "../services/attendanceService";
+import { getBatchOptions } from "../services/attendanceService";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../api/supabase";
 
@@ -14,8 +14,6 @@ export default function AttendanceSessionForm({
 }) {
   const { user, profile } = useAuth();
   const [batches, setBatches] = useState([]);
-  const [mediums, setMediums] = useState([]);
-  const [selectedMediumId, setSelectedMediumId] = useState("");
   const [form, setForm] = useState({
     batch_id: initialData.batch_id || "",
     attendance_date:
@@ -38,25 +36,16 @@ export default function AttendanceSessionForm({
 
   async function loadDropdowns() {
     try {
-      const [batchData, mediumData] = await Promise.all([
-        getBatchOptions(),
-        getMediumOptions(),
-      ]);
+      const batchData = await getBatchOptions();
       setBatches(batchData);
-      setMediums(mediumData);
     } catch {
-      toast.error("Failed to load data");
+      toast.error("Failed to load batches");
     }
   }
 
   function handleChange(e) {
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
   }
-
-  // Filter batches by selected medium (client-side)
-  const filteredBatches = batches.filter((b) =>
-    !selectedMediumId ? true : b.medium_id === parseInt(selectedMediumId)
-  );
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -110,29 +99,6 @@ export default function AttendanceSessionForm({
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-5">
-          {/* Medium Filter – NEW */}
-          <div>
-            <label className="block text-sm font-montserrat text-secondary-dark mb-1">
-              <Filter size={14} className="inline mr-1" />
-              Medium
-            </label>
-            <select
-              value={selectedMediumId}
-              onChange={(e) => {
-                setSelectedMediumId(e.target.value);
-                setForm((prev) => ({ ...prev, batch_id: "" })); // reset batch
-              }}
-              className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
-            >
-              <option value="">All Mediums</option>
-              {mediums.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
           {/* Batch */}
           <div>
             <label className="block text-sm font-montserrat text-secondary-dark mb-1">
@@ -147,7 +113,7 @@ export default function AttendanceSessionForm({
               required
             >
               <option value="">Select Batch</option>
-              {filteredBatches.map((b) => (
+              {batches.map((b) => (
                 <option key={b.id} value={b.id}>
                   {b.batch_name}
                 </option>
