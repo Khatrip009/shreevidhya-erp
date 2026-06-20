@@ -50,6 +50,7 @@ import StudentResultsPage from "./pages/StudentResultsPage";
 import StudentCertificatesPage from "./pages/StudentCertificatesPage";
 import PersonalTimetable from "./pages/PersonalTimetable";
 import StudentExamsPage from "./pages/StudentExamsPage";
+import StudentNotifications from "./pages/StudentNotifications"; // <-- new import
 
 // Teacher & HR pages
 import TeacherDashboard from "./pages/TeacherDashboard";
@@ -62,6 +63,7 @@ import TeacherTimetable from "./pages/TeacherTimetable";
 import ProtectedRoute from "./routes/ProtectedRoute";
 import StudentLearningResources from "./pages/StudentLearningResources";
 import TeacherLearningResources from "./pages/TeacherLearningResources";
+
 function App() {
   return (
     <ErrorBoundary>
@@ -70,6 +72,7 @@ function App() {
 
         <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
         <Route path="/organization-settings" element={<ProtectedRoute><OrganizationSettings /></ProtectedRoute>} />
+
         {/* Student routes */}
         <Route path="/student" element={<ProtectedRoute><StudentDashboard /></ProtectedRoute>} />
         <Route path="/student/fees" element={<ProtectedRoute><StudentFeesPage /></ProtectedRoute>} />
@@ -82,6 +85,7 @@ function App() {
         <Route path="/student/timetable" element={<ProtectedRoute><PersonalTimetable /></ProtectedRoute>} />
         <Route path="/student/exams" element={<ProtectedRoute><StudentExamsPage /></ProtectedRoute>} />
         <Route path="/student/resources" element={<ProtectedRoute><StudentLearningResources /></ProtectedRoute>} />
+        <Route path="/student/notifications" element={<ProtectedRoute><StudentNotifications /></ProtectedRoute>} />  {/* NEW */}
 
         {/* Teacher routes */}
         <Route path="/teacher" element={<ProtectedRoute><TeacherDashboard /></ProtectedRoute>} />
@@ -91,6 +95,7 @@ function App() {
         <Route path="/teacher/calendar" element={<ProtectedRoute><TeacherWeeklyTimetable /></ProtectedRoute>}/>
         <Route path="/teacher/timetable" element={<ProtectedRoute><TeacherTimetable /></ProtectedRoute>} />
         <Route path="/teacher/resources" element={<ProtectedRoute><TeacherLearningResources /></ProtectedRoute>} />
+
         {/* Admin/Teacher shared routes */}
         <Route path="/students" element={<ProtectedRoute><Students /></ProtectedRoute>} />
         <Route path="/students/:id" element={<ProtectedRoute><StudentProfile /></ProtectedRoute>} />

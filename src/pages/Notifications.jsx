@@ -27,12 +27,10 @@ import { useOrgDarkLogo } from "../hooks/useOrgDarkLogo";
 export default function Notifications() {
   const queryClient = useQueryClient();
   const darkLogo = useOrgDarkLogo();
-  // Search & filters
   const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
   const fileInputRef = useRef(null);
 
-  // Form state
   const [form, setForm] = useState({
     title: "",
     message: "",
@@ -40,7 +38,7 @@ export default function Notifications() {
     batch_id: "",
   });
 
-  // Fetch batches for the form
+  // Fetch batches for the dropdown
   const { data: batches = [] } = useQuery({
     queryKey: ["batches-dropdown"],
     queryFn: async () => {
@@ -53,7 +51,100 @@ export default function Notifications() {
     staleTime: 10 * 60 * 1000,
   });
 
-  // Infinite query for notifications
+  // ---------- Helper: get recipients ----------
+  async function getRecipients(targetType, batchId = null) {
+    let candidateIds = [];
+
+    switch (targetType) {
+      case "All": {
+        const { data: students } = await supabase
+          .from("students")
+          .select("user_id")
+          .not("user_id", "is", null);
+        const { data: teachers } = await supabase
+          .from("teachers")
+          .select("user_id")
+          .not("user_id", "is", null);
+        const studentIds = students?.map((s) => s.user_id) || [];
+        const teacherIds = teachers?.map((t) => t.user_id) || [];
+        candidateIds = [...studentIds, ...teacherIds];
+        break;
+      }
+      case "Batch": {
+        if (!batchId) return [];
+        // Get students in batch
+        const { data: batchStudents } = await supabase
+          .from("batch_students")
+          .select("student_id")
+          .eq("batch_id", batchId);
+        const studentIds = batchStudents?.map((bs) => bs.student_id) || [];
+        let studentUserIds = [];
+        if (studentIds.length) {
+          const { data: students } = await supabase
+            .from("students")
+            .select("user_id")
+            .in("id", studentIds)
+            .not("user_id", "is", null);
+          studentUserIds = students?.map((s) => s.user_id) || [];
+        }
+        // Get teachers in batch
+        const { data: batchTeachers } = await supabase
+          .from("batch_teachers")
+          .select("teacher_id")
+          .eq("batch_id", batchId);
+        const teacherIds = batchTeachers?.map((bt) => bt.teacher_id) || [];
+        let teacherUserIds = [];
+        if (teacherIds.length) {
+          const { data: teachers } = await supabase
+            .from("teachers")
+            .select("user_id")
+            .in("id", teacherIds)
+            .not("user_id", "is", null);
+          teacherUserIds = teachers?.map((t) => t.user_id) || [];
+        }
+        candidateIds = [...studentUserIds, ...teacherUserIds];
+        break;
+      }
+      case "Teachers": {
+        const { data: teachers } = await supabase
+          .from("teachers")
+          .select("user_id")
+          .not("user_id", "is", null);
+        candidateIds = teachers?.map((t) => t.user_id) || [];
+        break;
+      }
+      case "Students": {
+        const { data: students } = await supabase
+          .from("students")
+          .select("user_id")
+          .not("user_id", "is", null);
+        candidateIds = students?.map((s) => s.user_id) || [];
+        break;
+      }
+      default:
+        return [];
+    }
+
+    // Remove duplicates and nulls
+    const uniqueIds = [...new Set(candidateIds.filter(Boolean))];
+
+    if (!uniqueIds.length) return [];
+
+    // Validate against auth.users using the RPC function
+    const { data: validIds, error } = await supabase.rpc("get_valid_user_ids", {
+      user_ids: uniqueIds,
+    });
+
+    if (error) {
+      console.error("Error filtering user IDs:", error);
+      // Fallback: return uniqueIds (may cause FK error if some are invalid)
+      return uniqueIds;
+    }
+
+    return validIds || [];
+  }
+
+  // ---------- Infinite query for notifications ----------
   const {
     data,
     isLoading,
@@ -96,22 +187,50 @@ export default function Notifications() {
 
   const notifications = data?.pages.flatMap((page) => page.data) || [];
 
-  // Create mutation
+  // ---------- Create mutation ----------
   const createMutation = useMutation({
     mutationFn: async (payload) => {
-      const { error } = await supabase.from("notifications").insert([payload]);
-      if (error) throw error;
+      const { title, message, target_type, batch_id } = payload;
+      const userIds = await getRecipients(target_type, batch_id);
+
+      if (!userIds || userIds.length === 0) {
+        throw new Error("No valid recipients found for this target.");
+      }
+
+      // Build rows
+      const rows = userIds.map((user_id) => ({
+        title,
+        message,
+        target_type,
+        batch_id: batch_id || null,
+        user_id,
+        is_read: false,
+        created_at: new Date().toISOString(),
+        // created_by is omitted to avoid type mismatch (integer vs UUID)
+      }));
+
+      // Insert in chunks (Supabase limit ~1000 per call)
+      const chunkSize = 500;
+      for (let i = 0; i < rows.length; i += chunkSize) {
+        const chunk = rows.slice(i, i + chunkSize);
+        const { error } = await supabase.from("notifications").insert(chunk);
+        if (error) throw error;
+      }
+
+      return rows.length;
     },
-    onSuccess: () => {
-      toast.success("Notification sent");
+    onSuccess: (count) => {
+      toast.success(`Notification sent to ${count} users.`);
       queryClient.invalidateQueries({ queryKey: ["notifications"] });
       setShowForm(false);
       setForm({ title: "", message: "", target_type: "All", batch_id: "" });
     },
-    onError: () => toast.error("Failed to send notification"),
+    onError: (err) => {
+      toast.error(err.message || "Failed to send notification.");
+    },
   });
 
-  // Mark single as read
+  // ---------- Mutations: Mark read, delete, mark all ----------
   const markReadMutation = useMutation({
     mutationFn: async (id) => {
       const { error } = await supabase
@@ -125,20 +244,18 @@ export default function Notifications() {
     },
   });
 
-  // Delete mutation
   const deleteMutation = useMutation({
     mutationFn: async (id) => {
       const { error } = await supabase.from("notifications").delete().eq("id", id);
       if (error) throw error;
     },
     onSuccess: () => {
-      toast.success("Notification deleted");
+      toast.success("Notification deleted.");
       queryClient.invalidateQueries({ queryKey: ["notifications"] });
     },
-    onError: () => toast.error("Delete failed"),
+    onError: () => toast.error("Delete failed."),
   });
 
-  // Bulk mark all as read
   const markAllReadMutation = useMutation({
     mutationFn: async () => {
       const { error } = await supabase
@@ -148,12 +265,12 @@ export default function Notifications() {
       if (error) throw error;
     },
     onSuccess: () => {
-      toast.success("All marked as read");
+      toast.success("All notifications marked as read.");
       queryClient.invalidateQueries({ queryKey: ["notifications"] });
     },
   });
 
-  // CSV Import
+  // ---------- CSV Import ----------
   async function handleCSVImport(event) {
     const file = event.target.files[0];
     if (!file) return;
@@ -169,7 +286,6 @@ export default function Notifications() {
               message: row.message,
               target_type: row.target_type || "All",
               batch_id: row.batch_id || null,
-              created_by: 1,
               is_read: false,
             };
             const { error } = await supabase.from("notifications").insert([payload]);
@@ -178,14 +294,14 @@ export default function Notifications() {
             console.error(err);
           }
         }
-        toast.success(`${successCount} notifications imported`);
+        toast.success(`${successCount} notifications imported.`);
         queryClient.invalidateQueries({ queryKey: ["notifications"] });
       },
-      error: () => toast.error("CSV parsing error"),
+      error: () => toast.error("CSV parsing error."),
     });
   }
 
-  // CSV Export
+  // ---------- CSV Export ----------
   async function handleCSVExport() {
     try {
       const { data: allData } = await supabase
@@ -196,7 +312,9 @@ export default function Notifications() {
         (allData || []).map((n) => ({
           title: n.title,
           message: n.message,
-          target: n.target_type === "Batch" && n.batches?.batch_name ? `Batch: ${n.batches.batch_name}` : n.target_type,
+          target: n.target_type === "Batch" && n.batches?.batch_name
+            ? `Batch: ${n.batches.batch_name}`
+            : n.target_type,
           is_read: n.is_read,
           created_at: n.created_at,
         }))
@@ -209,27 +327,28 @@ export default function Notifications() {
       a.click();
       URL.revokeObjectURL(url);
     } catch (err) {
-      toast.error("Export failed");
+      toast.error("Export failed.");
     }
   }
 
+  // ---------- Submit handler ----------
   function handleSubmit(e) {
     e.preventDefault();
     if (!form.title.trim() || !form.message.trim()) {
-      toast.error("Title and message are required");
+      toast.error("Title and message are required.");
       return;
     }
     createMutation.mutate({
-      ...form,
+      title: form.title,
+      message: form.message,
+      target_type: form.target_type,
       batch_id: form.batch_id || null,
-      created_by: 1,
-      is_read: false,
     });
   }
 
+  // ---------- Render ----------
   return (
     <AdminLayout>
-      {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
         <div>
           <h1 className="text-3xl font-righteous text-primary-dark">Notifications</h1>
@@ -272,7 +391,6 @@ export default function Notifications() {
         </div>
       </div>
 
-      {/* Search */}
       <div className="relative mb-6 max-w-md">
         <Search
           size={18}
@@ -287,7 +405,6 @@ export default function Notifications() {
         />
       </div>
 
-      {/* Notifications Table */}
       <div className="bg-white rounded-xl shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[600px]">
@@ -374,7 +491,6 @@ export default function Notifications() {
         </div>
       </div>
 
-      {/* Load More */}
       {hasNextPage && (
         <div className="flex justify-center mt-6">
           <button
@@ -387,7 +503,6 @@ export default function Notifications() {
         </div>
       )}
 
-      {/* New Notification Modal (branded) */}
       {showForm && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl w-full max-w-md shadow-xl">
@@ -476,9 +591,10 @@ export default function Notifications() {
               <div className="flex flex-col sm:flex-row-reverse gap-3 pt-2">
                 <button
                   type="submit"
-                  className="w-full sm:w-auto bg-primary hover:bg-primary-light text-white px-6 py-2.5 rounded-lg font-montserrat transition"
+                  disabled={createMutation.isPending}
+                  className="w-full sm:w-auto bg-primary hover:bg-primary-light text-white px-6 py-2.5 rounded-lg font-montserrat transition disabled:opacity-60"
                 >
-                  Send
+                  {createMutation.isPending ? "Sending…" : "Send"}
                 </button>
                 <button
                   type="button"
