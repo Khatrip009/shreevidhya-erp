@@ -1,7 +1,7 @@
 import {
   LayoutDashboard, Users, GraduationCap, BookOpen, Award,
   IndianRupee, Settings, ChevronDown, Bell, X, CalendarClock,
-  Wallet, Building, Calendar, Layers,
+  Wallet, Building, Calendar, Layers, Video,
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { useState } from "react";
@@ -37,32 +37,36 @@ export default function Sidebar({ onClose }) {
 
   const role = normaliseRole(profile.role);
 
- // ---------- Student links ----------
-const studentLinks = (
-  <>
-    <NavLink to="/student" end className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-lg transition ${isActive ? "bg-primary-light" : "hover:bg-primary-light"}`}>
-      <LayoutDashboard size={18} /> Dashboard
-    </NavLink>
-    <div className="ml-8 space-y-1">
-      <NavLink to="/student/profile" className="block py-2 text-secondary-light hover:text-white">My Profile</NavLink>
-      <NavLink to="/student/batch" className="block py-2 text-secondary-light hover:text-white">Batch & Course</NavLink>
-      <NavLink to="/student/attendance" className="block py-2 text-secondary-light hover:text-white">Attendance</NavLink>
-      <NavLink to="/student/fees" className="block py-2 text-secondary-light hover:text-white">Fees</NavLink>
-      <NavLink to="/student/homework" className="block py-2 text-secondary-light hover:text-white">Homework</NavLink>
-      <NavLink to="/student/exams" className="block py-2 text-secondary-light hover:text-white">Exams</NavLink>
-      <NavLink to="/student/results" className="block py-2 text-secondary-light hover:text-white">Results</NavLink>
-      <NavLink to="/student/certificates" className="block py-2 text-secondary-light hover:text-white">Certificates</NavLink>
-      <NavLink to="/student/timetable" className="block py-2 text-secondary-light hover:text-white">Timetable</NavLink>
-      <NavLink to="/student/resources" className="block py-2 text-secondary-light hover:text-white">Learning Resources</NavLink>
-    </div>
-    <NavLink to="/student/notifications" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-primary-light transition">
-      <Bell size={18} /> Notifications
-    </NavLink>
-    <NavLink to="/settings" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-primary-light transition">
-      <Settings size={18} /> Settings
-    </NavLink>
-  </>
-);
+  // ---------- Student links ----------
+  const studentLinks = (
+    <>
+      <NavLink to="/student" end className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-lg transition ${isActive ? "bg-primary-light" : "hover:bg-primary-light"}`}>
+        <LayoutDashboard size={18} /> Dashboard
+      </NavLink>
+      <div className="ml-8 space-y-1">
+        <NavLink to="/student/profile" className="block py-2 text-secondary-light hover:text-white">My Profile</NavLink>
+        <NavLink to="/student/batch" className="block py-2 text-secondary-light hover:text-white">Batch & Course</NavLink>
+        <NavLink to="/student/attendance" className="block py-2 text-secondary-light hover:text-white">Attendance</NavLink>
+        <NavLink to="/student/fees" className="block py-2 text-secondary-light hover:text-white">Fees</NavLink>
+        <NavLink to="/student/homework" className="block py-2 text-secondary-light hover:text-white">Homework</NavLink>
+        <NavLink to="/student/exams" className="block py-2 text-secondary-light hover:text-white">Exams</NavLink>
+        <NavLink to="/student/results" className="block py-2 text-secondary-light hover:text-white">Results</NavLink>
+        <NavLink to="/student/certificates" className="block py-2 text-secondary-light hover:text-white">Certificates</NavLink>
+        <NavLink to="/student/timetable" className="block py-2 text-secondary-light hover:text-white">Timetable</NavLink>
+        <NavLink to="/student/resources" className="block py-2 text-secondary-light hover:text-white">Learning Resources</NavLink>
+      </div>
+      {/* Online Classes – for students */}
+      <NavLink to="/online-classes" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-primary-light transition">
+        <Video size={18} /> Online Classes
+      </NavLink>
+      <NavLink to="/student/notifications" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-primary-light transition">
+        <Bell size={18} /> Notifications
+      </NavLink>
+      <NavLink to="/settings" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-primary-light transition">
+        <Settings size={18} /> Settings
+      </NavLink>
+    </>
+  );
 
   // ---------- Teacher links ----------
   const teacherLinks = (
@@ -82,6 +86,7 @@ const studentLinks = (
           <NavLink to="/exams" className="block py-2 text-secondary-light hover:text-white">Exams</NavLink>
           <NavLink to="/results" className="block py-2 text-secondary-light hover:text-white">Results</NavLink>
           <NavLink to="/teacher/resources" className="block py-2 text-secondary-light hover:text-white">Learning Resources</NavLink>
+          <NavLink to="/online-classes" className="block py-2 text-secondary-light hover:text-white">Online Classes</NavLink>
         </div>
       )}
 
@@ -147,6 +152,7 @@ const studentLinks = (
           <NavLink to="/exams" className="block py-2 text-secondary-light hover:text-white">Exams</NavLink>
           <NavLink to="/results" className="block py-2 text-secondary-light hover:text-white">Results</NavLink>
           <NavLink to="/timetable" className="block py-2 text-secondary-light hover:text-white">Class Timetable</NavLink>
+          <NavLink to="/online-classes" className="block py-2 text-secondary-light hover:text-white">Online Classes</NavLink>
         </div>
       )}
 

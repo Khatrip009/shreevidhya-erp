@@ -13,9 +13,11 @@ const STUDENT_ROUTES = [
   "/student/certificates",
   "/student/profile",
   "/student/timetable",
-  "/student/exams",        // ← added
-  "/student/resources", 
-   "/student/notifications",
+  "/student/exams",
+  "/student/resources",
+  "/student/notifications",
+  "/online-classes",
+  "/online-classes/join",
 ];
 
 const TEACHER_ROUTES = [
@@ -36,6 +38,9 @@ const TEACHER_ROUTES = [
   "/settings",
   "/login",
   "/notifications",
+  "/online-classes",
+  "/online-classes/join",
+  "/online-classes/create",
 ];
 
 function normaliseRole(rawRole) {
@@ -68,7 +73,9 @@ export default function ProtectedRoute({ children }) {
 
   // Student
   if (role === "student") {
-    if (STUDENT_ROUTES.includes(currentPath)) return children;
+    if (STUDENT_ROUTES.some((r) => currentPath.startsWith(r.split(":")[0]))) {
+      return children;
+    }
     return <Navigate to="/student" replace />;
   }
 

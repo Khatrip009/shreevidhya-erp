@@ -50,7 +50,7 @@ import StudentResultsPage from "./pages/StudentResultsPage";
 import StudentCertificatesPage from "./pages/StudentCertificatesPage";
 import PersonalTimetable from "./pages/PersonalTimetable";
 import StudentExamsPage from "./pages/StudentExamsPage";
-import StudentNotifications from "./pages/StudentNotifications"; // <-- new import
+import StudentNotifications from "./pages/StudentNotifications";
 
 // Teacher & HR pages
 import TeacherDashboard from "./pages/TeacherDashboard";
@@ -63,6 +63,14 @@ import TeacherTimetable from "./pages/TeacherTimetable";
 import ProtectedRoute from "./routes/ProtectedRoute";
 import StudentLearningResources from "./pages/StudentLearningResources";
 import TeacherLearningResources from "./pages/TeacherLearningResources";
+
+// AI Chat
+import AIChat from "./components/AIChat/AIChat";
+
+// ========== Online Classes (new) ==========
+import OnlineClassList from "./pages/OnlineClassList";          // <-- you will create this page
+import CreateOnlineClass from "./components/CreateOnlineClass";
+import JoinOnlineClass from "./components/JoinOnlineClass";
 
 function App() {
   return (
@@ -85,7 +93,7 @@ function App() {
         <Route path="/student/timetable" element={<ProtectedRoute><PersonalTimetable /></ProtectedRoute>} />
         <Route path="/student/exams" element={<ProtectedRoute><StudentExamsPage /></ProtectedRoute>} />
         <Route path="/student/resources" element={<ProtectedRoute><StudentLearningResources /></ProtectedRoute>} />
-        <Route path="/student/notifications" element={<ProtectedRoute><StudentNotifications /></ProtectedRoute>} />  {/* NEW */}
+        <Route path="/student/notifications" element={<ProtectedRoute><StudentNotifications /></ProtectedRoute>} />
 
         {/* Teacher routes */}
         <Route path="/teacher" element={<ProtectedRoute><TeacherDashboard /></ProtectedRoute>} />
@@ -138,8 +146,15 @@ function App() {
         <Route path="/salary-payments" element={<ProtectedRoute><SalaryPayments /></ProtectedRoute>} />
         <Route path="/leave-management" element={<ProtectedRoute><LeaveManagement /></ProtectedRoute>} />
 
+        {/* ========== Online Classes ========== */}
+        <Route path="/online-classes" element={<ProtectedRoute><OnlineClassList /></ProtectedRoute>} />
+        <Route path="/online-classes/create" element={<ProtectedRoute><CreateOnlineClass /></ProtectedRoute>} />
+        <Route path="/online-classes/join/:classId" element={<ProtectedRoute><JoinOnlineClass /></ProtectedRoute>} />
+
         <Route path="*" element={<NotFound />} />
       </Routes>
+      {/* AI Chat floating button */}
+      <AIChat />
     </ErrorBoundary>
   );
 }

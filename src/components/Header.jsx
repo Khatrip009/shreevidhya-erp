@@ -44,7 +44,7 @@ export default function Header({ onMenuClick }) {
       if (!profile?.id) return 0;
       const { count, error } = await supabase
         .from("notifications")
-        .select("*", { count: "exact", head: true })
+        .select("*", { count: "exact", head: false })
         .eq("user_id", profile.id)
         .eq("is_read", false);
       return error ? 0 : count || 0;
