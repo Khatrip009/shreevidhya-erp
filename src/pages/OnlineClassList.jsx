@@ -67,12 +67,12 @@ export default function OnlineClassList() {
         }
       } else if (isTeacher) {
         try {
-          const { data: teacher } = await supabase
+          const { data: teacher, error: teacherError } = await supabase
             .from("teachers")
             .select("id")
             .eq("user_id", profile.id)
             .maybeSingle();
-          if (teacherError) throw teacherError;
+          if (teacherError) throw teacherError;  // ✅ fixed: teacherError is defined
           if (!teacher) return [];
           query = query.eq("teacher_id", teacher.id);
         } catch (err) {
