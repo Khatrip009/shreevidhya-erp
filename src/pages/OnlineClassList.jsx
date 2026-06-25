@@ -5,7 +5,14 @@ import { supabase } from "../api/supabase";
 import { useAuth } from "../context/AuthContext";
 import AdminLayout from "../layouts/AdminLayout";
 import toast from "react-hot-toast";
-import { Search, Plus, Video, Trash2, Edit } from "lucide-react";
+import {
+  Search,
+  Plus,
+  Video,
+  Trash2,
+  Edit,
+  Play,
+} from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import OnlineClassModal from "../components/CreateOnlineClassModal";
 
@@ -36,7 +43,6 @@ export default function OnlineClassList() {
         `)
         .order("start_time", { ascending: true });
 
-      // ----- Student filter -----
       if (isStudent) {
         try {
           const { data: student, error: studentError } = await supabase
@@ -44,7 +50,6 @@ export default function OnlineClassList() {
             .select("id")
             .eq("user_id", profile.id)
             .maybeSingle();
-
           if (studentError) throw studentError;
           if (!student) return [];
 
@@ -53,7 +58,6 @@ export default function OnlineClassList() {
             .select("batch_id")
             .eq("student_id", student.id)
             .eq("status", "active");
-
           const batchIds = enrollments?.map(e => e.batch_id) || [];
           if (batchIds.length === 0) return [];
           query = query.in("batch_id", batchIds);
@@ -61,17 +65,13 @@ export default function OnlineClassList() {
           console.error("Student lookup error:", err);
           return [];
         }
-      }
-
-      // ----- Teacher filter -----
-      if (isTeacher) {
+      } else if (isTeacher) {
         try {
-          const { data: teacher, error: teacherError } = await supabase
+          const { data: teacher } = await supabase
             .from("teachers")
             .select("id")
             .eq("user_id", profile.id)
             .maybeSingle();
-
           if (teacherError) throw teacherError;
           if (!teacher) return [];
           query = query.eq("teacher_id", teacher.id);
@@ -81,12 +81,9 @@ export default function OnlineClassList() {
         }
       }
 
-      // Status filter
       if (filterStatus !== "all") {
         query = query.eq("status", filterStatus);
       }
-
-      // Search filter
       if (search.trim()) {
         query = query.ilike("title", `%${search.trim()}%`);
       }
@@ -111,6 +108,23 @@ export default function OnlineClassList() {
     onSuccess: () => {
       toast.success("Class deleted");
       queryClient.invalidateQueries({ queryKey: ["online-classes"] });
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
+  // ---------- Start mutation ----------
+  const startClassMutation = useMutation({
+    mutationFn: async (classId) => {
+      const { error } = await supabase
+        .from("online_classes")
+        .update({ status: "live" })
+        .eq("id", classId);
+      if (error) throw error;
+    },
+    onSuccess: (_, classId) => {
+      toast.success("Class started! Students have been notified.");
+      queryClient.invalidateQueries({ queryKey: ["online-classes"] });
+      navigate(`/online-classes/join/${classId}`);
     },
     onError: (err) => toast.error(err.message),
   });
@@ -228,6 +242,7 @@ export default function OnlineClassList() {
                   const canJoin = isLive || isScheduled;
                   const canEdit = isAdmin || (isTeacher && cls.teacher_id === profile?.id);
                   const canDelete = isAdmin;
+                  const canStart = (isAdmin || (isTeacher && cls.teacher_id === profile?.id)) && isScheduled;
 
                   return (
                     <tr key={cls.id} className={`border-b border-secondary-light hover:bg-primary-bg transition ${isLive ? "bg-green-50/50" : ""}`}>
@@ -251,6 +266,15 @@ export default function OnlineClassList() {
                               className="text-green-600 hover:underline flex items-center gap-1"
                             >
                               <Video size={15} /> Join
+                            </button>
+                          )}
+                          {canStart && (
+                            <button
+                              onClick={() => startClassMutation.mutate(cls.id)}
+                              className="text-blue-600 hover:underline flex items-center gap-1"
+                              title="Start Class"
+                            >
+                              <Play size={15} /> Start
                             </button>
                           )}
                           {canEdit && (

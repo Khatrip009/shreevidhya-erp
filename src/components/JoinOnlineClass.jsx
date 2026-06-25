@@ -16,7 +16,13 @@ export default function JoinOnlineClass() {
   const [loading, setLoading] = useState(true);
   const [inMeeting, setInMeeting] = useState(false);
   const [studentId, setStudentId] = useState(null);
+  const [teacherId, setTeacherId] = useState(null);
   const [error, setError] = useState(null);
+
+  const userRole = profile?.role?.toLowerCase();
+  const isAdmin = userRole === "admin" || userRole === "super_admin";
+  const isTeacher = userRole === "teacher";
+  const isStudent = userRole === "student";
 
   // Fetch class details and student/teacher info
   useEffect(() => {
@@ -36,8 +42,7 @@ export default function JoinOnlineClass() {
         setClassData(classInfo);
 
         // Get student ID if user is a student
-        const userRole = profile?.role?.toLowerCase() || "student";
-        if (userRole === "student") {
+        if (isStudent) {
           const { data: student, error: studentError } = await supabase
             .from("students")
             .select("id")
@@ -46,6 +51,13 @@ export default function JoinOnlineClass() {
 
           if (studentError) throw studentError;
           if (student) setStudentId(student.id);
+        } else if (isTeacher) {
+          const { data: teacher } = await supabase
+            .from("teachers")
+            .select("id")
+            .eq("user_id", profile.id)
+            .maybeSingle();
+          if (teacher) setTeacherId(teacher.id);
         }
       } catch (err) {
         console.error("Error fetching class data:", err);
@@ -59,7 +71,7 @@ export default function JoinOnlineClass() {
     if (profile?.id) {
       fetchData();
     }
-  }, [classId, profile]);
+  }, [classId, profile, isStudent, isTeacher]);
 
   // Record attendance when user joins
   const recordAttendance = async () => {
@@ -86,6 +98,27 @@ export default function JoinOnlineClass() {
 
   const handleJoin = () => {
     setInMeeting(true);
+  };
+
+  const handleStartClass = async () => {
+    try {
+      const { error } = await supabase
+        .from("online_classes")
+        .update({ status: "live" })
+        .eq("id", classId);
+      if (error) throw error;
+      toast.success("Class started! Students notified.");
+      // Reload class data
+      const { data: updated } = await supabase
+        .from("online_classes")
+        .select("*")
+        .eq("id", classId)
+        .single();
+      setClassData(updated);
+      setInMeeting(true);
+    } catch (err) {
+      toast.error(err.message);
+    }
   };
 
   if (loading) {
@@ -120,6 +153,7 @@ export default function JoinOnlineClass() {
   }
 
   const displayName = profile?.full_name || "Student";
+  const canStart = (isAdmin || (isTeacher && classData.teacher_id === teacherId)) && classData.status === "scheduled";
 
   return (
     <AdminLayout>
@@ -157,6 +191,14 @@ export default function JoinOnlineClass() {
                 >
                   Join Class
                 </button>
+                {canStart && (
+                  <button
+                    onClick={handleStartClass}
+                    className="mt-4 bg-blue-500 hover:bg-blue-600 text-white px-6 py-2 rounded-lg shadow-md transition ml-2"
+                  >
+                    Start Class Now
+                  </button>
+                )}
               </div>
             </div>
           ) : (

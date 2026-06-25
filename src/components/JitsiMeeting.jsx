@@ -3,72 +3,40 @@ import React, { useEffect, useRef } from 'react';
 
 const JitsiMeeting = ({ roomName, displayName, onMeetingEnd, onParticipantJoined }) => {
   const containerRef = useRef(null);
-  const originalConsole = useRef({ warn: console.warn, error: console.error });
 
   useEffect(() => {
-    // Filter Jitsi's console warnings/errors to reduce noise
-    const shouldSuppress = (message) => {
-      const suppressPatterns = [
-        'gum.not_found',
-        'Requested device not found',
-        'Failed to create local tracks',
-        'Audio track creation failed',
-        'Video track creation failed',
-        'NotFoundError'
-      ];
-      return suppressPatterns.some(pattern => message.includes(pattern));
-    };
-
-    const suppressedWarn = (...args) => {
-      if (args.some(arg => typeof arg === 'string' && shouldSuppress(arg))) {
-        return; // suppress
-      }
-      originalConsole.current.warn(...args);
-    };
-
-    const suppressedError = (...args) => {
-      if (args.some(arg => typeof arg === 'string' && shouldSuppress(arg))) {
-        return; // suppress
-      }
-      originalConsole.current.error(...args);
-    };
-
-    // Apply suppression
-    console.warn = suppressedWarn;
-    console.error = suppressedError;
-
-    // Load Jitsi external API script
+    // Load Jitsi external API script from 8x8.vc
     const script = document.createElement('script');
-    script.src = 'https://meet.jit.si/external_api.js';
+    script.src = 'https://8x8.vc/vpaas-magic-cookie-0067c0e65ee04712bc143fa30be5f386/external_api.js';
     script.async = true;
     script.onload = () => {
-      const domain = 'meet.jit.si';
+      const domain = '8x8.vc';
+      const appId = import.meta.env.VITE_JITSI_APP_ID;
+      
+      // Construct room name in the format: appId/roomName
+      const fullRoomName = `${appId}/${roomName}`;
+
       const options = {
-        roomName,
+        roomName: fullRoomName,
         width: '100%',
         height: '100%',
         parentNode: containerRef.current,
         userInfo: {
-          displayName,
+          displayName: displayName || 'Guest',
         },
         configOverwrite: {
+          enableLobby: false,
+          membersOnly: false,
           startWithAudioMuted: true,
           startWithVideoMuted: true,
-          disableAudioLevels: false,
-          preferH264: true,
-          disableSimulcast: false,
+          disableDeepLinking: true,
         },
         interfaceConfigOverwrite: {
           SHOW_JITSI_WATERMARK: false,
           SHOW_BRAND_WATERMARK: false,
           SHOW_POWERED_BY: false,
-          TOOLBAR_BUTTONS: [
-            'microphone', 'camera', 'desktop', 'fullscreen',
-            'fodeviceselection', 'hangup', 'profile', 'chat',
-            'recording', 'etherpad', 'sharedvideo', 'shareaudio',
-            'settings', 'raisehand', 'videoquality', 'tileview'
-          ],
         },
+        // jwt: null // Not required for basic meetings with 8x8.vc
       };
 
       try {
@@ -98,10 +66,6 @@ const JitsiMeeting = ({ roomName, displayName, onMeetingEnd, onParticipantJoined
     document.head.appendChild(script);
 
     return () => {
-      // Restore original console methods
-      console.warn = originalConsole.current.warn;
-      console.error = originalConsole.current.error;
-
       if (window.jitsiApi) {
         window.jitsiApi.dispose();
         delete window.jitsiApi;

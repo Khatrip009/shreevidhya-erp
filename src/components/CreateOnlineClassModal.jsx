@@ -1,5 +1,5 @@
 // src/components/OnlineClassModal.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../api/supabase';
 import { useAuth } from '../context/AuthContext';
 import toast from 'react-hot-toast';
@@ -12,42 +12,96 @@ export default function OnlineClassModal({ isOpen, onClose, onSuccess, initialDa
   const [startTime, setStartTime] = useState('');
   const [duration, setDuration] = useState(60);
   const [batchId, setBatchId] = useState('');
+  const [teacherId, setTeacherId] = useState('');
   const [loading, setLoading] = useState(false);
   const [batches, setBatches] = useState([]);
+  const [teachers, setTeachers] = useState([]);
+  const [batchTeachers, setBatchTeachers] = useState([]);
 
   const isEdit = !!initialData;
+  const userRole = profile?.role?.toLowerCase();
+  const isAdmin = userRole === 'admin' || userRole === 'super_admin';
+  const isTeacher = userRole === 'teacher';
 
   useEffect(() => {
-    if (isOpen) {
-      const fetchBatches = async () => {
-        const { data } = await supabase
-          .from('batches')
-          .select('id, batch_name')
-          .eq('status', 'active');
-        setBatches(data || []);
-      };
-      fetchBatches();
+    if (!isOpen) return;
+    const fetchData = async () => {
+      const { data: batchesData } = await supabase
+        .from('batches')
+        .select('id, batch_name, course_id, courses(course_name)')
+        .eq('status', 'active')
+        .order('batch_name');
+      setBatches(batchesData || []);
 
-      if (isEdit && initialData) {
-        setTitle(initialData.title || '');
-        setDescription(initialData.description || '');
-        setStartTime(initialData.start_time ? new Date(initialData.start_time).toISOString().slice(0, 16) : '');
-        setDuration(initialData.duration_minutes || 60);
-        setBatchId(initialData.batch_id || '');
-      } else {
-        setTitle('');
-        setDescription('');
-        setStartTime('');
-        setDuration(60);
-        setBatchId('');
+      if (isAdmin) {
+        const { data: teachersData } = await supabase
+          .from('teachers')
+          .select('id, first_name, last_name, employee_code')
+          .eq('status', 'active')
+          .order('first_name');
+        setTeachers(teachersData || []);
+      } else if (isTeacher) {
+        const { data: teacherData } = await supabase
+          .from('teachers')
+          .select('id')
+          .eq('user_id', profile.id)
+          .maybeSingle();
+        if (teacherData) setTeacherId(teacherData.id);
       }
+    };
+    fetchData();
+  }, [isOpen, isAdmin, isTeacher, profile.id]);
+
+  useEffect(() => {
+    if (!batchId) {
+      setBatchTeachers([]);
+      setTeacherId('');
+      return;
     }
-  }, [isOpen, initialData, isEdit]);
+
+    const fetchBatchTeachers = async () => {
+      const { data } = await supabase
+        .from('batch_teachers')
+        .select('teacher_id, teachers(first_name, last_name, employee_code)')
+        .eq('batch_id', batchId);
+      const teachersList = data?.map(item => ({
+        id: item.teacher_id,
+        ...item.teachers,
+      })) || [];
+      setBatchTeachers(teachersList);
+
+      const currentId = teacherId ? parseInt(teacherId) : null;
+      const stillExists = teachersList.some(t => t.id === currentId);
+
+      if (currentId && !stillExists) {
+        setTeacherId('');
+      } else if (!currentId && !isAdmin && teachersList.length === 1) {
+        setTeacherId(teachersList[0].id);
+      }
+    };
+
+    fetchBatchTeachers();
+  }, [batchId, isAdmin, teacherId]);
+
+  useEffect(() => {
+    if (isEdit && initialData) {
+      setTitle(initialData.title || '');
+      setDescription(initialData.description || '');
+      setStartTime(initialData.start_time ? new Date(initialData.start_time).toISOString().slice(0, 16) : '');
+      setDuration(initialData.duration_minutes || 60);
+      setBatchId(initialData.batch_id || '');
+      setTeacherId(initialData.teacher_id || '');
+    }
+  }, [isEdit, initialData]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!title || !startTime || !batchId) {
       toast.error('Please fill all required fields');
+      return;
+    }
+    if (!teacherId) {
+      toast.error('Please select a teacher');
       return;
     }
 
@@ -63,6 +117,7 @@ export default function OnlineClassModal({ isOpen, onClose, onSuccess, initialDa
             start_time: startTime,
             duration_minutes: Number(duration),
             batch_id: batchId,
+            teacher_id: Number(teacherId),
           })
           .eq('id', initialData.id)
           .select()
@@ -71,14 +126,8 @@ export default function OnlineClassModal({ isOpen, onClose, onSuccess, initialDa
         result = data;
         toast.success('Class updated!');
       } else {
-        const roomName = `class-${Date.now()}-${Math.random().toString(36).substring(7)}`;
-        const { data: teacherData } = await supabase
-          .from('teachers')
-          .select('id')
-          .eq('user_id', profile.id)
-          .limit(1)
-          .maybeSingle();
-
+        // ✅ Room name format compatible with 8x8.vc
+        const roomName = `Room-${Date.now()}-${Math.random().toString(36).substring(7)}`;
         const { data, error } = await supabase
           .from('online_classes')
           .insert({
@@ -87,7 +136,7 @@ export default function OnlineClassModal({ isOpen, onClose, onSuccess, initialDa
             start_time: startTime,
             duration_minutes: Number(duration),
             batch_id: batchId,
-            teacher_id: teacherData?.id || null,
+            teacher_id: Number(teacherId),
             room_name: roomName,
             status: 'scheduled',
           })
@@ -173,10 +222,46 @@ export default function OnlineClassModal({ isOpen, onClose, onSuccess, initialDa
               <option value="">-- Choose batch --</option>
               {batches.map((b) => (
                 <option key={b.id} value={b.id}>
-                  {b.batch_name}
+                  {b.batch_name} ({b.courses?.course_name || 'N/A'})
                 </option>
               ))}
             </select>
+          </div>
+          <div>
+            <label className="block text-sm font-montserrat text-secondary-dark mb-1">Teacher *</label>
+            {isAdmin ? (
+              <select
+                value={teacherId}
+                onChange={(e) => setTeacherId(e.target.value)}
+                className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
+                required
+              >
+                <option value="">Select teacher</option>
+                {teachers.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.first_name} {t.last_name} ({t.employee_code})
+                  </option>
+                ))}
+              </select>
+            ) : isTeacher ? (
+              <input
+                type="text"
+                value={
+                  batchTeachers.find(t => t.id === parseInt(teacherId))?.first_name ||
+                  teachers.find(t => t.id === parseInt(teacherId))?.first_name ||
+                  'You'
+                }
+                className="w-full border border-secondary-light rounded p-2.5 bg-gray-100"
+                disabled
+              />
+            ) : (
+              <input
+                type="text"
+                value="Not available"
+                className="w-full border border-secondary-light rounded p-2.5 bg-gray-100"
+                disabled
+              />
+            )}
           </div>
 
           <div className="flex flex-col sm:flex-row-reverse gap-3 pt-2">
