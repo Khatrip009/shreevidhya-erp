@@ -42,10 +42,7 @@ function getNextWeekRange() {
   const start = now.toISOString().split("T")[0];
   const nextWeek = new Date(now);
   nextWeek.setDate(now.getDate() + 7);
-  return {
-    start,
-    end: nextWeek.toISOString().split("T")[0],
-  };
+  return { start, end: nextWeek.toISOString().split("T")[0] };
 }
 
 function getTodayDate() {
@@ -62,46 +59,53 @@ async function buildSuggestionsAndActions(supabaseClient: any, role: string, use
   const actions: { label: string; action: string; params?: any }[] = [];
 
   if (isAdmin) {
+    // Pending fees count
     const { count: pendingFees } = await supabaseClient
       .from("student_fees")
-      .select("*", { count: "exact", head: false })
+      .select("*", { count: "exact", head: true })
       .eq("status", "Pending");
     if (pendingFees > 0) {
       suggestions.push(`📌 **${pendingFees} students** have pending fees.`);
       actions.push({ label: "View Pending Fees", action: "query", params: { query: "Show pending fees" } });
     }
 
+    // Pending leaves
     const { count: pendingLeaves } = await supabaseClient
       .from("leaves")
-      .select("*", { count: "exact", head: false })
+      .select("*", { count: "exact", head: true })
       .eq("status", "Pending");
     if (pendingLeaves > 0) {
       suggestions.push(`🗓️ **${pendingLeaves} leave requests** are pending.`);
       actions.push({ label: "Review Leaves", action: "navigate", params: { path: "/leave-management" } });
     }
 
+    // Unsubmitted homework
     const { count: pendingHW } = await supabaseClient
       .from("homework_submissions")
-      .select("*", { count: "exact", head: false })
+      .select("*", { count: "exact", head: true })
       .eq("status", "Pending");
     if (pendingHW > 0) {
       suggestions.push(`📄 **${pendingHW} students** have not submitted homework.`);
       actions.push({ label: "View Pending Homework", action: "query", params: { query: "Pending homework" } });
     }
 
+    // New inquiries
     const { count: newInquiries } = await supabaseClient
       .from("inquiries")
-      .select("*", { count: "exact", head: false })
+      .select("*", { count: "exact", head: true })
       .eq("status", "New");
     if (newInquiries > 0) {
       suggestions.push(`🆕 **${newInquiries} new inquiries** await follow-up.`);
       actions.push({ label: "View Inquiries", action: "navigate", params: { path: "/inquiries" } });
     }
 
-    actions.push({ label: "📊 Dashboard", action: "navigate", params: { path: "/" } });
-    actions.push({ label: "💰 Pending Fees", action: "query", params: { query: "Show pending fees" } });
-    actions.push({ label: "📈 Profit & Loss", action: "navigate", params: { path: "/profit-loss" } });
-    actions.push({ label: "💡 Suggestions", action: "get_suggestions" });
+    actions.push(
+      { label: "📊 Dashboard", action: "navigate", params: { path: "/" } },
+      { label: "💰 Pending Fees", action: "query", params: { query: "Show pending fees" } },
+      { label: "📈 Profit & Loss", action: "navigate", params: { path: "/profit-loss" } },
+      { label: "💡 Suggestions", action: "get_suggestions" },
+      { label: "📋 Reports", action: "navigate", params: { path: "/reports" } }
+    );
   }
 
   if (isTeacher) {
@@ -111,6 +115,7 @@ async function buildSuggestionsAndActions(supabaseClient: any, role: string, use
       .eq("user_id", userId)
       .maybeSingle();
     if (teacher) {
+      // Pending submissions in teacher's batches
       const { data: batchTeachers } = await supabaseClient
         .from("batch_teachers")
         .select("batch_id")
@@ -125,7 +130,7 @@ async function buildSuggestionsAndActions(supabaseClient: any, role: string, use
         if (hwIds.length) {
           const { count: pendingSub } = await supabaseClient
             .from("homework_submissions")
-            .select("*", { count: "exact", head: false })
+            .select("*", { count: "exact", head: true })
             .in("homework_id", hwIds)
             .eq("status", "Pending");
           if (pendingSub > 0) {
@@ -135,9 +140,10 @@ async function buildSuggestionsAndActions(supabaseClient: any, role: string, use
         }
       }
 
+      // Teacher's pending leaves
       const { count: myPendingLeaves } = await supabaseClient
         .from("leaves")
-        .select("*", { count: "exact", head: false })
+        .select("*", { count: "exact", head: true })
         .eq("teacher_id", teacher.id)
         .eq("status", "Pending");
       if (myPendingLeaves > 0) {
@@ -145,10 +151,12 @@ async function buildSuggestionsAndActions(supabaseClient: any, role: string, use
         actions.push({ label: "My Leaves", action: "navigate", params: { path: "/teacher/leaves" } });
       }
 
-      actions.push({ label: "🧑‍🏫 My Batches", action: "navigate", params: { path: "/teacher" } });
-      actions.push({ label: "📋 Mark Attendance", action: "mark_attendance" });
-      actions.push({ label: "💰 My Salary", action: "navigate", params: { path: "/teacher/salary" } });
-      actions.push({ label: "💡 Suggestions", action: "get_suggestions" });
+      actions.push(
+        { label: "🧑‍🏫 My Batches", action: "navigate", params: { path: "/teacher" } },
+        { label: "📋 Mark Attendance", action: "mark_attendance" },
+        { label: "💰 My Salary", action: "navigate", params: { path: "/teacher/salary" } },
+        { label: "💡 Suggestions", action: "get_suggestions" }
+      );
     }
   }
 
@@ -159,16 +167,18 @@ async function buildSuggestionsAndActions(supabaseClient: any, role: string, use
       .eq("user_id", userId)
       .maybeSingle();
     if (student) {
-      const { data: submissions } = await supabaseClient
+      // Pending homework for student
+      const { data: pendingHW } = await supabaseClient
         .from("homework_submissions")
         .select("id")
         .eq("student_id", student.id)
         .eq("status", "Pending");
-      if (submissions?.length) {
-        suggestions.push(`📄 You have **${submissions.length} pending homework** submissions.`);
+      if (pendingHW?.length) {
+        suggestions.push(`📄 You have **${pendingHW.length} pending homework** submissions.`);
         actions.push({ label: "View Homework", action: "navigate", params: { path: "/student/homework" } });
       }
 
+      // Pending fees for student
       const { data: fees } = await supabaseClient
         .from("student_fees")
         .select("id")
@@ -179,7 +189,7 @@ async function buildSuggestionsAndActions(supabaseClient: any, role: string, use
         actions.push({ label: "View Fees", action: "navigate", params: { path: "/student/fees" } });
       }
 
-      // Upcoming exams from student's batches
+      // Upcoming exams
       const { data: studentBatches } = await supabaseClient
         .from("student_batches")
         .select("batch_id")
@@ -201,9 +211,11 @@ async function buildSuggestionsAndActions(supabaseClient: any, role: string, use
         }
       }
 
-      actions.push({ label: "📊 My Attendance", action: "navigate", params: { path: "/student/attendance" } });
-      actions.push({ label: "📝 My Results", action: "navigate", params: { path: "/student/results" } });
-      actions.push({ label: "💡 Suggestions", action: "get_suggestions" });
+      actions.push(
+        { label: "📊 My Attendance", action: "navigate", params: { path: "/student/attendance" } },
+        { label: "📝 My Results", action: "navigate", params: { path: "/student/results" } },
+        { label: "💡 Suggestions", action: "get_suggestions" }
+      );
     }
   }
 
@@ -211,9 +223,7 @@ async function buildSuggestionsAndActions(supabaseClient: any, role: string, use
     suggestions.push("✅ Everything looks good! No urgent action items at the moment.");
   }
 
-  // Limit actions to 8
-  const limitedActions = actions.slice(0, 8);
-  return { suggestions, actions: limitedActions };
+  return { suggestions, actions: actions.slice(0, 8) };
 }
 
 // ---------- MAIN HANDLER ----------
@@ -351,12 +361,7 @@ Deno.serve(async (req: Request) => {
       if (dataContext) {
         const { suggestions, actions } = await buildSuggestionsAndActions(supabaseClient, userRole, user.id);
         return new Response(
-          JSON.stringify({
-            reply: dataContext.trim(),
-            suggestions,
-            actions,
-            usage: { prompt_tokens: 0, completion_tokens: 0 },
-          }),
+          JSON.stringify({ reply: dataContext.trim(), suggestions, actions, usage: { prompt_tokens: 0, completion_tokens: 0 } }),
           { headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
@@ -406,9 +411,7 @@ Deno.serve(async (req: Request) => {
               sessionId = newSession.id;
             }
 
-            const confirmMsg = `I found **${student.first_name} ${student.last_name}** (Adm: ${student.admission_no || "N/A"}).  
-Ready to mark them **${status}** for today's session.  
-Reply with **CONFIRM** to proceed. <!-- action:mark_attendance|student_id:${student.id}|session_id:${sessionId}|status:${status} -->`;
+            const confirmMsg = `I found **${student.first_name} ${student.last_name}** (Adm: ${student.admission_no || "N/A"}).\nReady to mark them **${status}** for today's session.\nReply with **CONFIRM** to proceed. <!-- action:mark_attendance|student_id:${student.id}|session_id:${sessionId}|status:${status} -->`;
 
             return new Response(
               JSON.stringify({
@@ -451,9 +454,7 @@ Reply with **CONFIRM** to proceed. <!-- action:mark_attendance|student_id:${stud
           if (fees && fees.length) {
             const fee = fees[0];
             const today = new Date().toISOString().split("T")[0];
-            const confirmMsg = `I found **${student.first_name} ${student.last_name}** (Adm: ${student.admission_no || "N/A"}).  
-They have a pending fee of **₹ ${fee.final_fee}**.  
-Ready to mark as **Paid**. Reply with **CONFIRM**. <!-- action:mark_fee_paid|student_id:${student.id}|fee_id:${fee.id}|amount:${fee.final_fee}|payment_date:${today} -->`;
+            const confirmMsg = `I found **${student.first_name} ${student.last_name}** (Adm: ${student.admission_no || "N/A"}).\nThey have a pending fee of **₹ ${fee.final_fee}**.\nReady to mark as **Paid**. Reply with **CONFIRM**. <!-- action:mark_fee_paid|student_id:${student.id}|fee_id:${fee.id}|amount:${fee.final_fee}|payment_date:${today} -->`;
 
             return new Response(
               JSON.stringify({
@@ -483,12 +484,14 @@ Ready to mark as **Paid**. Reply with **CONFIRM**. <!-- action:mark_fee_paid|stu
       suggestions.forEach((s, idx) => dataContext += `${idx+1}. ${s}\n`);
     }
 
-    // ---------- ADMIN QUERIES ----------
+    // ======================================================
+    // ========== EXTENSIVE QUERY HANDLING ===================
+    // ======================================================
+
+    // ---------- ADMIN QUERIES (COMPREHENSIVE) ----------
     if (isAdmin) {
-      // Pending fees (admin view)
-      if (lowerMsg.includes("pending") || lowerMsg.includes("due") || lowerMsg.includes("outstanding") ||
-          lowerMsg.includes("unpaid") || lowerMsg.includes("fee report") || lowerMsg.includes("show fees") ||
-          lowerMsg.includes("fee defaulters") || lowerMsg.includes("balance")) {
+      // Pending fees detailed list
+      if (lowerMsg.includes("pending fees") || lowerMsg.includes("due fees") || lowerMsg.includes("outstanding fees") || lowerMsg.includes("fee defaulters")) {
         const { data: fees } = await supabaseClient
           .from("student_fees")
           .select(`id, final_fee, status, students(first_name, last_name, admission_no)`)
@@ -506,29 +509,20 @@ Ready to mark as **Paid**. Reply with **CONFIRM**. <!-- action:mark_fee_paid|stu
         }
       }
 
-      // Total income
-      if (lowerMsg.includes("total income") || lowerMsg.includes("income this month") || lowerMsg.includes("fee collected")) {
+      // Monthly income / expense / profit
+      if (lowerMsg.includes("income this month") || lowerMsg.includes("monthly income")) {
         const { start, end } = getCurrentMonthRange();
-        const { data: incomeData } = await supabaseClient
-          .from("income")
-          .select("amount")
-          .gte("income_date", start)
-          .lte("income_date", end);
-        const total = incomeData?.reduce((s, i) => s + Number(i.amount), 0) || 0;
+        const { data: incomes } = await supabaseClient.from("income").select("amount").gte("income_date", start).lte("income_date", end);
+        const total = incomes?.reduce((s, i) => s + Number(i.amount), 0) || 0;
         dataContext += `\n\n💰 **Total Income (${start} to ${end}):** ₹ ${total.toLocaleString()}`;
       }
 
-      // Total expenses
-      if (lowerMsg.includes("total expenses") || lowerMsg.includes("expenses this month")) {
+      if (lowerMsg.includes("expenses this month") || lowerMsg.includes("monthly expenses")) {
         const { start, end } = getCurrentMonthRange();
-        const { data: expenses } = await supabaseClient
-          .from("expenses")
-          .select("amount, category")
-          .gte("expense_date", start)
-          .lte("expense_date", end);
+        const { data: expenses } = await supabaseClient.from("expenses").select("amount, category").gte("expense_date", start).lte("expense_date", end);
         if (expenses?.length) {
           const total = expenses.reduce((s, e) => s + Number(e.amount), 0);
-          dataContext += `\n\n💸 **Total Expenses (${start} to ${end}):** ₹ ${total.toLocaleString()}\nBreakdown:\n`;
+          dataContext += `\n\n💸 **Total Expenses (${start} to ${end}):** ₹ ${total.toLocaleString()}\n`;
           const catMap = new Map();
           expenses.forEach(e => {
             const cat = e.category || "Uncategorized";
@@ -538,7 +532,6 @@ Ready to mark as **Paid**. Reply with **CONFIRM**. <!-- action:mark_fee_paid|stu
         }
       }
 
-      // Profit & Loss
       if (lowerMsg.includes("profit") || lowerMsg.includes("loss") || lowerMsg.includes("p&l") || lowerMsg.includes("financial summary")) {
         const { start, end } = getCurrentMonthRange();
         const { data: incomes } = await supabaseClient.from("income").select("amount").gte("income_date", start).lte("income_date", end);
@@ -549,156 +542,95 @@ Ready to mark as **Paid**. Reply with **CONFIRM**. <!-- action:mark_fee_paid|stu
         dataContext += `\n\n📈 **P&L (${start} to ${end})**\nIncome: ₹ ${totalIncome.toLocaleString()}\nExpenses: ₹ ${totalExpense.toLocaleString()}\nNet ${profit >= 0 ? "Profit" : "Loss"}: ₹ ${Math.abs(profit).toLocaleString()}`;
       }
 
-      // Attendance sessions
-      if (lowerMsg.includes("attendance trend") || lowerMsg.includes("overall attendance") || lowerMsg.includes("batch attendance summary")) {
-        const { data: sessions } = await supabaseClient
-          .from("attendance_sessions")
-          .select("id, attendance_date, batch_id")
-          .order("attendance_date", { ascending: false })
-          .limit(20);
-        if (sessions?.length) {
-          dataContext += "\n\n📋 **Recent Attendance Sessions:**\n";
-          sessions.forEach(s => dataContext += `- ${s.attendance_date} | Batch ID: ${s.batch_id}\n`);
-        }
+      // Tax collected
+      if (lowerMsg.includes("tax collected") || lowerMsg.includes("gst collected") || lowerMsg.includes("total tax")) {
+        const { start, end } = getCurrentMonthRange();
+        const { data: feeTax } = await supabaseClient.from("student_fees").select("tax_amount").gte("created_at", start).lte("created_at", end);
+        const { data: incomeTax } = await supabaseClient.from("income").select("tax_amount").gte("income_date", start).lte("income_date", end);
+        const totalFeeTax = feeTax?.reduce((s, r) => s + Number(r.tax_amount || 0), 0) || 0;
+        const totalIncomeTax = incomeTax?.reduce((s, r) => s + Number(r.tax_amount || 0), 0) || 0;
+        dataContext += `\n\n🧾 **Tax Collected (${start} to ${end}):**\n- From Fees: ₹ ${totalFeeTax.toLocaleString()}\n- From Income: ₹ ${totalIncomeTax.toLocaleString()}\n- **Total: ₹ ${(totalFeeTax + totalIncomeTax).toLocaleString()}**`;
       }
 
-      // Student count
+      // Student enrolment summary
       if (lowerMsg.includes("how many students") || lowerMsg.includes("total enrollments") || lowerMsg.includes("student count")) {
-        const { count } = await supabaseClient.from("students").select("*", { count: "exact", head: false });
+        const { count } = await supabaseClient.from("students").select("*", { count: "exact", head: true });
         dataContext += `\n\n👩‍🎓 **Total students:** ${count || 0}`;
+      }
+
+      if (lowerMsg.includes("active batches") || lowerMsg.includes("batch count")) {
+        const { count } = await supabaseClient.from("batches").select("*", { count: "exact", head: true }).eq("status", "active");
+        dataContext += `\n\n📚 **Active batches:** ${count || 0}`;
       }
 
       // List teachers
       if (lowerMsg.includes("list all teachers") || lowerMsg.includes("show teachers") || lowerMsg.includes("staff list")) {
         const { data: teachers } = await supabaseClient
           .from("teachers")
-          .select("first_name, last_name, employee_code, courses(course_name)")
-          .limit(30);
+          .select("first_name, last_name, employee_code, mobile")
+          .limit(50);
         if (teachers?.length) {
           dataContext += "\n\n👨‍🏫 **Teachers:**\n";
-          teachers.forEach(t => {
-            const name = `${t.first_name} ${t.last_name}`;
-            dataContext += `- ${name} (${t.employee_code}) - ${t.courses?.course_name || "N/A"}\n`;
-          });
-        }
-      }
-
-      // Active batches count
-      if (lowerMsg.includes("how many batches") || lowerMsg.includes("active batches") || lowerMsg.includes("batch count")) {
-        const { count } = await supabaseClient.from("batches").select("*", { count: "exact", head: false }).eq("status", "active");
-        dataContext += `\n\n📚 **Active batches:** ${count || 0}`;
-      }
-
-      // Exam performance
-      if (lowerMsg.includes("exam performance") || lowerMsg.includes("top performers") || lowerMsg.includes("failed students")) {
-        const { data: exams } = await supabaseClient.from("exams").select("id, exam_name, total_marks").order("exam_date", { ascending: false }).limit(3);
-        if (exams?.length) {
-          dataContext += "\n\n📝 **Exam Performance:**\n";
-          for (const exam of exams) {
-            const { data: results } = await supabaseClient
-              .from("student_results")
-              .select("marks_obtained")
-              .eq("exam_id", exam.id);
-            if (results?.length) {
-              const marks = results.map(r => Number(r.marks_obtained));
-              const avg = marks.reduce((a, b) => a + b, 0) / marks.length;
-              const passed = marks.filter(m => m >= exam.total_marks / 2).length;
-              dataContext += `- ${exam.exam_name}: Avg ${avg.toFixed(1)}, Passed ${passed}/${marks.length}\n`;
-            }
-          }
-        }
-      }
-
-      // Pending homework
-      if (lowerMsg.includes("pending homework") || lowerMsg.includes("unsubmitted homework") || lowerMsg.includes("overdue assignments")) {
-        const { data: submissions } = await supabaseClient
-          .from("homework_submissions")
-          .select("id, students(first_name, last_name)")
-          .eq("status", "Pending")
-          .limit(30);
-        if (submissions?.length) {
-          dataContext += `\n\n📄 **Pending Homework:** ${submissions.length} students\n`;
-          submissions.forEach((s, i) => {
-            const name = s.students ? `${s.students.first_name} ${s.students.last_name}` : "Unknown";
-            dataContext += `${i+1}. ${name}\n`;
-          });
+          teachers.forEach(t => dataContext += `- ${t.first_name} ${t.last_name} (${t.employee_code}) - 📞 ${t.mobile}\n`);
         } else {
-          dataContext += "\n\n✅ All homework submitted.";
+          dataContext += "\n\nNo teachers found.";
         }
       }
 
-      // Certificates count
-      if (lowerMsg.includes("certificates issued") || lowerMsg.includes("certificate count") || lowerMsg.includes("how many certificates")) {
-        const { count } = await supabaseClient.from("certificates").select("*", { count: "exact", head: false });
-        dataContext += `\n\n📜 **Certificates issued:** ${count || 0}`;
-      }
-
-      // Inquiry conversion
-      if (lowerMsg.includes("inquiry conversion") || lowerMsg.includes("leads") || lowerMsg.includes("new inquiries") || lowerMsg.includes("joined students")) {
-        const { data: inquiries } = await supabaseClient.from("inquiries").select("status").limit(1000);
-        if (inquiries?.length) {
-          const total = inquiries.length;
-          const joined = inquiries.filter(i => i.status === "Joined").length;
-          const conversion = total > 0 ? ((joined / total) * 100).toFixed(1) : 0;
-          dataContext += `\n\n📊 **Inquiries:** Total ${total}, Joined ${joined}, Conversion ${conversion}%`;
-        }
-      }
-
-      // Pending leaves
-      if (lowerMsg.includes("pending leaves") || lowerMsg.includes("leave requests") || lowerMsg.includes("teacher absences")) {
-        const { data: leaves } = await supabaseClient
-          .from("leaves")
-          .select("id, start_date, end_date, teachers(first_name, last_name)")
-          .eq("status", "Pending")
-          .limit(30);
-        if (leaves?.length) {
-          dataContext += `\n\n🗓️ **Pending Leaves:** ${leaves.length}\n`;
-          leaves.forEach((l, i) => {
-            const name = l.teachers ? `${l.teachers.first_name} ${l.teachers.last_name}` : "Unknown";
-            dataContext += `${i+1}. ${name}: ${l.start_date} to ${l.end_date}\n`;
-          });
+      // List courses
+      if (lowerMsg.includes("list all courses") || lowerMsg.includes("show courses") || lowerMsg.includes("all courses")) {
+        const { data: courses } = await supabaseClient.from("courses").select("course_name, status, duration_months").order("course_name");
+        if (courses?.length) {
+          dataContext += "\n\n📚 **Courses:**\n";
+          courses.forEach(c => dataContext += `- ${c.course_name} (${c.duration_months}m) - ${c.status ? "Active" : "Inactive"}\n`);
         } else {
-          dataContext += "\n\n✅ No pending leaves.";
+          dataContext += "\n\nNo courses.";
         }
       }
 
-      // Salary paid
-      if (lowerMsg.includes("salary payout") || lowerMsg.includes("total salary") || lowerMsg.includes("teacher salaries")) {
-        const { start, end } = getCurrentMonthRange();
-        const { data: salaries } = await supabaseClient
-          .from("salary_payments")
-          .select("amount")
-          .gte("payment_date", start)
-          .lte("payment_date", end);
-        const total = salaries?.reduce((s, p) => s + Number(p.amount), 0) || 0;
-        dataContext += `\n\n💵 **Total salary paid (${start} to ${end}):** ₹ ${total.toLocaleString()}`;
-      }
-
-      // Revenue breakdown
-      if (lowerMsg.includes("revenue breakdown") || lowerMsg.includes("income by category")) {
-        const { start, end } = getCurrentMonthRange();
-        const { data: incomeByCategory } = await supabaseClient
-          .from("income")
-          .select("category, amount")
-          .gte("income_date", start)
-          .lte("income_date", end);
-        if (incomeByCategory?.length) {
-          const catMap = new Map();
-          incomeByCategory.forEach(i => {
-            const cat = i.category || "Uncategorized";
-            catMap.set(cat, (catMap.get(cat) || 0) + Number(i.amount));
-          });
-          dataContext += `\n\n📊 **Revenue by Category (${start} to ${end}):**\n`;
-          catMap.forEach((amt, cat) => dataContext += `- ${cat}: ₹ ${amt.toLocaleString()}\n`);
+      // List subjects
+      if (lowerMsg.includes("list all subjects") || lowerMsg.includes("show subjects") || lowerMsg.includes("all subjects")) {
+        const { data: subjects } = await supabaseClient.from("subjects").select("subject_name, courses(course_name)").order("subject_name");
+        if (subjects?.length) {
+          dataContext += "\n\n📖 **Subjects:**\n";
+          subjects.forEach(s => dataContext += `- ${s.subject_name} (${s.courses?.course_name || "N/A"})\n`);
+        } else {
+          dataContext += "\n\nNo subjects.";
         }
       }
 
-      // Top students
+      // List parents
+      if (lowerMsg.includes("list all parents") || lowerMsg.includes("show parents") || lowerMsg.includes("all parents")) {
+        const { data: parents } = await supabaseClient.from("parents").select("father_name, mother_name, mobile").limit(50);
+        if (parents?.length) {
+          dataContext += "\n\n👨‍👩‍👧 **Parents:**\n";
+          parents.forEach(p => dataContext += `- ${p.father_name || "N/A"} & ${p.mother_name || "N/A"} (${p.mobile || "N/A"})\n`);
+        } else {
+          dataContext += "\n\nNo parents.";
+        }
+      }
+
+      // List certificates
+      if (lowerMsg.includes("certificates issued") || lowerMsg.includes("certificate count") || lowerMsg.includes("list certificates")) {
+        const { data: certs } = await supabaseClient
+          .from("certificates")
+          .select("certificate_no, issue_date, courses(course_name), students(first_name, last_name)")
+          .order("issue_date", { ascending: false })
+          .limit(20);
+        if (certs?.length) {
+          dataContext += "\n\n📜 **Recent Certificates:**\n";
+          certs.forEach(c => dataContext += `- ${c.certificate_no} - ${c.students?.first_name} ${c.students?.last_name} (${c.courses?.course_name}) on ${c.issue_date}\n`);
+        } else {
+          dataContext += "\n\nNo certificates issued.";
+        }
+      }
+
+      // Top performing students
       if (lowerMsg.includes("top students") || lowerMsg.includes("best performers")) {
         const { data: results } = await supabaseClient
           .from("student_results")
           .select("student_id, marks_obtained, exams(total_marks)")
-          .limit(100);
+          .limit(200);
         if (results?.length) {
           const studentMap = new Map();
           results.forEach(r => {
@@ -708,8 +640,7 @@ Ready to mark as **Paid**. Reply with **CONFIRM**. <!-- action:mark_fee_paid|stu
           });
           const avgMap = new Map();
           studentMap.forEach((marks, sid) => {
-            const avg = marks.reduce((a, b) => a + b, 0) / marks.length;
-            avgMap.set(sid, avg);
+            avgMap.set(sid, marks.reduce((a, b) => a + b, 0) / marks.length);
           });
           const sorted = Array.from(avgMap.entries()).sort((a, b) => b[1] - a[1]).slice(0, 5);
           if (sorted.length) {
@@ -720,76 +651,76 @@ Ready to mark as **Paid**. Reply with **CONFIRM**. <!-- action:mark_fee_paid|stu
                 .select("first_name, last_name")
                 .eq("id", sid)
                 .single();
-              if (student) {
-                dataContext += `- ${student.first_name} ${student.last_name}: ${avg.toFixed(1)}%\n`;
-              }
+              if (student) dataContext += `- ${student.first_name} ${student.last_name}: ${avg.toFixed(1)}%\n`;
             }
           }
         }
       }
 
-      // ------ NEW ADMIN QUERIES ------
-      // List all courses
-      if (lowerMsg.includes("list all courses") || lowerMsg.includes("show courses") || lowerMsg.includes("all courses")) {
-        const { data: courses } = await supabaseClient
-          .from("courses")
-          .select("id, course_name, status, duration_months")
-          .order("course_name");
-        if (courses && courses.length > 0) {
-          dataContext += "\n\n📚 **All Courses:**\n";
-          courses.forEach(c => {
-            dataContext += `- ${c.course_name} (${c.duration_months || "N/A"} months) - ${c.status ? "Active" : "Inactive"}\n`;
-          });
+      // Inquiry conversion
+      if (lowerMsg.includes("inquiry conversion") || lowerMsg.includes("leads") || lowerMsg.includes("new inquiries")) {
+        const { data: inquiries } = await supabaseClient.from("inquiries").select("status").limit(1000);
+        if (inquiries?.length) {
+          const total = inquiries.length;
+          const joined = inquiries.filter(i => i.status === "Joined").length;
+          dataContext += `\n\n📊 **Inquiry Conversion:** ${joined}/${total} joined (${((joined/total)*100).toFixed(1)}%)`;
         } else {
-          dataContext += "\n\nNo courses found.";
+          dataContext += "\n\nNo inquiries.";
         }
       }
 
-      // List all subjects
-      if (lowerMsg.includes("list all subjects") || lowerMsg.includes("show subjects") || lowerMsg.includes("all subjects")) {
-        const { data: subjects } = await supabaseClient
-          .from("subjects")
-          .select("id, subject_name, courses(course_name)")
-          .order("subject_name");
-        if (subjects && subjects.length > 0) {
-          dataContext += "\n\n📖 **All Subjects:**\n";
-          subjects.forEach(s => {
-            dataContext += `- ${s.subject_name} (${s.courses?.course_name || "N/A"})\n`;
+      // Leaves pending
+      if (lowerMsg.includes("pending leaves") || lowerMsg.includes("leave requests")) {
+        const { data: leaves } = await supabaseClient
+          .from("leaves")
+          .select("start_date, end_date, teachers(first_name, last_name)")
+          .eq("status", "Pending")
+          .limit(20);
+        if (leaves?.length) {
+          dataContext += "\n\n🗓️ **Pending Leaves:**\n";
+          leaves.forEach(l => {
+            const name = l.teachers ? `${l.teachers.first_name} ${l.teachers.last_name}` : "Unknown";
+            dataContext += `- ${name}: ${l.start_date} to ${l.end_date}\n`;
           });
         } else {
-          dataContext += "\n\nNo subjects found.";
+          dataContext += "\n\n✅ No pending leaves.";
         }
       }
 
-      // List all parents
-      if (lowerMsg.includes("list all parents") || lowerMsg.includes("show parents") || lowerMsg.includes("all parents")) {
-        const { data: parents } = await supabaseClient
-          .from("parents")
-          .select("id, father_name, mother_name, mobile, email")
-          .limit(50);
-        if (parents && parents.length > 0) {
-          dataContext += "\n\n👨‍👩‍👧 **Parents:**\n";
-          parents.forEach(p => {
-            dataContext += `- ${p.father_name || "N/A"} & ${p.mother_name || "N/A"} (${p.mobile || "N/A"})\n`;
-          });
-        } else {
-          dataContext += "\n\nNo parents found.";
+      // Salary payments
+      if (lowerMsg.includes("salary paid") || lowerMsg.includes("total salary")) {
+        const { start, end } = getCurrentMonthRange();
+        const { data: salaries } = await supabaseClient.from("salary_payments").select("amount").gte("payment_date", start).lte("payment_date", end);
+        const total = salaries?.reduce((s, p) => s + Number(p.amount), 0) || 0;
+        dataContext += `\n\n💵 **Total salary paid this month:** ₹ ${total.toLocaleString()}`;
+      }
+
+      // Exam performance (by exam)
+      if (lowerMsg.includes("exam performance") || lowerMsg.includes("exam results")) {
+        const { data: exams } = await supabaseClient.from("exams").select("exam_name, total_marks").order("exam_date", { ascending: false }).limit(3);
+        if (exams?.length) {
+          dataContext += "\n\n📝 **Exam Performance:**\n";
+          for (const exam of exams) {
+            const { data: results } = await supabaseClient.from("student_results").select("marks_obtained").eq("exam_id", exam.id);
+            if (results?.length) {
+              const marks = results.map(r => Number(r.marks_obtained));
+              const avg = marks.reduce((a, b) => a + b, 0) / marks.length;
+              const passed = marks.filter(m => m >= exam.total_marks / 2).length;
+              dataContext += `- ${exam.exam_name}: Avg ${avg.toFixed(1)}, Passed ${passed}/${marks.length}\n`;
+            }
+          }
         }
       }
 
-      // List all batches with details
-      if (lowerMsg.includes("list all batches") || lowerMsg.includes("show batches") || lowerMsg.includes("all batches")) {
-        const { data: batches } = await supabaseClient
-          .from("batches")
-          .select("id, batch_name, courses(course_name), start_date, end_date, status")
-          .order("batch_name");
-        if (batches && batches.length > 0) {
-          dataContext += "\n\n📋 **All Batches:**\n";
-          batches.forEach(b => {
-            dataContext += `- ${b.batch_name} (${b.courses?.course_name || "N/A"}) - ${b.status} (${b.start_date} to ${b.end_date})\n`;
-          });
-        } else {
-          dataContext += "\n\nNo batches found.";
+      // Online class attendance
+      if (lowerMsg.includes("online class attendance") || lowerMsg.includes("class attendance")) {
+        const { data: classes } = await supabaseClient.from("online_classes").select("id, title, start_time").order("start_time", { ascending: false }).limit(5);
+        if (classes?.length) {
+          dataContext += "\n\n💻 **Recent Online Classes:**\n";
+          for (const cls of classes) {
+            const { count } = await supabaseClient.from("online_class_attendance").select("*", { count: "exact", head: true }).eq("class_id", cls.id);
+            dataContext += `- ${cls.title} (${cls.start_time}): ${count || 0} attendees\n`;
+          }
         }
       }
     }
@@ -804,24 +735,24 @@ Ready to mark as **Paid**. Reply with **CONFIRM**. <!-- action:mark_fee_paid|stu
 
       if (teacher) {
         // My batches
-        if (lowerMsg.includes("my batches") || lowerMsg.includes("my classes") || lowerMsg.includes("assigned to me")) {
+        if (lowerMsg.includes("my batches") || lowerMsg.includes("my classes")) {
           const { data: batches } = await supabaseClient
             .from("batch_teachers")
-            .select(`batch_id, batches(batch_name, start_time, end_time, days)`)
+            .select("batches(batch_name, days, start_time, end_time)")
             .eq("teacher_id", teacher.id);
           if (batches?.length) {
             dataContext += "\n\n🧑‍🏫 **Your Batches:**\n";
             batches.forEach(b => {
-              const name = b.batches?.batch_name || "N/A";
-              dataContext += `- ${name}\n`;
+              const info = b.batches;
+              dataContext += `- ${info?.batch_name} (${info?.days}, ${info?.start_time}-${info?.end_time})\n`;
             });
           } else {
-            dataContext += "\n\nNo active batches assigned.";
+            dataContext += "\n\nNo batches assigned.";
           }
         }
 
         // My students
-        if (lowerMsg.includes("my students") || lowerMsg.includes("students in my") || lowerMsg.includes("my class list")) {
+        if (lowerMsg.includes("my students") || lowerMsg.includes("students in my")) {
           const { data: batchTeachers } = await supabaseClient
             .from("batch_teachers")
             .select("batch_id")
@@ -830,22 +761,24 @@ Ready to mark as **Paid**. Reply with **CONFIRM**. <!-- action:mark_fee_paid|stu
           if (batchIds.length) {
             const { data: students } = await supabaseClient
               .from("student_batches")
-              .select(`student_id, students(first_name, last_name, admission_no)`)
+              .select("students(first_name, last_name, admission_no)")
               .in("batch_id", batchIds)
               .eq("status", "active");
             if (students?.length) {
               const unique = new Map();
               students.forEach(s => {
-                if (s.students && !unique.has(s.student_id)) unique.set(s.student_id, s.students);
+                if (s.students && !unique.has(s.students.admission_no)) unique.set(s.students.admission_no, s.students);
               });
               dataContext += "\n\n👨‍🎓 **Your Students:**\n";
-              unique.forEach(s => dataContext += `- ${s.first_name} ${s.last_name} (${s.admission_no || "N/A"})\n`);
+              unique.forEach(s => dataContext += `- ${s.first_name} ${s.last_name} (${s.admission_no})\n`);
+            } else {
+              dataContext += "\n\nNo students in your batches.";
             }
           }
         }
 
-        // My salary
-        if (lowerMsg.includes("my salary") || lowerMsg.includes("salary this month") || lowerMsg.includes("my payment")) {
+        // My salary history
+        if (lowerMsg.includes("my salary") || lowerMsg.includes("salary this month")) {
           const { data: salaries } = await supabaseClient
             .from("salary_payments")
             .select("amount, payment_date")
@@ -853,14 +786,12 @@ Ready to mark as **Paid**. Reply with **CONFIRM**. <!-- action:mark_fee_paid|stu
             .order("payment_date", { ascending: false })
             .limit(1);
           if (salaries?.length) {
-            dataContext += `\n\n💰 **Last salary:** ₹ ${Number(salaries[0].amount).toLocaleString()} on ${salaries[0].payment_date}`;
-          } else {
-            dataContext += "\n\nNo salary records.";
+            dataContext += `\n\n💰 **Last salary:** ₹ ${salaries[0].amount} on ${salaries[0].payment_date}`;
           }
         }
 
         // My leaves
-        if (lowerMsg.includes("my leaves") || lowerMsg.includes("my leave balance") || lowerMsg.includes("leave history")) {
+        if (lowerMsg.includes("my leaves") || lowerMsg.includes("leave history")) {
           const { data: leaves } = await supabaseClient
             .from("leaves")
             .select("start_date, end_date, status, reason")
@@ -869,29 +800,27 @@ Ready to mark as **Paid**. Reply with **CONFIRM**. <!-- action:mark_fee_paid|stu
             .limit(10);
           if (leaves?.length) {
             dataContext += "\n\n🗓️ **Your Leaves:**\n";
-            leaves.forEach(l => dataContext += `- ${l.start_date} to ${l.end_date}: ${l.status} (${l.reason || "N/A"})\n`);
-          } else {
-            dataContext += "\n\nNo leave records.";
+            leaves.forEach(l => dataContext += `- ${l.start_date} to ${l.end_date}: ${l.status} (${l.reason})\n`);
           }
         }
 
-        // Batch attendance
-        if (lowerMsg.includes("batch attendance") || lowerMsg.includes("attendance for my batch")) {
+        // Homework for my batches
+        if (lowerMsg.includes("pending homework") || lowerMsg.includes("my batch homework")) {
           const { data: batchTeachers } = await supabaseClient
             .from("batch_teachers")
             .select("batch_id")
             .eq("teacher_id", teacher.id);
           const batchIds = batchTeachers?.map(b => b.batch_id) || [];
           if (batchIds.length) {
-            const { data: sessions } = await supabaseClient
-              .from("attendance_sessions")
-              .select("id, attendance_date, batch_id")
+            const { data: homework } = await supabaseClient
+              .from("homework")
+              .select("id, title, due_date")
               .in("batch_id", batchIds)
-              .order("attendance_date", { ascending: false })
+              .order("due_date", { ascending: false })
               .limit(10);
-            if (sessions?.length) {
-              dataContext += "\n\n📋 **Recent attendance for your batches:**\n";
-              sessions.forEach(s => dataContext += `- ${s.attendance_date} | Batch ID: ${s.batch_id}\n`);
+            if (homework?.length) {
+              dataContext += "\n\n📄 **Recent Homework:**\n";
+              homework.forEach(h => dataContext += `- ${h.title} (Due: ${h.due_date})\n`);
             }
           }
         }
@@ -907,276 +836,158 @@ Ready to mark as **Paid**. Reply with **CONFIRM**. <!-- action:mark_fee_paid|stu
         .maybeSingle();
 
       if (student) {
-        // Today's Homework
-        if (lowerMsg.includes("today's homework") || lowerMsg.includes("homework today") || lowerMsg.includes("today homework") || lowerMsg.includes("what is my homework for today")) {
+        // Today's homework
+        if (lowerMsg.includes("today's homework") || lowerMsg.includes("homework today")) {
           const today = new Date().toISOString().split("T")[0];
-          const { data: submissions, error } = await supabaseClient
+          const { data: submissions } = await supabaseClient
             .from("homework_submissions")
-            .select(`
-              id,
-              status,
-              homework!inner (
-                id,
-                title,
-                description,
-                due_date,
-                batch_id
-              )
-            `)
+            .select("homework(title, description, due_date), status")
             .eq("student_id", student.id)
             .eq("homework.due_date", today)
             .limit(10);
-
-          if (error) {
-            console.error("Homework fetch error:", error);
-            dataContext += "\n\n⚠️ Could not fetch your homework. Please try again later.";
-          } else if (submissions && submissions.length > 0) {
+          if (submissions?.length) {
             dataContext += "\n\n📚 **Today's Homework:**\n";
-            submissions.forEach((sub, idx) => {
-              const hw = sub.homework;
-              dataContext += `${idx+1}. **${hw.title}** (Due: ${hw.due_date})\n`;
-              dataContext += `   Status: ${sub.status}\n`;
-              if (hw.description) dataContext += `   ${hw.description}\n`;
+            submissions.forEach(s => {
+              const hw = s.homework;
+              dataContext += `- **${hw.title}** (Due: ${hw.due_date}) - Status: ${s.status}\n`;
             });
           } else {
-            dataContext += "\n\n✅ No homework due today. Enjoy your day! 🎉";
+            dataContext += "\n\n✅ No homework due today.";
           }
         }
 
-        // Attendance
+        // My attendance
         if (lowerMsg.includes("my attendance") || lowerMsg.includes("attendance percentage")) {
           const { data: studentBatches } = await supabaseClient
             .from("student_batches")
             .select("batch_id")
             .eq("student_id", student.id)
             .eq("status", "active");
-
           const batchIds = studentBatches?.map(sb => sb.batch_id) || [];
           if (batchIds.length > 0) {
-            const { data: sessions } = await supabaseClient
-              .from("attendance_sessions")
-              .select("id")
-              .in("batch_id", batchIds);
+            const { data: sessions } = await supabaseClient.from("attendance_sessions").select("id").in("batch_id", batchIds);
             const sessionIds = sessions?.map(s => s.id) || [];
-            if (sessionIds.length > 0) {
-              const { data: marks } = await supabaseClient
-                .from("student_attendance")
-                .select("status")
-                .eq("student_id", student.id)
-                .in("session_id", sessionIds);
-              const present = marks?.filter(m => m.status === "Present").length || 0;
-              const total = marks?.length || 0;
-              const pct = total > 0 ? ((present / total) * 100).toFixed(1) : 0;
-              dataContext += `\n\n📊 **Your attendance:** ${pct}% (${present}/${total} sessions present)`;
-            } else {
-              dataContext += `\n\n📊 No attendance sessions found for your batches.`;
-            }
+            const { data: marks } = await supabaseClient.from("student_attendance").select("status").eq("student_id", student.id).in("session_id", sessionIds);
+            const present = marks?.filter(m => m.status === "Present").length || 0;
+            const total = marks?.length || 0;
+            const pct = total > 0 ? ((present / total) * 100).toFixed(1) : 0;
+            dataContext += `\n\n📊 **Your attendance:** ${pct}% (${present}/${total})`;
           } else {
-            dataContext += `\n\n📊 You are not enrolled in any active batch.`;
+            dataContext += "\n\nYou are not enrolled in any batch.";
           }
         }
 
-        // Results
-        if (lowerMsg.includes("my results") || lowerMsg.includes("my marks") || lowerMsg.includes("how did i do")) {
+        // My results
+        if (lowerMsg.includes("my results") || lowerMsg.includes("my marks")) {
           const { data: results } = await supabaseClient
             .from("student_results")
-            .select(`marks_obtained, exams(exam_name, exam_date, total_marks)`)
+            .select("marks_obtained, exams(exam_name, exam_date, total_marks)")
             .eq("student_id", student.id)
             .order("exam_date", { ascending: false, foreignTable: "exams" })
             .limit(10);
           if (results?.length) {
-            dataContext += "\n\n📝 **Your Exam Results:**\n";
+            dataContext += "\n\n📝 **Your Results:**\n";
             results.forEach(r => {
               const exam = r.exams;
-              if (exam) {
-                const pct = exam.total_marks > 0 ? ((r.marks_obtained / exam.total_marks) * 100).toFixed(1) : 0;
-                dataContext += `- ${exam.exam_name} (${exam.exam_date}): ${r.marks_obtained}/${exam.total_marks} (${pct}%)\n`;
-              }
+              const pct = exam?.total_marks ? ((r.marks_obtained / exam.total_marks) * 100).toFixed(1) : "N/A";
+              dataContext += `- ${exam?.exam_name} (${exam?.exam_date}): ${r.marks_obtained}/${exam?.total_marks} (${pct}%)\n`;
             });
-          } else {
-            dataContext += "\n\nNo exam results found.";
           }
         }
 
-        // Fees (including "pending fees")
-        if (lowerMsg.includes("my fees") || lowerMsg.includes("fee due") || 
-            lowerMsg.includes("how much do i owe") || lowerMsg.includes("pending fees")) {
+        // My fees
+        if (lowerMsg.includes("my fees") || lowerMsg.includes("fee due") || lowerMsg.includes("how much do i owe")) {
           const { data: fees } = await supabaseClient
             .from("student_fees")
             .select("id, final_fee, status")
             .eq("student_id", student.id);
-          if (fees && fees.length > 0) {
-            let totalPending = 0;
+          if (fees?.length) {
             dataContext += "\n\n💰 **Your Fee Summary:**\n";
             for (const fee of fees) {
-              const { data: payments } = await supabaseClient
-                .from("fee_payments")
-                .select("amount")
-                .eq("student_fee_id", fee.id);
+              const { data: payments } = await supabaseClient.from("fee_payments").select("amount").eq("student_fee_id", fee.id);
               const paid = payments?.reduce((s, p) => s + Number(p.amount), 0) || 0;
-              const pending = Number(fee.final_fee) - paid;
-              totalPending += Math.max(pending, 0);
-              dataContext += `- Total: ₹ ${fee.final_fee}, Paid: ₹ ${paid}, Balance: ₹ ${Math.max(pending, 0)} (${fee.status})\n`;
+              const pending = Math.max(Number(fee.final_fee) - paid, 0);
+              dataContext += `- Total: ₹ ${fee.final_fee}, Paid: ₹ ${paid}, Balance: ₹ ${pending} (${fee.status})\n`;
             }
-            if (lowerMsg.includes("pending fees")) {
-              dataContext += `\n**Your total pending fees: ₹ ${totalPending}**`;
-            }
-          } else {
-            dataContext += "\n\n✅ No fee records found.";
           }
         }
 
-        // Certificates
-        if (lowerMsg.includes("my certificates") || lowerMsg.includes("do i have a certificate")) {
+        // My timetable today
+        if (lowerMsg.includes("my timetable") || lowerMsg.includes("today's classes")) {
+          const { data: studentBatches } = await supabaseClient
+            .from("student_batches")
+            .select("batch_id")
+            .eq("student_id", student.id)
+            .eq("status", "active");
+          const batchIds = studentBatches?.map(sb => sb.batch_id) || [];
+          if (batchIds.length > 0) {
+            const today = new Date();
+            const dayName = today.toLocaleString("en-US", { weekday: "short" });
+            const { data: batches } = await supabaseClient
+              .from("batches")
+              .select("batch_name, start_time, end_time")
+              .in("id", batchIds)
+              .ilike("days", `%${dayName}%`);
+            if (batches?.length) {
+              dataContext += "\n\n📅 **Today's Classes:**\n";
+              batches.forEach(b => dataContext += `- ${b.batch_name}: ${b.start_time} - ${b.end_time}\n`);
+            } else {
+              dataContext += "\n\nNo classes today.";
+            }
+          }
+        }
+
+        // My certificates
+        if (lowerMsg.includes("my certificates")) {
           const { data: certs } = await supabaseClient
             .from("certificates")
             .select("certificate_no, issue_date, courses(course_name)")
-            .eq("student_id", student.id)
-            .order("issue_date", { ascending: false });
+            .eq("student_id", student.id);
           if (certs?.length) {
             dataContext += "\n\n📜 **Your Certificates:**\n";
-            certs.forEach(c => dataContext += `- ${c.courses?.course_name || "Course"} (${c.certificate_no}) issued on ${c.issue_date}\n`);
-          } else {
-            dataContext += "\n\nNo certificates yet.";
+            certs.forEach(c => dataContext += `- ${c.courses?.course_name} (${c.certificate_no}) - ${c.issue_date}\n`);
           }
         }
 
-        // General Homework
-        if (lowerMsg.includes("my homework") || lowerMsg.includes("pending assignments") || lowerMsg.includes("homework for me")) {
-          const { data: submissions } = await supabaseClient
-            .from("homework_submissions")
-            .select(`id, status, homework(title, due_date)`)
-            .eq("student_id", student.id)
-            .order("created_at", { ascending: false });
-          if (submissions?.length) {
-            dataContext += "\n\n📄 **Your Homework:**\n";
-            submissions.forEach(s => {
-              const title = s.homework?.title || "Untitled";
-              const due = s.homework?.due_date || "No due date";
-              dataContext += `- ${title} (Due: ${due}) - Status: ${s.status}\n`;
-            });
-          } else {
-            dataContext += "\n\nNo homework submissions.";
-          }
-        }
-
-        // Progress
-        if (lowerMsg.includes("my progress") || lowerMsg.includes("how am i doing") || lowerMsg.includes("my performance")) {
-          const { data: progress } = await supabaseClient
-            .from("student_progress")
-            .select("evaluation_date, attendance_percentage, performance_score, teacher_remarks")
-            .eq("student_id", student.id)
-            .order("evaluation_date", { ascending: false })
-            .limit(1);
-          if (progress?.length) {
-            const p = progress[0];
-            dataContext += `\n\n📈 **Latest Progress (${p.evaluation_date}):**\n`;
-            dataContext += `- Attendance: ${p.attendance_percentage || "N/A"}%\n`;
-            dataContext += `- Performance: ${p.performance_score || "N/A"}\n`;
-            dataContext += `- Remarks: ${p.teacher_remarks || "None"}\n`;
-          } else {
-            dataContext += "\n\nNo progress evaluations.";
-          }
-        }
-
-        // My Exams (fixed with batch_name)
-        if (lowerMsg.includes("my exams") || lowerMsg.includes("upcoming exams") ||
-            lowerMsg.includes("exam schedule") || lowerMsg.includes("exams in next week") ||
-            (lowerMsg.includes("exam") && lowerMsg.includes("next week"))) {
+        // Upcoming exams
+        if (lowerMsg.includes("upcoming exams") || lowerMsg.includes("exams next week")) {
           const { data: studentBatches } = await supabaseClient
             .from("student_batches")
             .select("batch_id")
             .eq("student_id", student.id)
             .eq("status", "active");
           const batchIds = studentBatches?.map(sb => sb.batch_id) || [];
-
-          if (batchIds.length === 0) {
-            dataContext += "\n\n📅 You are not enrolled in any active batch.";
-          } else {
+          if (batchIds.length > 0) {
             const today = getTodayDate();
-            let endDate = null;
-            if (lowerMsg.includes("next week")) {
-              const range = getNextWeekRange();
-              endDate = range.end;
-            }
-            let query = supabaseClient
+            const { data: exams } = await supabaseClient
               .from("exams")
-              .select("exam_name, exam_date, batch_id, batches(batch_name)")
+              .select("exam_name, exam_date, batches(batch_name)")
               .in("batch_id", batchIds)
               .gte("exam_date", today)
               .order("exam_date", { ascending: true })
-              .limit(20);
-
-            if (endDate) {
-              query = query.lte("exam_date", endDate);
-            }
-
-            const { data: exams, error } = await query;
-            if (error) {
-              console.error("Exam fetch error:", error);
-              dataContext += "\n\n⚠️ Could not fetch exams. Please try again later.";
-            } else if (exams && exams.length > 0) {
-              dataContext += `\n\n📅 **${endDate ? "Exams in the next week" : "Upcoming Exams"}:**\n`;
-              exams.forEach(e => {
-                const batchName = e.batches?.batch_name || "N/A";
-                dataContext += `- ${e.exam_name} on ${e.exam_date} (${batchName})\n`;
-              });
-            } else {
-              dataContext += `\n\n✅ No${endDate ? " upcoming" : ""} exams found${endDate ? " in the next week" : ""}.`;
+              .limit(10);
+            if (exams?.length) {
+              dataContext += "\n\n📝 **Upcoming Exams:**\n";
+              exams.forEach(e => dataContext += `- ${e.exam_name} on ${e.exam_date} (${e.batches?.batch_name})\n`);
             }
           }
         }
-
-        // My Timetable (today's classes)
-        if (lowerMsg.includes("my timetable") || lowerMsg.includes("today's classes") || lowerMsg.includes("class schedule")) {
-          const { data: studentBatches } = await supabaseClient
-            .from("student_batches")
-            .select("batch_id")
-            .eq("student_id", student.id)
-            .eq("status", "active");
-          const batchIds = studentBatches?.map(sb => sb.batch_id) || [];
-
-          if (batchIds.length === 0) {
-            dataContext += "\n\n📅 You are not enrolled in any active batch.";
-          } else {
-            const today = new Date();
-            const dayName = today.toLocaleString('en-US', { weekday: 'short' }); // 'Mon', 'Tue', ...
-            const { data: batches } = await supabaseClient
-              .from("batches")
-              .select("batch_name, start_time, end_time, days")
-              .in("id", batchIds)
-              .ilike("days", `%${dayName}%`)
-              .order("start_time");
-            if (batches && batches.length > 0) {
-              dataContext += `\n\n📋 **Today's Classes (${today.toLocaleDateString()}):**\n`;
-              batches.forEach(b => {
-                dataContext += `- ${b.batch_name}: ${b.start_time} - ${b.end_time}\n`;
-              });
-            } else {
-              dataContext += `\n\n✅ No classes scheduled for today. Enjoy your day! 🎉`;
-            }
-          }
-        }
-      } else {
-        dataContext += "\n\n⚠️ Your student profile could not be found. Please contact the administrator.";
       }
     }
 
     // ---------- SYSTEM PROMPT ----------
     let systemPrompt = "";
     if (isStudent) {
-      systemPrompt = `You are VidhyaMitra, a friendly AI tutor. Help students with academic doubts and personal data queries. Use the data context to answer accurately. If the student asks for their attendance, fees, results, today's homework, upcoming exams, or timetable, use the provided data context. If no data is available, politely inform them. Always be encouraging and helpful.`;
+      systemPrompt = "You are VidhyaMitra, a friendly AI tutor for ShreeVidhya Academy. Help students with academic doubts and personal data. Use the provided data context to answer accurately. Encourage the student.";
     } else if (isTeacher) {
-      systemPrompt = `You are VidhyaMitra, an AI teaching assistant. Help with quiz generation, lesson planning, marking attendance, and answering queries about your classes. Provide professional and supportive responses.`;
-    } else if (isAdmin) {
-      systemPrompt = `You are VidhyaMitra, an AI admin assistant. Provide data‑driven insights, fee summaries, financial reports, and actionable suggestions. Be precise and professional.`;
+      systemPrompt = "You are VidhyaMitra, a professional AI teaching assistant. Help teachers with quizzes, attendance, homework, and class management. Be supportive and precise.";
+    } else {
+      systemPrompt = "You are VidhyaMitra, an AI admin assistant. Provide data-driven insights, reports, fee summaries, and actionable suggestions for school management. Be professional and direct.";
     }
 
     // ---------- GROQ API CALL ----------
     const GROQ_API_KEY = Deno.env.get("GROQ_API_KEY");
-    if (!GROQ_API_KEY) {
-      throw new Error("GROQ_API_KEY not set");
-    }
+    if (!GROQ_API_KEY) throw new Error("GROQ_API_KEY not set");
 
     const finalMessages = [
       { role: "system", content: systemPrompt },
@@ -1184,21 +995,15 @@ Ready to mark as **Paid**. Reply with **CONFIRM**. <!-- action:mark_fee_paid|stu
       ...messages,
     ];
 
-    const groqResponse = await fetch(
-      "https://api.groq.com/openai/v1/chat/completions",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${GROQ_API_KEY}`,
-        },
-        body: JSON.stringify({
-          model: "llama-3.1-8b-instant",
-          messages: finalMessages,
-          temperature: 0.7,
-        }),
-      }
-    );
+    const groqResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${GROQ_API_KEY}` },
+      body: JSON.stringify({
+        model: "llama-3.1-8b-instant",
+        messages: finalMessages,
+        temperature: 0.7,
+      }),
+    });
 
     if (!groqResponse.ok) {
       const errorText = await groqResponse.text();
@@ -1208,10 +1013,9 @@ Ready to mark as **Paid**. Reply with **CONFIRM**. <!-- action:mark_fee_paid|stu
     const groqData = await groqResponse.json();
     const reply = groqData.choices[0]?.message?.content || "";
 
-    // Build suggestions & actions for final response
     const { suggestions, actions } = await buildSuggestionsAndActions(supabaseClient, userRole, user.id);
 
-    // Log usage
+    // Log usage (optional)
     await supabaseClient.from("ai_usage_logs").insert({
       user_id: user.id,
       user_email: user.email,
@@ -1223,15 +1027,8 @@ Ready to mark as **Paid**. Reply with **CONFIRM**. <!-- action:mark_fee_paid|stu
     });
 
     return new Response(
-      JSON.stringify({
-        reply,
-        suggestions,
-        actions,
-        usage: groqData.usage,
-      }),
-      {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      }
+      JSON.stringify({ reply, suggestions, actions, usage: groqData.usage }),
+      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error) {
     return new Response(JSON.stringify({ error: error.message }), {
