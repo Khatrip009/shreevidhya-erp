@@ -1,7 +1,34 @@
+// src/services/teacherService.js
 import { supabase } from "../api/supabase";
 
+// ─── Helper: clean teacher data ──────────────────────────
+function cleanTeacherData(data) {
+  const allowedFields = [
+    'first_name', 'last_name', 'employee_code', 'mobile', 'email',
+    'qualification', 'joining_date', 'salary', 'status', 'user_id'
+  ];
+  const cleaned = {};
+  for (const key of allowedFields) {
+    if (data[key] !== undefined) {
+      let value = data[key];
+      if (value === '') value = null;
+      if (key === 'salary' && value !== null) {
+        const num = Number(value);
+        value = isNaN(num) ? null : num;
+      }
+      if (key === 'joining_date' && value !== null) {
+        const d = new Date(value);
+        if (isNaN(d.getTime())) value = null;
+        else value = d.toISOString().split('T')[0];
+      }
+      cleaned[key] = value;
+    }
+  }
+  return cleaned;
+}
+
 /**
- * Reusable function to create auth user + update profile role.
+ * Create auth user + update profile role.
  */
 async function createAuthUser(email, password, fullName, role) {
   if (!email || !password) return null;
@@ -35,9 +62,7 @@ async function createAuthUser(email, password, fullName, role) {
   return userId;
 }
 
-// ─── CRUD ───────────────────────────────────────────────
-
-// Now includes medium, course names, and filters by medium_id & course_id
+// ─── GET TEACHERS (paginated) ────────────────────────────
 export async function getTeachers({ pageParam = 0, filters = {} }) {
   const limit = 10;
   const from = pageParam * limit;
@@ -46,7 +71,13 @@ export async function getTeachers({ pageParam = 0, filters = {} }) {
   let query = supabase
     .from("teachers")
     .select(
-      "*, mediums(name), courses(course_name), profiles(email)",
+      `
+      *,
+      teacher_mediums ( medium_id, mediums ( name ) ),
+      teacher_courses ( course_id, courses ( course_name ) ),
+      teacher_course_levels ( course_level_id, course_levels ( level_name ) ),
+      teacher_subjects ( subject_id, subjects ( subject_name ) )
+    `,
       { count: "exact" }
     )
     .order("id", { ascending: false })
@@ -57,28 +88,84 @@ export async function getTeachers({ pageParam = 0, filters = {} }) {
       `first_name.ilike.%${filters.search}%,last_name.ilike.%${filters.search}%,employee_code.ilike.%${filters.search}%`
     );
   }
-  if (filters.medium_id) query = query.eq("medium_id", filters.medium_id);
-  if (filters.course_id) query = query.eq("course_id", filters.course_id);
+
+  const filterByJunction = async (table, column, value) => {
+    if (!value) return null;
+    const { data: ids, error } = await supabase
+      .from(table)
+      .select("teacher_id")
+      .eq(column, value);
+    if (error) throw error;
+    return ids.map((t) => t.teacher_id);
+  };
+
+  let teacherIds = null;
+
+  if (filters.medium_id) {
+    const ids = await filterByJunction("teacher_mediums", "medium_id", filters.medium_id);
+    if (ids === null) return { data: [], count: 0 };
+    teacherIds = teacherIds ? teacherIds.filter((id) => ids.includes(id)) : ids;
+  }
+  if (filters.course_id) {
+    const ids = await filterByJunction("teacher_courses", "course_id", filters.course_id);
+    if (ids === null) return { data: [], count: 0 };
+    teacherIds = teacherIds ? teacherIds.filter((id) => ids.includes(id)) : ids;
+  }
+  if (filters.course_level_id) {
+    const ids = await filterByJunction("teacher_course_levels", "course_level_id", filters.course_level_id);
+    if (ids === null) return { data: [], count: 0 };
+    teacherIds = teacherIds ? teacherIds.filter((id) => ids.includes(id)) : ids;
+  }
+  if (filters.subject_id) {
+    const ids = await filterByJunction("teacher_subjects", "subject_id", filters.subject_id);
+    if (ids === null) return { data: [], count: 0 };
+    teacherIds = teacherIds ? teacherIds.filter((id) => ids.includes(id)) : ids;
+  }
+
+  if (teacherIds) {
+    if (teacherIds.length === 0) return { data: [], count: 0 };
+    query = query.in("id", teacherIds);
+  }
 
   const { data, error, count } = await query;
   if (error) throw error;
 
-  // Flatten medium, course names and user_email
   const enriched = (data || []).map((teacher) => ({
     ...teacher,
-    medium_name: teacher.mediums?.name || "",
-    course_name: teacher.courses?.course_name || "",
-    user_email: teacher.profiles?.email || "",
+    mediums: teacher.teacher_mediums?.map((tm) => ({
+      id: tm.medium_id,
+      name: tm.mediums?.name,
+    })) || [],
+    courses: teacher.teacher_courses?.map((tc) => ({
+      id: tc.course_id,
+      name: tc.courses?.course_name,
+    })) || [],
+    course_levels: teacher.teacher_course_levels?.map((tcl) => ({
+      id: tcl.course_level_id,
+      name: tcl.course_levels?.level_name,
+    })) || [],
+    subjects: teacher.teacher_subjects?.map((ts) => ({
+      id: ts.subject_id,
+      name: ts.subjects?.subject_name,
+    })) || [],
   }));
 
   return { data: enriched, count };
 }
 
-// Export includes medium, course names, and filters
+// ─── EXPORT ALL TEACHERS ──────────────────────────────────
 export async function getAllTeachersForExport(filters = {}) {
   let query = supabase
     .from("teachers")
-    .select("*, mediums(name), courses(course_name)")
+    .select(
+      `
+      *,
+      teacher_mediums ( medium_id, mediums ( name ) ),
+      teacher_courses ( course_id, courses ( course_name ) ),
+      teacher_course_levels ( course_level_id, course_levels ( level_name ) ),
+      teacher_subjects ( subject_id, subjects ( subject_name ) )
+    `
+    )
     .order("id", { ascending: false });
 
   if (filters.search) {
@@ -86,46 +173,145 @@ export async function getAllTeachersForExport(filters = {}) {
       `first_name.ilike.%${filters.search}%,last_name.ilike.%${filters.search}%,employee_code.ilike.%${filters.search}%`
     );
   }
-  if (filters.medium_id) query = query.eq("medium_id", filters.medium_id);
-  if (filters.course_id) query = query.eq("course_id", filters.course_id);
+
+  const filterByJunction = async (table, column, value) => {
+    if (!value) return null;
+    const { data: ids, error } = await supabase
+      .from(table)
+      .select("teacher_id")
+      .eq(column, value);
+    if (error) throw error;
+    return ids.map((t) => t.teacher_id);
+  };
+
+  let teacherIds = null;
+
+  if (filters.medium_id) {
+    const ids = await filterByJunction("teacher_mediums", "medium_id", filters.medium_id);
+    if (ids === null) return [];
+    teacherIds = teacherIds ? teacherIds.filter((id) => ids.includes(id)) : ids;
+  }
+  if (filters.course_id) {
+    const ids = await filterByJunction("teacher_courses", "course_id", filters.course_id);
+    if (ids === null) return [];
+    teacherIds = teacherIds ? teacherIds.filter((id) => ids.includes(id)) : ids;
+  }
+  if (filters.course_level_id) {
+    const ids = await filterByJunction("teacher_course_levels", "course_level_id", filters.course_level_id);
+    if (ids === null) return [];
+    teacherIds = teacherIds ? teacherIds.filter((id) => ids.includes(id)) : ids;
+  }
+  if (filters.subject_id) {
+    const ids = await filterByJunction("teacher_subjects", "subject_id", filters.subject_id);
+    if (ids === null) return [];
+    teacherIds = teacherIds ? teacherIds.filter((id) => ids.includes(id)) : ids;
+  }
+
+  if (teacherIds) {
+    if (teacherIds.length === 0) return [];
+    query = query.in("id", teacherIds);
+  }
 
   const { data, error } = await query;
   if (error) throw error;
 
   return (data || []).map((teacher) => ({
     ...teacher,
-    medium_name: teacher.mediums?.name || "",
-    course_name: teacher.courses?.course_name || "",
+    mediums: teacher.teacher_mediums?.map((tm) => tm.mediums?.name).filter(Boolean) || [],
+    courses: teacher.teacher_courses?.map((tc) => tc.courses?.course_name).filter(Boolean) || [],
+    course_levels: teacher.teacher_course_levels?.map((tcl) => tcl.course_levels?.level_name).filter(Boolean) || [],
+    subjects: teacher.teacher_subjects?.map((ts) => ts.subjects?.subject_name).filter(Boolean) || [],
   }));
 }
 
-// createTeacher/updateTeacher unchanged – medium_id, course_id are accepted via payload
+// ─── CREATE TEACHER ──────────────────────────────────────
 export async function createTeacher(payload) {
-  const { email, password, ...teacherData } = payload;
+  const {
+    email,
+    password,
+    medium_ids,
+    course_ids,
+    course_level_ids,
+    subject_ids,
+    ...teacherData
+  } = payload;
 
-  const fullName = `${teacherData.first_name || ""} ${teacherData.last_name || ""}`.trim();
-  const userId = await createAuthUser(email, password, fullName, "teacher");
+  const cleanedTeacher = cleanTeacherData(teacherData);
 
+  const fullName = `${cleanedTeacher.first_name || ""} ${cleanedTeacher.last_name || ""}`.trim();
+  let userId = null;
+  if (email && password) {
+    userId = await createAuthUser(email, password, fullName, "teacher");
+  }
+
+  // Insert teacher – no course_id / medium_id
   const { data: teacher, error } = await supabase
     .from("teachers")
-    .insert([{ ...teacherData, user_id: userId }])
+    .insert([{ ...cleanedTeacher, user_id: userId }])
     .select()
     .single();
   if (error) throw error;
+
+  const insertJunction = async (table, idField, ids) => {
+    if (!ids || ids.length === 0) return;
+    const rows = ids.map((id) => ({
+      teacher_id: teacher.id,
+      [idField]: id,
+    }));
+    const { error: err } = await supabase.from(table).insert(rows);
+    if (err) throw err;
+  };
+
+  await insertJunction("teacher_mediums", "medium_id", medium_ids);
+  await insertJunction("teacher_courses", "course_id", course_ids);
+  await insertJunction("teacher_course_levels", "course_level_id", course_level_ids);
+  await insertJunction("teacher_subjects", "subject_id", subject_ids);
+
   return teacher;
 }
 
+// ─── UPDATE TEACHER ──────────────────────────────────────
 export async function updateTeacher(id, payload) {
-  const { data, error } = await supabase
+  const {
+    medium_ids,
+    course_ids,
+    course_level_ids,
+    subject_ids,
+    ...teacherData
+  } = payload;
+
+  const cleanedTeacher = cleanTeacherData(teacherData);
+
+  // Update teacher – no course_id / medium_id
+  const { data: teacher, error } = await supabase
     .from("teachers")
-    .update(payload)
+    .update(cleanedTeacher)
     .eq("id", id)
     .select()
     .single();
   if (error) throw error;
-  return data;
+
+  const replaceJunction = async (table, idField, ids) => {
+    await supabase.from(table).delete().eq("teacher_id", id);
+    if (ids && ids.length > 0) {
+      const rows = ids.map((val) => ({
+        teacher_id: id,
+        [idField]: val,
+      }));
+      const { error: err } = await supabase.from(table).insert(rows);
+      if (err) throw err;
+    }
+  };
+
+  await replaceJunction("teacher_mediums", "medium_id", medium_ids);
+  await replaceJunction("teacher_courses", "course_id", course_ids);
+  await replaceJunction("teacher_course_levels", "course_level_id", course_level_ids);
+  await replaceJunction("teacher_subjects", "subject_id", subject_ids);
+
+  return teacher;
 }
 
+// ─── DELETE (soft) ────────────────────────────────────────
 export async function deleteTeacher(id) {
   const { error } = await supabase
     .from("teachers")
@@ -134,6 +320,7 @@ export async function deleteTeacher(id) {
   if (error) throw error;
 }
 
+// ─── OPTIONS ──────────────────────────────────────────────
 export async function getTeacherOptions() {
   const { data, error } = await supabase
     .from("teachers")
@@ -142,7 +329,6 @@ export async function getTeacherOptions() {
   return data;
 }
 
-// NEW – get mediums for filter dropdown
 export async function getMediumOptions() {
   const { data, error } = await supabase
     .from("mediums")
@@ -152,12 +338,29 @@ export async function getMediumOptions() {
   return data || [];
 }
 
-// NEW – get courses for filter dropdown (alias for clarity)
 export async function getCourseOptions() {
   const { data, error } = await supabase
     .from("courses")
     .select("id, course_name")
     .order("course_name");
+  if (error) throw error;
+  return data || [];
+}
+
+export async function getCourseLevelOptions() {
+  const { data, error } = await supabase
+    .from("course_levels")
+    .select("id, level_name, course_id")
+    .order("level_number");
+  if (error) throw error;
+  return data || [];
+}
+
+export async function getSubjectOptions() {
+  const { data, error } = await supabase
+    .from("subjects")
+    .select("id, subject_name, course_id")
+    .order("subject_name");
   if (error) throw error;
   return data || [];
 }

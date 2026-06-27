@@ -1,4 +1,4 @@
-import { Routes, Route } from "react-router-dom";
+import { Routes, Route, useParams } from "react-router-dom";
 import ErrorBoundary from "./components/ErrorBoundary";
 import NotFound from "./pages/NotFound";
 import Dashboard from "./pages/Dashboard";
@@ -40,6 +40,14 @@ import AdminTimetable from "./pages/AdminTimetable";
 import ProfitLoss from "./pages/ProfitLoss";
 import LearningResources from "./pages/LearningResources";
 import Mediums from "./pages/Mediums";
+import TaxSettings from './pages/TaxSettings';
+import TaxReport from './pages/TaxReport';
+
+// Reports engine
+import Reports from './pages/Reports';
+import ReportPage from './components/ReportPage';
+import DocumentReportPage from './components/DocumentReportPage';
+import { getReportConfig } from './utils/reportConfig';
 
 // Student pages
 import StudentFeesPage from "./pages/StudentFeesPage";
@@ -67,12 +75,23 @@ import TeacherLearningResources from "./pages/TeacherLearningResources";
 // AI Chat
 import AIChat from "./components/AIChat/AIChat";
 
-// ========== Online Classes (new) ==========
-import OnlineClassList from "./pages/OnlineClassList";          // <-- you will create this page
+// Online Classes
+import OnlineClassList from "./pages/OnlineClassList";
 import CreateOnlineClass from "./components/CreateOnlineClass";
 import JoinOnlineClass from "./components/JoinOnlineClass";
 
 function App() {
+  // Report wrapper – reads :reportId from URL and decides which page to show
+  const ReportPageWrapper = () => {
+    const { reportId } = useParams();
+    const config = getReportConfig(reportId);
+    if (!config) return <NotFound />;
+    if (config.reportType === 'document') {
+      return <DocumentReportPage reportId={reportId} />;
+    }
+    return <ReportPage reportId={reportId} />;
+  };
+
   return (
     <ErrorBoundary>
       <Routes>
@@ -138,6 +157,19 @@ function App() {
         <Route path="/profit-loss" element={<ProtectedRoute><ProfitLoss /></ProtectedRoute>} />
         <Route path="/learning-resources" element={<ProtectedRoute><LearningResources /></ProtectedRoute>} />
         <Route path="/mediums" element={<ProtectedRoute><Mediums /></ProtectedRoute>} />
+        <Route path="/tax-settings" element={<ProtectedRoute><TaxSettings /></ProtectedRoute>} />
+        <Route path="/tax-report" element={<ProtectedRoute><TaxReport /></ProtectedRoute>} />
+
+        {/* ── Report Engine ── */}
+        <Route path="/reports" element={<ProtectedRoute><Reports /></ProtectedRoute>} />
+        <Route
+          path="/reports/:reportId"
+          element={
+            <ProtectedRoute>
+              <ReportPageWrapper />
+            </ProtectedRoute>
+          }
+        />
 
         {/* Admin Master Timetable */}
         <Route path="/timetable" element={<ProtectedRoute><AdminTimetable /></ProtectedRoute>} />
@@ -146,14 +178,13 @@ function App() {
         <Route path="/salary-payments" element={<ProtectedRoute><SalaryPayments /></ProtectedRoute>} />
         <Route path="/leave-management" element={<ProtectedRoute><LeaveManagement /></ProtectedRoute>} />
 
-        {/* ========== Online Classes ========== */}
+        {/* Online Classes */}
         <Route path="/online-classes" element={<ProtectedRoute><OnlineClassList /></ProtectedRoute>} />
         <Route path="/online-classes/create" element={<ProtectedRoute><CreateOnlineClass /></ProtectedRoute>} />
         <Route path="/online-classes/join/:classId" element={<ProtectedRoute><JoinOnlineClass /></ProtectedRoute>} />
 
         <Route path="*" element={<NotFound />} />
       </Routes>
-      {/* AI Chat floating button */}
       <AIChat />
     </ErrorBoundary>
   );

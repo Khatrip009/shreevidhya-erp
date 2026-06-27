@@ -1,8 +1,9 @@
+// src/components/CollectPaymentModal.jsx
 import { useState, useEffect } from "react";
 import toast from "react-hot-toast";
 import {
   X, Calendar, IndianRupee, CreditCard, Hash, FileText, User,
-  ChevronDown, List,
+  ChevronDown, List, Receipt,
 } from "lucide-react";
 import { collectPayment } from "../services/feeService";
 import { supabase } from "../api/supabase";
@@ -20,24 +21,63 @@ export default function CollectPaymentModal({ fee, onClose, onSuccess }) {
   });
   const [installments, setInstallments] = useState([]);
   const [loadingInstallments, setLoadingInstallments] = useState(true);
+  const [taxInfo, setTaxInfo] = useState(null);
 
-  // Fetch installments for this fee
+  // Fetch installments and tax info for this fee
   useEffect(() => {
-    async function loadInstallments() {
-      const { data, error } = await supabase
+    async function loadData() {
+      // 1. Fetch installments
+      const { data: instData, error: instError } = await supabase
         .from("fee_installments")
         .select("*")
         .eq("student_fee_id", fee.id)
         .order("installment_number");
-      if (error) {
+      if (instError) {
         toast.error("Could not load installments");
       } else {
-        setInstallments(data || []);
+        setInstallments(instData || []);
       }
       setLoadingInstallments(false);
+
+      // 2. Fetch tax info from fee structure
+      if (fee.fee_structures?.tax_rate_id) {
+        const taxRateId = fee.fee_structures.tax_rate_id;
+        const taxInclusive = fee.fee_structures.tax_inclusive !== undefined
+          ? fee.fee_structures.tax_inclusive
+          : true;
+        const taxRate = fee.fee_structures.tax_rates; // already populated from join
+
+        if (taxRate) {
+          setTaxInfo({
+            rate: Number(taxRate.rate),
+            name: taxRate.name,
+            taxInclusive: taxInclusive,
+            baseAmount: Number(fee.base_amount || 0),
+            taxAmount: Number(fee.tax_amount || 0),
+            finalFee: Number(fee.final_fee),
+          });
+        } else {
+          // Fetch tax rate separately if not populated
+          const { data: taxRateData } = await supabase
+            .from("tax_rates")
+            .select("rate, name")
+            .eq("id", taxRateId)
+            .single();
+          if (taxRateData) {
+            setTaxInfo({
+              rate: Number(taxRateData.rate),
+              name: taxRateData.name,
+              taxInclusive: taxInclusive,
+              baseAmount: Number(fee.base_amount || 0),
+              taxAmount: Number(fee.tax_amount || 0),
+              finalFee: Number(fee.final_fee),
+            });
+          }
+        }
+      }
     }
-    loadInstallments();
-  }, [fee.id]);
+    loadData();
+  }, [fee]);
 
   // When an installment is selected, auto-fill the amount
   const selectedInstallment = installments.find(
@@ -62,11 +102,35 @@ export default function CollectPaymentModal({ fee, onClose, onSuccess }) {
       return;
     }
 
+    const paymentAmount = Number(form.amount);
+
+    // Calculate base_amount and tax_amount based on taxInfo
+    let baseAmount = paymentAmount;
+    let taxAmount = 0;
+
+    if (taxInfo && taxInfo.rate > 0) {
+      const rate = taxInfo.rate / 100;
+      if (taxInfo.taxInclusive) {
+        // Amount includes tax
+        baseAmount = paymentAmount / (1 + rate);
+        taxAmount = paymentAmount - baseAmount;
+      } else {
+        // Tax added on top
+        baseAmount = paymentAmount;
+        taxAmount = paymentAmount * rate;
+      }
+      // Round to 2 decimals
+      baseAmount = Math.round(baseAmount * 100) / 100;
+      taxAmount = Math.round(taxAmount * 100) / 100;
+    }
+
     try {
       const paymentPayload = {
         student_fee_id: fee.id,
         payment_date: form.payment_date,
-        amount: Number(form.amount),
+        amount: paymentAmount,
+        base_amount: baseAmount,
+        tax_amount: taxAmount,
         payment_mode: form.payment_mode,
         transaction_no: form.transaction_no,
         remarks: form.remarks,
@@ -82,9 +146,10 @@ export default function CollectPaymentModal({ fee, onClose, onSuccess }) {
     }
   }
 
+  const hasTax = taxInfo && taxInfo.rate > 0;
+
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      {/* Scrollable white card */}
       <div className="bg-white rounded-xl w-full max-w-md shadow-xl max-h-[90vh] overflow-y-auto">
         {/* Header */}
         <div className="sticky top-0 bg-white border-b border-secondary-light px-6 py-4 flex items-center justify-between rounded-t-xl z-10">
@@ -123,6 +188,11 @@ export default function CollectPaymentModal({ fee, onClose, onSuccess }) {
               {fee.total_paid > 0 && (
                 <p className="text-sm text-green-700">
                   Already paid: ₹{Number(fee.total_paid).toLocaleString("en-IN")}
+                </p>
+              )}
+              {hasTax && (
+                <p className="text-xs text-secondary mt-1">
+                  Tax rate: {taxInfo.name} ({taxInfo.rate}%) – {taxInfo.taxInclusive ? "Inclusive" : "Exclusive"}
                 </p>
               )}
             </div>
@@ -190,7 +260,46 @@ export default function CollectPaymentModal({ fee, onClose, onSuccess }) {
               placeholder="Enter amount"
               className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light"
               required
+              step="0.01"
             />
+            {hasTax && form.amount && Number(form.amount) > 0 && (
+              <div className="mt-2 bg-gray-50 rounded p-2 text-xs text-gray-600 space-y-0.5">
+                <p className="flex justify-between">
+                  <span>Base Amount:</span>
+                  <span className="font-medium">
+                    ₹{(() => {
+                      const amt = Number(form.amount);
+                      const rate = taxInfo.rate / 100;
+                      if (taxInfo.taxInclusive) {
+                        const base = amt / (1 + rate);
+                        return base.toFixed(2);
+                      } else {
+                        return amt.toFixed(2);
+                      }
+                    })()}
+                  </span>
+                </p>
+                <p className="flex justify-between">
+                  <span>Tax ({taxInfo.rate}%):</span>
+                  <span className="font-medium text-primary">
+                    ₹{(() => {
+                      const amt = Number(form.amount);
+                      const rate = taxInfo.rate / 100;
+                      if (taxInfo.taxInclusive) {
+                        const base = amt / (1 + rate);
+                        return (amt - base).toFixed(2);
+                      } else {
+                        return (amt * rate).toFixed(2);
+                      }
+                    })()}
+                  </span>
+                </p>
+                <p className="flex justify-between border-t border-gray-200 pt-0.5 font-medium">
+                  <span>Total:</span>
+                  <span>₹{Number(form.amount).toFixed(2)}</span>
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Payment Mode */}

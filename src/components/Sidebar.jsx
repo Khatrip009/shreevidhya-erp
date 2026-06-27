@@ -1,7 +1,7 @@
 import {
   LayoutDashboard, Users, GraduationCap, BookOpen, Award,
   IndianRupee, Settings, ChevronDown, Bell, X, CalendarClock,
-  Wallet, Building, Calendar, Layers, Video,
+  Wallet, Building, Calendar, Layers, Video, FileText,
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { useState } from "react";
@@ -39,6 +39,7 @@ export default function Sidebar({ onClose }) {
 
   // ---------- Student links ----------
   const studentLinks = (
+    // unchanged…
     <>
       <NavLink to="/student" end className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-lg transition ${isActive ? "bg-primary-light" : "hover:bg-primary-light"}`}>
         <LayoutDashboard size={18} /> Dashboard
@@ -55,7 +56,6 @@ export default function Sidebar({ onClose }) {
         <NavLink to="/student/timetable" className="block py-2 text-secondary-light hover:text-white">Timetable</NavLink>
         <NavLink to="/student/resources" className="block py-2 text-secondary-light hover:text-white">Learning Resources</NavLink>
       </div>
-      {/* Online Classes – for students */}
       <NavLink to="/online-classes" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-primary-light transition">
         <Video size={18} /> Online Classes
       </NavLink>
@@ -70,6 +70,7 @@ export default function Sidebar({ onClose }) {
 
   // ---------- Teacher links ----------
   const teacherLinks = (
+    // unchanged…
     <>
       <NavLink to="/teacher" end className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-lg transition ${isActive ? "bg-primary-light" : "hover:bg-primary-light"}`}>
         <LayoutDashboard size={18} /> Dashboard
@@ -111,7 +112,7 @@ export default function Sidebar({ onClose }) {
     </>
   );
 
-  // ---------- Admin / Super Admin links ----------
+  // ---------- Admin / Super Admin links (UPDATED) ----------
   const adminLinks = (
     <>
       <NavLink to="/" end className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-lg transition ${isActive ? "bg-primary-light" : "hover:bg-primary-light"}`}>
@@ -171,6 +172,8 @@ export default function Sidebar({ onClose }) {
           <NavLink to="/salary-payments" className="block py-2 text-secondary-light hover:text-white">Salary Payments</NavLink>
           <NavLink to="/profit-loss" className="block py-2 text-secondary-light hover:text-white">Profit & Loss</NavLink>
           <NavLink to="/learning-resources" className="block py-2 text-secondary-light hover:text-white">Learning Resources</NavLink>
+          <NavLink to="/tax-settings" className="block py-2 text-secondary-light hover:text-white">Tax Settings</NavLink>
+          <NavLink to="/tax-report" className="block py-2 text-secondary-light hover:text-white">Tax Report</NavLink>
         </div>
       )}
 
@@ -185,6 +188,18 @@ export default function Sidebar({ onClose }) {
       {/* Awards & Certificates */}
       <NavLink to="/certificates" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-primary-light transition">
         <Award size={18} /> Certificates
+      </NavLink>
+
+      {/* ── REPORTS (NEW) ── */}
+      <NavLink
+        to="/reports"
+        className={({ isActive }) =>
+          `flex items-center gap-3 px-4 py-3 rounded-lg transition ${
+            isActive ? "bg-primary-light" : "hover:bg-primary-light"
+          }`
+        }
+      >
+        <FileText size={18} /> Reports
       </NavLink>
 
       {/* Communication & System */}

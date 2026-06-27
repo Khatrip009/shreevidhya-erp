@@ -87,7 +87,7 @@ export default function ProtectedRoute({ children }) {
     return <Navigate to="/teacher" replace />;
   }
 
-  // Admin / Super Admin – full access
+  // Admin / Super Admin – full access (includes /reports and /reports/:reportId)
   if (role === "admin" || role === "super_admin") {
     return children;
   }

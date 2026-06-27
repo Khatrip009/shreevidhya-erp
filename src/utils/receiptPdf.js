@@ -75,22 +75,42 @@ export async function generateReceiptPdf(receipt) {
     }
   }
 
-  // 3. Fetch fee details & installments
+  // 3. Fetch fee details, installments, and tax info
   const payment = receipt.fee_payments;
   let installments = [], totalFee = 0, paidSoFar = 0;
+  let taxRateName = "", taxRateValue = 0, taxInclusive = true;
+  let baseAmount = 0, taxAmount = 0;
 
   if (payment?.student_fee_id) {
     const { data: studentFee } = await supabase
       .from("student_fees")
-      .select("*, fee_structures(fee_amount), fee_installments(*)")
+      .select(`
+        *,
+        fee_structures!inner (
+          fee_amount,
+          tax_rate_id,
+          tax_inclusive,
+          tax_rates!fee_structures_tax_rate_id_fkey (name, rate)
+        ),
+        fee_installments(*)
+      `)
       .eq("id", payment.student_fee_id)
       .single();
 
     if (studentFee) {
       totalFee = Number(studentFee.final_fee);
       installments = studentFee.fee_installments || [];
+      const feeStructure = studentFee.fee_structures;
+      if (feeStructure) {
+        taxInclusive = feeStructure.tax_inclusive !== undefined ? feeStructure.tax_inclusive : true;
+        const taxRate = feeStructure.tax_rates;
+        if (taxRate) {
+          taxRateName = taxRate.name || "";
+          taxRateValue = Number(taxRate.rate) || 0;
+        }
+      }
 
-      // calculate total paid for this student_fee
+      // Calculate paid so far
       const { data: allPayments } = await supabase
         .from("fee_payments")
         .select("amount")
@@ -102,6 +122,26 @@ export async function generateReceiptPdf(receipt) {
   const amount = Number(receipt.amount);
   const amountWords = numberToWords(amount) + " Only";
   const balance = totalFee - paidSoFar;
+
+  // Calculate tax breakdown for this payment if tax rate is available
+  if (taxRateValue > 0) {
+    const rate = taxRateValue / 100;
+    if (taxInclusive) {
+      // Amount includes tax
+      baseAmount = amount / (1 + rate);
+      taxAmount = amount - baseAmount;
+    } else {
+      // Tax added on top
+      baseAmount = amount;
+      taxAmount = amount * rate;
+    }
+    // Round to 2 decimal places
+    baseAmount = Math.round(baseAmount * 100) / 100;
+    taxAmount = Math.round(taxAmount * 100) / 100;
+  } else {
+    baseAmount = amount;
+    taxAmount = 0;
+  }
 
   // ─── Build PDF ──────────────────────────────────────────────────────────
   const doc = new jsPDF();
@@ -171,26 +211,31 @@ export async function generateReceiptPdf(receipt) {
   doc.text(infoLines, margin, y);
   y += infoLines.length * 5 + 4;
 
-  // Receipt details table
+  // Receipt details table (includes tax breakdown)
+  const receiptBody = [
+    ["Receipt No", receipt.receipt_no],
+    ["Date", receipt.receipt_date],
+    ["Amount Paid", `₹${amount.toLocaleString("en-IN")}`],
+    ["Amount in Words", amountWords],
+  ];
+
+  // Add tax details if applicable
+  if (taxRateValue > 0) {
+    receiptBody.push(["Tax Rate", `${taxRateName} (${taxRateValue}%)`]);
+    receiptBody.push(["Base Amount", `₹${baseAmount.toLocaleString("en-IN")}`]);
+    receiptBody.push(["Tax Amount", `₹${taxAmount.toLocaleString("en-IN")}`]);
+    receiptBody.push(["Total (incl. tax)", `₹${amount.toLocaleString("en-IN")}`]);
+  }
+
+  receiptBody.push(["Payment Mode", payment?.payment_mode || "N/A"]);
+  if (payment?.transaction_no) receiptBody.push(["Transaction No", payment.transaction_no]);
+  if (payment?.cheque_no) receiptBody.push(["Cheque No", payment.cheque_no]);
+  if (payment?.remarks) receiptBody.push(["Remarks", payment.remarks]);
+
   autoTable(doc, {
     startY: y,
     head: [["Field", "Details"]],
-    body: [
-      ["Receipt No", receipt.receipt_no],
-      ["Date", receipt.receipt_date],
-      ["Amount Paid", `₹${amount.toLocaleString("en-IN")}`],
-      ["Amount in Words", amountWords],
-      ["Payment Mode", payment?.payment_mode || "N/A"],
-      ...(payment?.transaction_no
-        ? [["Transaction No", payment.transaction_no]]
-        : []),
-      ...(payment?.cheque_no
-        ? [["Cheque No", payment.cheque_no]]
-        : []),
-      ...(payment?.remarks
-        ? [["Remarks", payment.remarks]]
-        : []),
-    ],
+    body: receiptBody,
     theme: "grid",
     styles: { fontSize: 10, cellPadding: 4 },
     headStyles: { fillColor: "#0D47A1", textColor: "#FFFFFF" },
@@ -207,17 +252,11 @@ export async function generateReceiptPdf(receipt) {
     doc.text("Installment Details", margin, y);
     y += 6;
 
-    const installmentBody = installments.map((inst) => {
-      const due = Number(inst.amount);
-      // Determine payment status for this installment (paid completely, partially, or pending)
-      const paidOnThis = payment?.id ? due : 0; // simplified: actual allocation logic would be complex
-      // But we can just show due amount and status
-      return [
-        inst.due_date || "-",
-        `₹${due.toLocaleString("en-IN")}`,
-        inst.status || "pending",
-      ];
-    });
+    const installmentBody = installments.map((inst) => [
+      inst.due_date || "-",
+      `₹${Number(inst.amount).toLocaleString("en-IN")}`,
+      inst.status || "pending",
+    ]);
 
     autoTable(doc, {
       startY: y,

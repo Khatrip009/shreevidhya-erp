@@ -1,14 +1,12 @@
 import { useState, useEffect } from "react";
 import toast from "react-hot-toast";
-import {
-  X, User, Phone, Mail, Briefcase, MapPin, Users,
-} from "lucide-react";
+import { X, User, Phone, Mail, Briefcase, MapPin, Users, Unlink } from "lucide-react";
 import { supabase } from "../api/supabase";
 import { useOrgDarkLogo } from "../hooks/useOrgDarkLogo";
 import { createParent } from "../services/parentService";
 
 export default function ParentForm({
-  onSubmit,          // callback when parent is created (existing usage)
+  onSubmit,          // callback when parent is created/updated
   onClose,
   initialData = {},
   studentId = null,  // if provided, parent will be auto-linked to this student
@@ -29,9 +27,13 @@ export default function ParentForm({
   const [students, setStudents] = useState([]);
   const [loadingStudents, setLoadingStudents] = useState(!studentId);
 
+  // Existing linked students (for edit mode)
+  const [linkedStudents, setLinkedStudents] = useState([]);
+  const [loadingLinked, setLoadingLinked] = useState(!!initialData.id);
+
+  // Fetch all active students (if not given a specific student)
   useEffect(() => {
     if (!studentId) {
-      // Fetch all active students (simplified – you might want a search)
       supabase
         .from("students")
         .select("id, first_name, last_name, standard")
@@ -42,8 +44,49 @@ export default function ParentForm({
     }
   }, [studentId]);
 
+  // Fetch already linked students when editing an existing parent
+  useEffect(() => {
+    if (initialData.id) {
+      supabase
+        .from("student_parents")
+        .select("student_id, students(first_name, last_name, standard, admission_no)")
+        .eq("parent_id", initialData.id)
+        .then(({ data, error }) => {
+          if (!error) {
+            const mapped = data.map((link) => ({
+              student_id: link.student_id,
+              name: `${link.students.first_name} ${link.students.last_name}`,
+              standard: link.students.standard,
+              admission_no: link.students.admission_no,
+            }));
+            setLinkedStudents(mapped);
+          }
+          setLoadingLinked(false);
+        });
+    } else {
+      setLoadingLinked(false);
+    }
+  }, [initialData.id]);
+
   function handleChange(e) {
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
+  }
+
+  async function handleUnlink(studentIdToUnlink) {
+    try {
+      const { error } = await supabase
+        .from("student_parents")
+        .delete()
+        .eq("parent_id", initialData.id)
+        .eq("student_id", studentIdToUnlink);
+
+      if (error) throw error;
+
+      setLinkedStudents((prev) => prev.filter((s) => s.student_id !== studentIdToUnlink));
+      toast.success("Student unlinked");
+    } catch (err) {
+      toast.error(err.message || "Failed to unlink student");
+    }
   }
 
   async function handleSubmit(e) {
@@ -65,17 +108,17 @@ export default function ParentForm({
       const idToLink = studentId || selectedStudentId;
       const createdParent = await createParent(form, idToLink);
       onSubmit(createdParent);   // pass back to parent component
-      toast.success("Parent created and linked");
+      toast.success("Parent saved and linked");
     } catch (err) {
-      toast.error(err.message || "Failed to create parent");
+      toast.error(err.message || "Failed to save parent");
     }
   }
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl w-full max-w-2xl shadow-xl">
+      <div className="bg-white rounded-xl w-full max-w-2xl shadow-xl max-h-[90vh] overflow-y-auto">
         {/* Header */}
-        <div className="sticky top-0 bg-white border-b border-secondary-light px-6 py-4 flex items-center justify-between rounded-t-xl">
+        <div className="sticky top-0 bg-white border-b border-secondary-light px-6 py-4 flex items-center justify-between rounded-t-xl z-10">
           <div className="flex items-center gap-3">
             <img
               src={darkLogo}
@@ -229,6 +272,44 @@ export default function ParentForm({
               className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light resize-none"
             />
           </div>
+
+          {/* Linked Students (editing existing parent) */}
+          {initialData.id && (
+            <div>
+              <label className="block text-sm font-montserrat text-secondary-dark mb-2">
+                <Users size={14} className="inline mr-1" />
+                Linked Students
+              </label>
+              {loadingLinked ? (
+                <p className="text-sm text-secondary">Loading...</p>
+              ) : linkedStudents.length === 0 ? (
+                <p className="text-sm text-secondary italic">No students linked.</p>
+              ) : (
+                <ul className="space-y-2">
+                  {linkedStudents.map((student) => (
+                    <li
+                      key={student.student_id}
+                      className="flex items-center justify-between bg-gray-50 border rounded-lg px-3 py-2"
+                    >
+                      <span className="text-sm">
+                        {student.name}
+                        {student.standard ? ` (Std ${student.standard})` : ""}
+                        {student.admission_no ? ` — ${student.admission_no}` : ""}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleUnlink(student.student_id)}
+                        className="text-red-500 hover:text-red-700 p-1 rounded"
+                        title="Unlink student"
+                      >
+                        <Unlink size={16} />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
 
           {/* Buttons */}
           <div className="flex flex-col sm:flex-row-reverse gap-3 pt-2">

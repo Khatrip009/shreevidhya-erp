@@ -1,3 +1,4 @@
+// src/pages/Teachers.jsx
 import React, { useState, useRef } from "react";
 import {
   useInfiniteQuery,
@@ -29,6 +30,8 @@ import {
   getAllTeachersForExport,
   getMediumOptions,
   getCourseOptions,
+  getCourseLevelOptions,
+  getSubjectOptions,
 } from "../services/teacherService";
 import { generateTeacherResumePdf } from "../utils/teacherResumePdf";
 
@@ -37,13 +40,15 @@ export default function Teachers() {
   const [search, setSearch] = useState("");
   const [mediumFilter, setMediumFilter] = useState("");
   const [courseFilter, setCourseFilter] = useState("");
+  const [courseLevelFilter, setCourseLevelFilter] = useState("");
+  const [subjectFilter, setSubjectFilter] = useState("");
   const [showFilters, setShowFilters] = useState(false);
 
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
   const fileInputRef = useRef(null);
 
-  // Dropdown data
+  // Dropdown data for filters
   const { data: mediums = [] } = useQuery({
     queryKey: ["mediums"],
     queryFn: getMediumOptions,
@@ -54,11 +59,23 @@ export default function Teachers() {
     queryFn: getCourseOptions,
     staleTime: 10 * 60 * 1000,
   });
+  const { data: courseLevels = [] } = useQuery({
+    queryKey: ["courseLevels"],
+    queryFn: getCourseLevelOptions,
+    staleTime: 10 * 60 * 1000,
+  });
+  const { data: subjects = [] } = useQuery({
+    queryKey: ["subjects"],
+    queryFn: getSubjectOptions,
+    staleTime: 10 * 60 * 1000,
+  });
 
   const filters = {
     search,
     medium_id: mediumFilter,
     course_id: courseFilter,
+    course_level_id: courseLevelFilter,
+    subject_id: subjectFilter,
   };
 
   const {
@@ -126,6 +143,9 @@ export default function Teachers() {
         let successCount = 0;
         for (const row of results.data) {
           try {
+            // Note: The import still uses legacy single medium/course IDs.
+            // For full multi‑support, you'll need to map names to IDs.
+            // We keep it as is for backward compatibility.
             const payload = {
               employee_code: row.employee_code || null,
               first_name: row.first_name,
@@ -136,8 +156,12 @@ export default function Teachers() {
               joining_date: row.joining_date || null,
               salary: row.salary ? Number(row.salary) : null,
               status: row.status || "active",
-              medium_id: row.medium_id || null,
-              course_id: row.course_id || null,
+              // Legacy fields – service will ignore these if they are not arrays
+              // Actually, our service now expects medium_ids and course_ids.
+              // We'll convert single values to arrays if present.
+              medium_ids: row.medium_id ? [Number(row.medium_id)] : [],
+              course_ids: row.course_id ? [Number(row.course_id)] : [],
+              // We can also add course_level_ids and subject_ids if columns exist
             };
             await createTeacher(payload);
             successCount++;
@@ -166,8 +190,10 @@ export default function Teachers() {
           joining_date: t.joining_date,
           salary: t.salary,
           status: t.status,
-          medium: t.medium_name || "",
-          course: t.course_name || "",
+          mediums: (t.mediums || []).join(", "),
+          courses: (t.courses || []).join(", "),
+          course_levels: (t.course_levels || []).join(", "),
+          subjects: (t.subjects || []).join(", "),
         }))
       );
       const blob = new Blob([csv], { type: "text/csv" });
@@ -297,16 +323,44 @@ export default function Teachers() {
               ))}
             </select>
           </div>
-          <div className="flex items-end">
+          <div>
+            <label className="text-xs font-montserrat text-secondary-dark">Course Level</label>
+            <select
+              value={courseLevelFilter}
+              onChange={(e) => setCourseLevelFilter(e.target.value)}
+              className="w-full border border-secondary-light rounded p-2 text-sm mt-1 focus:ring-1 focus:ring-primary"
+            >
+              <option value="">All Levels</option>
+              {courseLevels.map((cl) => (
+                <option key={cl.id} value={cl.id}>{cl.level_name}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs font-montserrat text-secondary-dark">Subject</label>
+            <select
+              value={subjectFilter}
+              onChange={(e) => setSubjectFilter(e.target.value)}
+              className="w-full border border-secondary-light rounded p-2 text-sm mt-1 focus:ring-1 focus:ring-primary"
+            >
+              <option value="">All Subjects</option>
+              {subjects.map((s) => (
+                <option key={s.id} value={s.id}>{s.subject_name}</option>
+              ))}
+            </select>
+          </div>
+          <div className="flex items-end col-span-full">
             <button
               onClick={() => {
                 setSearch("");
                 setMediumFilter("");
                 setCourseFilter("");
+                setCourseLevelFilter("");
+                setSubjectFilter("");
               }}
               className="text-primary text-sm hover:underline"
             >
-              Clear Filters
+              Clear All Filters
             </button>
           </div>
         </div>
@@ -315,7 +369,7 @@ export default function Teachers() {
       {/* Table */}
       <div className="bg-white rounded-xl shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1100px]">
+          <table className="w-full min-w-[1300px]">
             <thead className="bg-slate-100 border-b border-secondary-light">
               <tr>
                 <th className="p-3 text-left text-sm font-montserrat text-secondary-dark">Code</th>
@@ -326,6 +380,8 @@ export default function Teachers() {
                 <th className="text-left text-sm font-montserrat text-secondary-dark">Qualification</th>
                 <th className="text-left text-sm font-montserrat text-secondary-dark">Medium</th>
                 <th className="text-left text-sm font-montserrat text-secondary-dark">Course</th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">Course Levels</th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">Subjects</th>
                 <th className="text-left text-sm font-montserrat text-secondary-dark">Salary</th>
                 <th className="text-left text-sm font-montserrat text-secondary-dark">Actions</th>
               </tr>
@@ -333,16 +389,16 @@ export default function Teachers() {
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan={10} className="p-6 text-center text-secondary">Loading teachers…</td>
+                  <td colSpan={12} className="p-6 text-center text-secondary">Loading teachers…</td>
                 </tr>
               ) : teachers.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="p-6 text-center text-secondary">
+                  <td colSpan={12} className="p-6 text-center text-secondary">
                     <div className="flex flex-col items-center gap-2">
                       <Search size={32} className="text-secondary-light" />
                       <span>No teachers found</span>
                       <span className="text-xs text-secondary-light">
-                        {search || mediumFilter || courseFilter
+                        {search || mediumFilter || courseFilter || courseLevelFilter || subjectFilter
                           ? "Try adjusting your filters"
                           : "Add a new teacher to get started"}
                       </span>
@@ -369,7 +425,7 @@ export default function Teachers() {
                             className="text-green-700 cursor-help"
                             title={teacher.user_id}
                           >
-                            {teacher.user_email || truncateId(teacher.user_id)}
+                            {teacher.email || truncateId(teacher.user_id)}
                           </span>
                         </div>
                       ) : (
@@ -380,8 +436,26 @@ export default function Teachers() {
                       )}
                     </td>
                     <td className="text-sm">{teacher.qualification || "-"}</td>
-                    <td className="text-sm">{teacher.medium_name || "—"}</td>
-                    <td className="text-sm">{teacher.course_name || "—"}</td>
+                    <td className="text-sm">
+                      {teacher.mediums?.length > 0
+                        ? teacher.mediums.map((m) => m.name).join(", ")
+                        : "—"}
+                    </td>
+                    <td className="text-sm">
+                      {teacher.courses?.length > 0
+                        ? teacher.courses.map((c) => c.name).join(", ")
+                        : "—"}
+                    </td>
+                    <td className="text-sm">
+                      {teacher.course_levels?.length > 0
+                        ? teacher.course_levels.map((cl) => cl.name).join(", ")
+                        : "—"}
+                    </td>
+                    <td className="text-sm">
+                      {teacher.subjects?.length > 0
+                        ? teacher.subjects.map((s) => s.name).join(", ")
+                        : "—"}
+                    </td>
                     <td className="text-sm">
                       {teacher.salary
                         ? `₹${Number(teacher.salary).toLocaleString()}`

@@ -1,8 +1,10 @@
-import React, { useState, useRef } from "react";
+// src/pages/Income.jsx
+import React, { useState, useRef, useEffect } from "react";
 import {
   useInfiniteQuery,
   useMutation,
   useQueryClient,
+  useQuery,
 } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import {
@@ -19,6 +21,7 @@ import {
   IndianRupee,
   CreditCard,
   FileText,
+  Receipt,
 } from "lucide-react";
 import Papa from "papaparse";
 import AdminLayout from "../layouts/AdminLayout";
@@ -51,8 +54,60 @@ export default function Income() {
     amount: "",
     payment_mode: "Cash",
     description: "",
+    tax_rate_id: "",
+    tax_inclusive: true,
+    base_amount: "",
+    tax_amount: "",
   });
   const fileInputRef = useRef(null);
+
+  // Fetch tax rates
+  const { data: taxRates = [] } = useQuery({
+    queryKey: ["tax-rates"],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("tax_rates")
+        .select("id, name, rate")
+        .eq("is_active", true);
+      return data || [];
+    },
+    staleTime: 10 * 60 * 1000,
+  });
+
+  // Auto-calculate tax when amount or tax rate changes
+  useEffect(() => {
+    if (!form.amount || !form.tax_rate_id) {
+      setForm((prev) => ({
+        ...prev,
+        base_amount: form.amount || "",
+        tax_amount: "",
+      }));
+      return;
+    }
+
+    const taxRate = taxRates.find((t) => t.id === Number(form.tax_rate_id));
+    if (!taxRate) return;
+
+    const amount = parseFloat(form.amount) || 0;
+    const rate = taxRate.rate / 100;
+
+    let baseAmount, taxAmount;
+    if (form.tax_inclusive) {
+      // Amount includes tax
+      baseAmount = amount / (1 + rate);
+      taxAmount = amount - baseAmount;
+    } else {
+      // Tax added on top
+      baseAmount = amount;
+      taxAmount = amount * rate;
+    }
+
+    setForm((prev) => ({
+      ...prev,
+      base_amount: Math.round(baseAmount * 100) / 100,
+      tax_amount: Math.round(taxAmount * 100) / 100,
+    }));
+  }, [form.amount, form.tax_rate_id, form.tax_inclusive, taxRates]);
 
   // Infinite query
   const {
@@ -107,7 +162,7 @@ export default function Income() {
     onError: () => toast.error("Delete failed"),
   });
 
-  // CSV Import
+  // CSV Import (updated to handle tax fields)
   async function handleCSVImport(event) {
     const file = event.target.files[0];
     if (!file) return;
@@ -124,7 +179,10 @@ export default function Income() {
               amount: Number(row.amount),
               payment_mode: row.payment_mode || "Cash",
               description: row.description || "",
+              tax_rate_id: row.tax_rate_id ? Number(row.tax_rate_id) : null,
+              tax_inclusive: row.tax_inclusive ? row.tax_inclusive === "true" : true,
             };
+            // Let the service calculate base_amount and tax_amount
             await createIncome(payload);
             successCount++;
           } catch (err) {
@@ -138,7 +196,7 @@ export default function Income() {
     });
   }
 
-  // CSV Export
+  // CSV Export (includes tax fields)
   async function handleCSVExport() {
     try {
       const allData = await getAllIncomesForExport(allFilters);
@@ -163,6 +221,10 @@ export default function Income() {
       amount: "",
       payment_mode: "Cash",
       description: "",
+      tax_rate_id: "",
+      tax_inclusive: true,
+      base_amount: "",
+      tax_amount: "",
     });
     setEditing(null);
     setShowForm(true);
@@ -175,6 +237,10 @@ export default function Income() {
       amount: item.amount,
       payment_mode: item.payment_mode,
       description: item.description || "",
+      tax_rate_id: item.tax_rate_id || "",
+      tax_inclusive: item.tax_inclusive !== undefined ? item.tax_inclusive : true,
+      base_amount: item.base_amount || "",
+      tax_amount: item.tax_amount || "",
     });
     setEditing(item);
     setShowForm(true);
@@ -186,7 +252,17 @@ export default function Income() {
       toast.error("Category and amount are required");
       return;
     }
-    const payload = { ...form, amount: Number(form.amount) };
+    const payload = {
+      income_date: form.income_date,
+      category: form.category,
+      amount: Number(form.amount),
+      payment_mode: form.payment_mode,
+      description: form.description,
+      tax_rate_id: form.tax_rate_id ? Number(form.tax_rate_id) : null,
+      tax_inclusive: form.tax_inclusive,
+      base_amount: form.base_amount ? Number(form.base_amount) : null,
+      tax_amount: form.tax_amount ? Number(form.tax_amount) : null,
+    };
     if (editing) {
       updateMutation.mutate({ id: editing.id, payload });
     } else {
@@ -201,7 +277,7 @@ export default function Income() {
         <div>
           <h1 className="text-3xl font-righteous text-primary-dark">Income</h1>
           <p className="text-sm text-secondary-dark font-montserrat mt-1">
-            Track all income sources
+            Track all income sources with tax breakdown
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -302,25 +378,26 @@ export default function Income() {
       {/* Incomes Table */}
       <div className="bg-white rounded-xl shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[700px]">
+          <table className="w-full min-w-[900px]">
             <thead className="bg-slate-100 border-b border-secondary-light">
               <tr>
                 <th className="p-3 text-left text-sm font-montserrat text-secondary-dark">Date</th>
                 <th className="text-left text-sm font-montserrat text-secondary-dark">Category</th>
-                <th className="text-left text-sm font-montserrat text-secondary-dark">Amount</th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">Base Amount</th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">Tax</th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">Total</th>
                 <th className="text-left text-sm font-montserrat text-secondary-dark">Mode</th>
-                <th className="text-left text-sm font-montserrat text-secondary-dark">Description</th>
                 <th className="text-left text-sm font-montserrat text-secondary-dark">Actions</th>
               </tr>
             </thead>
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan={6} className="p-6 text-center text-secondary">Loading income records…</td>
+                  <td colSpan={7} className="p-6 text-center text-secondary">Loading income records…</td>
                 </tr>
               ) : incomes.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="p-6 text-center text-secondary">
+                  <td colSpan={7} className="p-6 text-center text-secondary">
                     <div className="flex flex-col items-center gap-2">
                       <IndianRupee size={32} className="text-secondary-light" />
                       <span>No income records found</span>
@@ -340,13 +417,20 @@ export default function Income() {
                   >
                     <td className="p-3 text-sm">{item.income_date}</td>
                     <td className="text-sm">{item.category}</td>
+                    <td className="text-sm">
+                      ₹{Number(item.base_amount || item.amount).toLocaleString()}
+                    </td>
+                    <td className="text-sm text-primary">
+                      {item.tax_amount ? (
+                        <span className="font-medium">₹{Number(item.tax_amount).toLocaleString()}</span>
+                      ) : (
+                        <span className="text-gray-400">-</span>
+                      )}
+                    </td>
                     <td className="text-sm font-semibold">
                       ₹{Number(item.amount).toLocaleString()}
                     </td>
                     <td className="text-sm">{item.payment_mode}</td>
-                    <td className="text-sm max-w-[200px] truncate">
-                      {item.description || "-"}
-                    </td>
                     <td className="text-sm">
                       <div className="flex gap-2">
                         <button
@@ -389,10 +473,10 @@ export default function Income() {
         </div>
       )}
 
-      {/* Income Form Modal (branded) */}
+      {/* Income Form Modal with Tax */}
       {showForm && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl w-full max-w-md shadow-xl">
+          <div className="bg-white rounded-xl w-full max-w-md shadow-xl max-h-[90vh] overflow-y-auto">
             <div className="sticky top-0 bg-white border-b border-secondary-light px-6 py-4 flex items-center justify-between rounded-t-xl">
               <div className="flex items-center gap-3">
                 <img
@@ -446,19 +530,78 @@ export default function Income() {
               <div>
                 <label className="block text-sm font-montserrat text-secondary-dark mb-1">
                   <IndianRupee size={14} className="inline mr-1" />
-                  Amount *
+                  Total Amount *
                 </label>
                 <input
                   type="number"
-                  placeholder="Amount"
+                  placeholder="Total amount (including tax if applicable)"
                   value={form.amount}
                   onChange={(e) =>
                     setForm({ ...form, amount: e.target.value })
                   }
                   className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light"
                   required
+                  step="0.01"
                 />
               </div>
+              <div>
+                <label className="block text-sm font-montserrat text-secondary-dark mb-1">
+                  <Receipt size={14} className="inline mr-1" />
+                  Tax Rate
+                </label>
+                <select
+                  value={form.tax_rate_id}
+                  onChange={(e) =>
+                    setForm({ ...form, tax_rate_id: e.target.value })
+                  }
+                  className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
+                >
+                  <option value="">No Tax</option>
+                  {taxRates.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name} ({t.rate}%)
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {form.tax_rate_id && (
+                <div className="flex items-center gap-3">
+                  <input
+                    type="checkbox"
+                    id="tax_inclusive"
+                    checked={form.tax_inclusive}
+                    onChange={(e) =>
+                      setForm({ ...form, tax_inclusive: e.target.checked })
+                    }
+                    className="w-4 h-4 text-primary border-gray-300 rounded focus:ring-primary"
+                  />
+                  <label htmlFor="tax_inclusive" className="text-sm text-gray-700">
+                    Amount includes tax (tax-inclusive)
+                  </label>
+                </div>
+              )}
+              {form.tax_rate_id && form.amount && (
+                <div className="bg-gray-50 rounded-lg p-3 space-y-1 text-sm">
+                  <p className="flex justify-between">
+                    <span className="text-gray-600">Base Amount:</span>
+                    <span className="font-medium">
+                      ₹{form.base_amount ? Number(form.base_amount).toFixed(2) : "0.00"}
+                    </span>
+                  </p>
+                  <p className="flex justify-between">
+                    <span className="text-gray-600">Tax Amount:</span>
+                    <span className="font-medium text-primary">
+                      ₹{form.tax_amount ? Number(form.tax_amount).toFixed(2) : "0.00"}
+                    </span>
+                  </p>
+                  <p className="flex justify-between border-t border-gray-200 pt-1">
+                    <span className="font-medium">Total:</span>
+                    <span className="font-bold">
+                      ₹{form.amount ? Number(form.amount).toFixed(2) : "0.00"}
+                    </span>
+                  </p>
+                </div>
+              )}
               <div>
                 <label className="block text-sm font-montserrat text-secondary-dark mb-1">
                   <CreditCard size={14} className="inline mr-1" />
@@ -494,7 +637,8 @@ export default function Income() {
               <div className="flex flex-col sm:flex-row-reverse gap-3 pt-2">
                 <button
                   type="submit"
-                  className="w-full sm:w-auto bg-primary hover:bg-primary-light text-white px-6 py-2.5 rounded-lg font-montserrat transition"
+                  disabled={createMutation.isPending || updateMutation.isPending}
+                  className="w-full sm:w-auto bg-primary hover:bg-primary-light text-white px-6 py-2.5 rounded-lg font-montserrat transition disabled:opacity-60"
                 >
                   {editing ? "Update" : "Add"}
                 </button>

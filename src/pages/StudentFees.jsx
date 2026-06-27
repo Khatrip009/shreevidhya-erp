@@ -1,4 +1,5 @@
-import React, { useState, useRef } from "react";
+// src/pages/StudentFees.jsx
+import React, { useState, useRef, useEffect } from "react";
 import { useInfiniteQuery, useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import {
@@ -18,6 +19,9 @@ import {
   Download,
   Upload,
   List,
+  Receipt,
+  ToggleLeft,
+  ToggleRight,
 } from "lucide-react";
 import Papa from "papaparse";
 import AdminLayout from "../layouts/AdminLayout";
@@ -35,7 +39,6 @@ import { supabase } from "../api/supabase";
 export default function StudentFees() {
   const queryClient = useQueryClient();
 
-  // ---- Pagination & search ----
   const [search, setSearch] = useState("");
   const filters = { search };
 
@@ -61,7 +64,6 @@ export default function StudentFees() {
 
   const studentFees = data?.pages.flatMap((page) => page.data) || [];
 
-  // ---- Dropdown options ----
   const { data: students = [] } = useQuery({
     queryKey: ["students-dropdown"],
     queryFn: async () => {
@@ -78,13 +80,20 @@ export default function StudentFees() {
     queryFn: async () => {
       const { data } = await supabase
         .from("fee_structures")
-        .select("id, fee_amount, installment_allowed, courses(course_name)");
+        .select(`
+          id,
+          fee_amount,
+          installment_allowed,
+          tax_rate_id,
+          tax_inclusive,
+          courses(course_name),
+          tax_rates ( id, name, rate )
+        `);
       return data || [];
     },
     staleTime: 10 * 60 * 1000,
   });
 
-  // ---- Mutations ----
   const createMutation = useMutation({
     mutationFn: createStudentFee,
     onSuccess: () => {
@@ -115,7 +124,6 @@ export default function StudentFees() {
     onError: () => toast.error("Delete failed"),
   });
 
-  // ---- UI state ----
   const [showAssignForm, setShowAssignForm] = useState(false);
   const [editingFee, setEditingFee] = useState(null);
   const [collectingFee, setCollectingFee] = useState(null);
@@ -123,7 +131,6 @@ export default function StudentFees() {
   const [selectedFeeForPayments, setSelectedFeeForPayments] = useState(null);
   const fileInputRef = useRef(null);
 
-  // Payment history lazy load
   const { data: payments = [], isLoading: paymentsLoading } = useQuery({
     queryKey: ["payments", selectedFeeForPayments?.id],
     queryFn: () => getPayments(selectedFeeForPayments.id),
@@ -131,7 +138,6 @@ export default function StudentFees() {
     staleTime: 0,
   });
 
-  // ---- Form state ----
   const [form, setForm] = useState({
     student_id: "",
     fee_structure_id: "",
@@ -139,14 +145,87 @@ export default function StudentFees() {
     discount: 0,
     final_fee: "",
     status: "Pending",
+    tax_rate_id: null,
+    tax_inclusive: true,
+    base_amount: 0,
+    tax_amount: 0,
+    total_payable: 0,
   });
 
-  // ---- Installment state ----
   const [enableInstallments, setEnableInstallments] = useState(false);
   const [installmentCount, setInstallmentCount] = useState(1);
   const [installments, setInstallments] = useState([]);
 
-  // ---- CSV Import ----
+  // ---- Recalculate tax function ----
+  const recalculateTax = (finalFee, structureId, taxInclusive, taxRateId) => {
+    if (!structureId) {
+      setForm((prev) => ({
+        ...prev,
+        base_amount: finalFee,
+        tax_amount: 0,
+        total_payable: finalFee,
+      }));
+      return;
+    }
+
+    const structure = feeStructures.find((s) => s.id === parseInt(structureId));
+    if (!structure) {
+      setForm((prev) => ({
+        ...prev,
+        base_amount: finalFee,
+        tax_amount: 0,
+        total_payable: finalFee,
+      }));
+      return;
+    }
+
+    const taxRate = structure.tax_rates;
+    const rate = taxRate ? taxRate.rate / 100 : 0;
+    if (rate === 0 || !taxRateId) {
+      setForm((prev) => ({
+        ...prev,
+        base_amount: finalFee,
+        tax_amount: 0,
+        total_payable: finalFee,
+      }));
+      return;
+    }
+
+    let baseAmount, taxAmount, totalPayable;
+    if (taxInclusive) {
+      baseAmount = finalFee / (1 + rate);
+      taxAmount = finalFee - baseAmount;
+      totalPayable = finalFee;
+    } else {
+      baseAmount = finalFee;
+      taxAmount = finalFee * rate;
+      totalPayable = baseAmount + taxAmount;
+    }
+    baseAmount = Math.round(baseAmount * 100) / 100;
+    taxAmount = Math.round(taxAmount * 100) / 100;
+    totalPayable = Math.round(totalPayable * 100) / 100;
+
+    setForm((prev) => ({
+      ...prev,
+      base_amount: baseAmount,
+      tax_amount: taxAmount,
+      total_payable: totalPayable,
+    }));
+  };
+
+  // ---- useEffect to recalculate tax when relevant fields change ----
+  useEffect(() => {
+    if (form.fee_structure_id && form.final_fee) {
+      recalculateTax(
+        Number(form.final_fee),
+        form.fee_structure_id,
+        form.tax_inclusive,
+        form.tax_rate_id
+      );
+    }
+  }, [form.fee_structure_id, form.final_fee, form.tax_inclusive, form.tax_rate_id]);
+
+  // ---- CSV handlers ----
   async function handleCSVImport(event) {
     const file = event.target.files[0];
     if (!file) return;
@@ -178,7 +257,6 @@ export default function StudentFees() {
     });
   }
 
-  // ---- CSV Export ----
   async function handleCSVExport() {
     try {
       const allData = await getAllStudentFeesForExport({ search });
@@ -189,6 +267,8 @@ export default function StudentFees() {
           total_fee: f.total_fee,
           discount: f.discount,
           final_fee: f.final_fee,
+          base_amount: f.base_amount || 0,
+          tax_amount: f.tax_amount || 0,
           paid: f.total_paid,
           pending: f.pending,
           status: f.status,
@@ -206,7 +286,7 @@ export default function StudentFees() {
     }
   }
 
-  // ---- Helpers ----
+  // ---- Form helpers ----
   function openAssign() {
     setForm({
       student_id: "",
@@ -215,6 +295,11 @@ export default function StudentFees() {
       discount: 0,
       final_fee: "",
       status: "Pending",
+      tax_rate_id: null,
+      tax_inclusive: true,
+      base_amount: 0,
+      tax_amount: 0,
+      total_payable: 0,
     });
     setEnableInstallments(false);
     setInstallmentCount(1);
@@ -231,9 +316,13 @@ export default function StudentFees() {
       discount: fee.discount,
       final_fee: fee.final_fee,
       status: fee.status,
+      tax_rate_id: fee.fee_structures?.tax_rate_id || null,
+      tax_inclusive: fee.fee_structures?.tax_inclusive !== undefined ? fee.fee_structures.tax_inclusive : true,
+      base_amount: fee.base_amount || 0,
+      tax_amount: fee.tax_amount || 0,
+      total_payable: Number(fee.final_fee) + Number(fee.tax_amount || 0),
     });
 
-    // Load existing installments (if any) for editing
     if (fee.installments && fee.installments.length > 0) {
       setEnableInstallments(true);
       setInstallmentCount(fee.installments.length);
@@ -254,22 +343,28 @@ export default function StudentFees() {
 
   function handleFeeStructureChange(structureId) {
     const structure = feeStructures.find((s) => s.id === parseInt(structureId));
-    const total = structure ? structure.fee_amount : 0;
+    if (!structure) return;
+
+    const total = Number(structure.fee_amount);
     const discount = Number(form.discount) || 0;
     const final = total - discount;
+
+    const taxRateId = structure.tax_rate_id || null;
+    const taxInclusive = structure.tax_inclusive !== undefined ? structure.tax_inclusive : true;
+
     setForm((prev) => ({
       ...prev,
       fee_structure_id: structureId,
       total_fee: total,
       final_fee: final,
+      tax_rate_id: taxRateId,
+      tax_inclusive: taxInclusive,
     }));
 
-    // Reset installments if the new structure doesn't allow them
-    if (structure && !structure.installment_allowed) {
+    if (!structure.installment_allowed) {
       setEnableInstallments(false);
       setInstallments([]);
-    } else {
-      // If installments were enabled, keep the state but don't force it off
+      setInstallmentCount(1);
     }
   }
 
@@ -280,16 +375,15 @@ export default function StudentFees() {
     setForm((prev) => ({ ...prev, discount, final_fee: final }));
   }
 
-  // ---- Installment handlers ----
   function handleInstallmentCountChange(count) {
     const num = parseInt(count) || 1;
     setInstallmentCount(num);
+    const totalPayable = form.total_payable || Number(form.final_fee);
+    const equalAmount = Math.floor(totalPayable / num);
+    let remainder = totalPayable - equalAmount * num;
     const newInstallments = [];
-    const equalAmount = Math.floor(form.final_fee / num);
-    let remainder = form.final_fee - equalAmount * num;
-
     for (let i = 0; i < num; i++) {
-      let amt = equalAmount + (i === 0 ? remainder : 0); // add remainder to first installment
+      let amt = equalAmount + (i === 0 ? remainder : 0);
       newInstallments.push({
         amount: amt,
         due_date: "",
@@ -313,20 +407,22 @@ export default function StudentFees() {
       return;
     }
 
-    // If installments enabled, validate total amount
     if (enableInstallments) {
       const totalInstallment = installments.reduce((sum, i) => sum + Number(i.amount), 0);
-      if (totalInstallment !== Number(form.final_fee)) {
-        toast.error("Installment amounts must total the final fee");
+      const totalPayable = form.total_payable || Number(form.final_fee);
+      if (Math.abs(totalInstallment - totalPayable) > 0.01) {
+        toast.error(`Installment amounts must total the final payable amount (₹${totalPayable.toFixed(2)})`);
         return;
       }
     }
 
     const payload = {
-      ...form,
+      student_id: form.student_id,
+      fee_structure_id: form.fee_structure_id,
       total_fee: Number(form.total_fee),
       discount: Number(form.discount),
       final_fee: Number(form.final_fee),
+      status: form.status,
       installment_data: enableInstallments
         ? installments.map((inst, idx) => ({
             installment_number: idx + 1,
@@ -348,13 +444,12 @@ export default function StudentFees() {
     setViewPayments({ fee, payments: [] });
   }
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (selectedFeeForPayments && payments) {
       setViewPayments({ fee: selectedFeeForPayments, payments });
     }
   }, [payments, selectedFeeForPayments]);
 
-  // ---- Determine if selected fee structure allows installments ----
   const selectedStructure = feeStructures.find(
     (s) => s.id === parseInt(form.fee_structure_id)
   );
@@ -362,40 +457,24 @@ export default function StudentFees() {
 
   return (
     <AdminLayout>
-      {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
         <div>
           <h1 className="text-3xl font-righteous text-primary-dark">Student Fees</h1>
           <p className="text-sm text-secondary-dark font-montserrat mt-1">
-            Assign and manage fee records
+            Assign and manage fee records with tax breakdown
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <button
-            onClick={openAssign}
-            className="bg-primary hover:bg-primary-light text-white px-5 py-2.5 rounded-lg transition font-montserrat text-sm flex items-center gap-2"
-          >
+          <button onClick={openAssign} className="bg-primary hover:bg-primary-light text-white px-5 py-2.5 rounded-lg transition font-montserrat text-sm flex items-center gap-2">
             <Plus size={18} /> Assign Fee
           </button>
-          <button
-            onClick={handleCSVExport}
-            className="border border-secondary-light px-4 py-2.5 rounded-lg text-secondary-dark hover:bg-secondary-bg font-montserrat text-sm flex items-center gap-2"
-          >
+          <button onClick={handleCSVExport} className="border border-secondary-light px-4 py-2.5 rounded-lg text-secondary-dark hover:bg-secondary-bg font-montserrat text-sm flex items-center gap-2">
             <Download size={18} /> Export
           </button>
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            className="border border-secondary-light px-4 py-2.5 rounded-lg text-secondary-dark hover:bg-secondary-bg font-montserrat text-sm flex items-center gap-2"
-          >
+          <button onClick={() => fileInputRef.current?.click()} className="border border-secondary-light px-4 py-2.5 rounded-lg text-secondary-dark hover:bg-secondary-bg font-montserrat text-sm flex items-center gap-2">
             <Upload size={18} /> Import
           </button>
-          <input
-            type="file"
-            ref={fileInputRef}
-            className="hidden"
-            accept=".csv"
-            onChange={handleCSVImport}
-          />
+          <input type="file" ref={fileInputRef} className="hidden" accept=".csv" onChange={handleCSVImport} />
         </div>
       </div>
 
@@ -414,12 +493,14 @@ export default function StudentFees() {
       {/* Fees Table */}
       <div className="bg-white rounded-xl shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[900px]">
+          <table className="w-full min-w-[1100px]">
             <thead className="bg-slate-100 border-b border-secondary-light">
               <tr>
                 <th className="p-3 text-left text-sm font-montserrat text-secondary-dark">Student</th>
                 <th className="text-left text-sm font-montserrat text-secondary-dark">Course</th>
-                <th className="text-left text-sm font-montserrat text-secondary-dark">Final Fee</th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">Base Amount</th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">Tax</th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">Total</th>
                 <th className="text-left text-sm font-montserrat text-secondary-dark">Paid</th>
                 <th className="text-left text-sm font-montserrat text-secondary-dark">Pending</th>
                 <th className="text-left text-sm font-montserrat text-secondary-dark">Status</th>
@@ -428,89 +509,40 @@ export default function StudentFees() {
             </thead>
             <tbody>
               {isLoading ? (
-                <tr>
-                  <td colSpan={7} className="p-6 text-center text-secondary">
-                    Loading fee records…
-                  </td>
-                </tr>
+                <tr><td colSpan={9} className="p-6 text-center text-secondary">Loading…</td></tr>
               ) : studentFees.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="p-6 text-center text-secondary">
+                  <td colSpan={9} className="p-6 text-center text-secondary">
                     <div className="flex flex-col items-center gap-2">
                       <Coins size={32} className="text-secondary-light" />
                       <span>No fee records found</span>
-                      <span className="text-xs text-secondary-light">
-                        {search ? "Try adjusting your search" : "Assign a fee to get started"}
-                      </span>
                     </div>
                   </td>
                 </tr>
               ) : (
                 studentFees.map((f) => (
-                  <tr
-                    key={f.id}
-                    className="border-b border-secondary-light hover:bg-primary-bg transition"
-                  >
+                  <tr key={f.id} className="border-b border-secondary-light hover:bg-primary-bg transition">
                     <td className="p-3 text-sm">
-                      <div className="font-medium">
-                        {f.students?.first_name} {f.students?.last_name}
-                      </div>
-                      <div className="text-xs text-secondary-light">
-                        {f.students?.admission_no}
-                      </div>
+                      <div className="font-medium">{f.students?.first_name} {f.students?.last_name}</div>
+                      <div className="text-xs text-secondary-light">{f.students?.admission_no}</div>
                     </td>
                     <td className="text-sm">{f.fee_structures?.courses?.course_name}</td>
-                    <td className="text-sm font-semibold">
-                      ₹{Number(f.final_fee).toLocaleString()}
-                    </td>
-                    <td className="text-sm text-green-600">
-                      ₹{(f.total_paid || 0).toLocaleString()}
-                    </td>
-                    <td className="text-sm text-red-600">
-                      ₹{(f.pending || 0).toLocaleString()}
-                    </td>
+                    <td className="text-sm">₹{Number(f.base_amount || f.final_fee).toLocaleString()}</td>
+                    <td className="text-sm text-primary">₹{Number(f.tax_amount || 0).toLocaleString()}</td>
+                    <td className="text-sm font-semibold">₹{Number(f.final_fee).toLocaleString()}</td>
+                    <td className="text-sm text-green-600">₹{(f.total_paid || 0).toLocaleString()}</td>
+                    <td className="text-sm text-red-600">₹{(f.pending || 0).toLocaleString()}</td>
                     <td className="text-sm">
-                      <div className="flex items-center gap-2">
-                        <div className="w-20 bg-gray-200 rounded-full h-2">
-                          <div
-                            className="bg-green-500 h-2 rounded-full"
-                            style={{
-                              width: `${f.final_fee > 0 ? ((f.total_paid / f.final_fee) * 100).toFixed(0) : 0}%`,
-                            }}
-                          ></div>
-                        </div>
-                        <span
-                          className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                            f.status === "Paid"
-                              ? "bg-green-100 text-green-700"
-                              : "bg-yellow-100 text-yellow-700"
-                          }`}
-                        >
-                          {f.status}
-                        </span>
-                      </div>
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${f.status === "Paid" ? "bg-green-100 text-green-700" : "bg-yellow-100 text-yellow-700"}`}>
+                        {f.status}
+                      </span>
                     </td>
                     <td className="text-sm">
                       <div className="flex gap-1">
-                        <button onClick={() => openEdit(f)} className="p-1 text-blue-600 hover:bg-blue-50 rounded" title="Edit">
-                          <Edit3 size={15} />
-                        </button>
-                        <button onClick={() => setCollectingFee(f)} className="p-1 text-green-600 hover:bg-green-50 rounded" title="Collect Payment">
-                          <Wallet size={15} />
-                        </button>
-                        <button onClick={() => handleViewPayments(f)} className="p-1 text-purple-600 hover:bg-purple-50 rounded" title="Payments">
-                          <Eye size={15} />
-                        </button>
-                        <button
-                          onClick={() => {
-                            if (!window.confirm("Delete this fee record?")) return;
-                            deleteMutation.mutate(f.id);
-                          }}
-                          className="p-1 text-red-600 hover:bg-red-50 rounded"
-                          title="Delete"
-                        >
-                          <Trash2 size={15} />
-                        </button>
+                        <button onClick={() => openEdit(f)} className="p-1 text-blue-600 hover:bg-blue-50 rounded"><Edit3 size={15} /></button>
+                        <button onClick={() => setCollectingFee(f)} className="p-1 text-green-600 hover:bg-green-50 rounded"><Wallet size={15} /></button>
+                        <button onClick={() => handleViewPayments(f)} className="p-1 text-purple-600 hover:bg-purple-50 rounded"><Eye size={15} /></button>
+                        <button onClick={() => { if (window.confirm("Delete this fee record?")) deleteMutation.mutate(f.id); }} className="p-1 text-red-600 hover:bg-red-50 rounded"><Trash2 size={15} /></button>
                       </div>
                     </td>
                   </tr>
@@ -521,74 +553,43 @@ export default function StudentFees() {
         </div>
       </div>
 
-      {/* Load More */}
       {hasNextPage && (
         <div className="flex justify-center mt-6">
-          <button
-            onClick={() => fetchNextPage()}
-            disabled={isFetchingNextPage}
-            className="bg-primary hover:bg-primary-light text-white px-6 py-2.5 rounded-lg font-montserrat text-sm transition disabled:opacity-60"
-          >
+          <button onClick={() => fetchNextPage()} disabled={isFetchingNextPage} className="bg-primary hover:bg-primary-light text-white px-6 py-2.5 rounded-lg font-montserrat text-sm transition disabled:opacity-60">
             {isFetchingNextPage ? "Loading more…" : "Load More"}
           </button>
         </div>
       )}
 
-      {/* Assign/Edit Modal (branded) */}
+      {/* Assign/Edit Modal */}
       {showAssignForm && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl w-full max-w-lg shadow-xl max-h-[90vh] overflow-y-auto">
             <div className="sticky top-0 bg-white border-b border-secondary-light px-6 py-4 flex items-center justify-between rounded-t-xl">
               <div className="flex items-center gap-3">
-                <img
-                  src="/ShreeVidhyaDark.png"
-                  alt="ShreeVidhya Academy"
-                  className="h-10 w-auto"
-                />
-                <h2 className="text-xl font-righteous text-primary-dark">
-                  {editingFee ? "Edit Fee" : "Assign Fee"}
-                </h2>
+                <img src="/ShreeVidhyaDark.png" alt="ShreeVidhya Academy" className="h-10 w-auto" />
+                <h2 className="text-xl font-righteous text-primary-dark">{editingFee ? "Edit Fee" : "Assign Fee"}</h2>
               </div>
-              <button onClick={() => setShowAssignForm(false)} className="p-2 hover:bg-secondary-bg rounded-lg">
-                <X size={20} className="text-secondary-dark" />
-              </button>
+              <button onClick={() => setShowAssignForm(false)} className="p-2 hover:bg-secondary-bg rounded-lg"><X size={20} className="text-secondary-dark" /></button>
             </div>
             <form onSubmit={handleSubmit} className="p-6 space-y-4">
               {/* Student */}
               <div>
-                <label className="block text-sm font-montserrat text-secondary-dark mb-1">
-                  <User size={14} className="inline mr-1" /> Student *
-                </label>
-                <select
-                  value={form.student_id}
-                  onChange={(e) => setForm({ ...form, student_id: e.target.value })}
-                  className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
-                  required
-                >
+                <label className="block text-sm font-montserrat text-secondary-dark mb-1"><User size={14} className="inline mr-1" /> Student *</label>
+                <select value={form.student_id} onChange={(e) => setForm({ ...form, student_id: e.target.value })} className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none" required>
                   <option value="">Select</option>
-                  {students.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.first_name} {s.last_name} ({s.admission_no})
-                    </option>
-                  ))}
+                  {students.map((s) => <option key={s.id} value={s.id}>{s.first_name} {s.last_name} ({s.admission_no})</option>)}
                 </select>
               </div>
 
               {/* Fee Structure */}
               <div>
-                <label className="block text-sm font-montserrat text-secondary-dark mb-1">
-                  <BookOpen size={14} className="inline mr-1" /> Fee Structure *
-                </label>
-                <select
-                  value={form.fee_structure_id}
-                  onChange={(e) => handleFeeStructureChange(e.target.value)}
-                  className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
-                  required
-                >
+                <label className="block text-sm font-montserrat text-secondary-dark mb-1"><BookOpen size={14} className="inline mr-1" /> Fee Structure *</label>
+                <select value={form.fee_structure_id} onChange={(e) => handleFeeStructureChange(e.target.value)} className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none" required>
                   <option value="">Select</option>
                   {feeStructures.map((fs) => (
                     <option key={fs.id} value={fs.id}>
-                      {fs.courses?.course_name} (₹{fs.fee_amount})
+                      {fs.courses?.course_name} (₹{fs.fee_amount}){fs.tax_rate_id ? ` + Tax (${fs.tax_rates?.name || ''})` : ''}
                     </option>
                   ))}
                 </select>
@@ -596,83 +597,78 @@ export default function StudentFees() {
 
               {/* Total Fee */}
               <div>
-                <label className="block text-sm font-montserrat text-secondary-dark mb-1">
-                  <DollarSign size={14} className="inline mr-1" /> Total Fee
-                </label>
-                <input
-                  type="number"
-                  value={form.total_fee}
-                  disabled
-                  className="w-full border border-secondary-light rounded p-2.5 bg-gray-100 text-secondary-dark"
-                />
+                <label className="block text-sm font-montserrat text-secondary-dark mb-1"><DollarSign size={14} className="inline mr-1" /> Total Fee</label>
+                <input type="number" value={form.total_fee} disabled className="w-full border border-secondary-light rounded p-2.5 bg-gray-100 text-secondary-dark" />
               </div>
 
               {/* Discount */}
               <div>
-                <label className="block text-sm font-montserrat text-secondary-dark mb-1">
-                  <Percent size={14} className="inline mr-1" /> Discount
-                </label>
-                <input
-                  type="number"
-                  value={form.discount}
-                  onChange={(e) => handleDiscountChange(e.target.value)}
-                  className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
-                />
+                <label className="block text-sm font-montserrat text-secondary-dark mb-1"><Percent size={14} className="inline mr-1" /> Discount</label>
+                <input type="number" value={form.discount} onChange={(e) => handleDiscountChange(e.target.value)} className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none" />
               </div>
 
-              {/* Final Fee */}
+              {/* Final Fee (Base or Total) */}
               <div>
                 <label className="block text-sm font-montserrat text-secondary-dark mb-1">
-                  Final Fee (auto)
+                  {form.tax_inclusive ? "Final Fee (incl. tax)" : "Base Amount (excl. tax)"}
                 </label>
-                <input
-                  type="number"
-                  value={form.final_fee}
-                  disabled
-                  className="w-full border border-secondary-light rounded p-2.5 bg-gray-100 text-secondary-dark"
-                />
+                <input type="number" value={form.final_fee} disabled className="w-full border border-secondary-light rounded p-2.5 bg-gray-100 text-secondary-dark" />
               </div>
+
+              {/* Tax Breakdown */}
+              {form.tax_rate_id && Number(form.final_fee) > 0 && (
+                <div className="bg-gray-50 rounded-lg p-3 space-y-1 text-sm">
+                  <p className="flex justify-between"><span className="text-gray-600">Base Amount:</span><span className="font-medium">₹{Number(form.base_amount).toFixed(2)}</span></p>
+                  <p className="flex justify-between"><span className="text-gray-600">Tax Amount:</span><span className="font-medium text-primary">₹{Number(form.tax_amount).toFixed(2)}</span></p>
+                  <p className="flex justify-between border-t border-gray-200 pt-1 font-bold">
+                    <span>Total Payable:</span>
+                    <span>₹{Number(form.total_payable || (Number(form.base_amount) + Number(form.tax_amount))).toFixed(2)}</span>
+                  </p>
+                </div>
+              )}
 
               {/* Status */}
               <div>
-                <label className="block text-sm font-montserrat text-secondary-dark mb-1">
-                  <Tag size={14} className="inline mr-1" /> Status
-                </label>
-                <select
-                  value={form.status}
-                  onChange={(e) => setForm({ ...form, status: e.target.value })}
-                  className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
-                >
+                <label className="block text-sm font-montserrat text-secondary-dark mb-1"><Tag size={14} className="inline mr-1" /> Status</label>
+                <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none">
                   <option>Pending</option>
                   <option>Paid</option>
                 </select>
               </div>
 
-              {/* Installments Section (only if structure allows installments) */}
+              {/* ===== INSTALLMENTS SECTION ===== */}
               {structureAllowsInstallments && (
                 <div className="border-t border-secondary-light pt-4 mt-4">
-                  <label className="flex items-center gap-2 text-sm font-montserrat text-secondary-dark mb-3">
-                    <input
-                      type="checkbox"
-                      checked={enableInstallments}
-                      onChange={(e) => {
-                        setEnableInstallments(e.target.checked);
-                        if (e.target.checked && installments.length === 0) {
-                          setInstallmentCount(1);
-                          setInstallments([{ amount: form.final_fee, due_date: "" }]);
-                        }
-                      }}
-                      className="rounded accent-primary h-4 w-4"
-                    />
-                    Enable Installments
-                  </label>
+                  <div className="flex items-center justify-between mb-3">
+                    <label className="flex items-center gap-2 text-sm font-montserrat text-secondary-dark cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={enableInstallments}
+                        onChange={(e) => {
+                          const checked = e.target.checked;
+                          setEnableInstallments(checked);
+                          if (checked) {
+                            if (installments.length === 0) {
+                              handleInstallmentCountChange(1);
+                            }
+                          } else {
+                            setInstallments([]);
+                            setInstallmentCount(1);
+                          }
+                        }}
+                        className="rounded accent-primary h-4 w-4"
+                      />
+                      <span className="font-medium">Enable Installments</span>
+                    </label>
+                    {enableInstallments && (
+                      <span className="text-xs text-green-600 bg-green-50 px-2 py-1 rounded-full">Active</span>
+                    )}
+                  </div>
 
                   {enableInstallments && (
                     <div className="space-y-3">
                       <div>
-                        <label className="text-xs font-montserrat text-secondary-dark">
-                          Number of Installments
-                        </label>
+                        <label className="text-xs font-montserrat text-secondary-dark">Number of Installments</label>
                         <input
                           type="number"
                           min="1"
@@ -685,9 +681,7 @@ export default function StudentFees() {
                       {installments.map((inst, idx) => (
                         <div key={idx} className="grid grid-cols-2 gap-3">
                           <div>
-                            <label className="text-xs font-montserrat text-secondary-dark">
-                              Amount {idx + 1}
-                            </label>
+                            <label className="text-xs font-montserrat text-secondary-dark">Amount {idx+1}</label>
                             <input
                               type="number"
                               value={inst.amount}
@@ -696,9 +690,7 @@ export default function StudentFees() {
                             />
                           </div>
                           <div>
-                            <label className="text-xs font-montserrat text-secondary-dark">
-                              Due Date {idx + 1}
-                            </label>
+                            <label className="text-xs font-montserrat text-secondary-dark">Due Date {idx+1}</label>
                             <input
                               type="date"
                               value={inst.due_date}
@@ -708,12 +700,19 @@ export default function StudentFees() {
                           </div>
                         </div>
                       ))}
+                      <p className="text-xs text-secondary mt-1">
+                        Total installments sum should equal ₹{Number(form.total_payable || form.final_fee).toFixed(2)}
+                      </p>
+                      {editingFee && (
+                        <p className="text-xs text-amber-600 mt-1">
+                          ⚠️ Disabling installments will remove all existing installment records.
+                        </p>
+                      )}
                     </div>
                   )}
                 </div>
               )}
 
-              {/* Buttons */}
               <div className="flex flex-col sm:flex-row-reverse gap-3 pt-2">
                 <button type="submit" className="w-full sm:w-auto bg-primary hover:bg-primary-light text-white px-6 py-2.5 rounded-lg font-montserrat transition">
                   {editingFee ? "Update Fee" : "Assign Fee"}
@@ -744,30 +743,12 @@ export default function StudentFees() {
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl w-full max-w-xl shadow-xl max-h-[90vh] overflow-y-auto">
             <div className="sticky top-0 bg-white border-b border-secondary-light px-6 py-4 flex items-center justify-between rounded-t-xl">
-              <div className="flex items-center gap-3">
-                <img
-                  src="/ShreeVidhyaDark.png"
-                  alt="ShreeVidhya Academy"
-                  className="h-10 w-auto"
-                />
-                <h2 className="text-xl font-righteous text-primary-dark">Payment History</h2>
-              </div>
-              <button
-                onClick={() => {
-                  setViewPayments(null);
-                  setSelectedFeeForPayments(null);
-                }}
-                className="p-2 hover:bg-secondary-bg rounded-lg"
-              >
-                <X size={20} className="text-secondary-dark" />
-              </button>
+              <div className="flex items-center gap-3"><img src="/ShreeVidhyaDark.png" alt="ShreeVidhya Academy" className="h-10 w-auto" /><h2 className="text-xl font-righteous text-primary-dark">Payment History</h2></div>
+              <button onClick={() => { setViewPayments(null); setSelectedFeeForPayments(null); }} className="p-2 hover:bg-secondary-bg rounded-lg"><X size={20} className="text-secondary-dark" /></button>
             </div>
             <div className="p-6">
               <p className="text-sm text-secondary-dark font-montserrat mb-4">
-                <span className="font-medium">
-                  {viewPayments.fee.students?.first_name} {viewPayments.fee.students?.last_name}
-                </span>{" "}
-                – {viewPayments.fee.fee_structures?.courses?.course_name}
+                <span className="font-medium">{viewPayments.fee.students?.first_name} {viewPayments.fee.students?.last_name}</span> – {viewPayments.fee.fee_structures?.courses?.course_name}
               </p>
               {paymentsLoading ? (
                 <p className="text-center text-secondary">Loading payments…</p>
@@ -775,22 +756,24 @@ export default function StudentFees() {
                 <p className="text-secondary text-center">No payments yet</p>
               ) : (
                 <div className="overflow-x-auto">
-                  <table className="w-full min-w-[400px]">
+                  <table className="w-full min-w-[500px]">
                     <thead className="bg-slate-50">
                       <tr>
                         <th className="text-left p-2 text-sm font-montserrat text-secondary-dark">Date</th>
-                        <th className="text-left p-2 text-sm font-montserrat text-secondary-dark">Amount</th>
+                        <th className="text-left p-2 text-sm font-montserrat text-secondary-dark">Base Amount</th>
+                        <th className="text-left p-2 text-sm font-montserrat text-secondary-dark">Tax</th>
+                        <th className="text-left p-2 text-sm font-montserrat text-secondary-dark">Total</th>
                         <th className="text-left p-2 text-sm font-montserrat text-secondary-dark">Mode</th>
-                        <th className="text-left p-2 text-sm font-montserrat text-secondary-dark">Txn No</th>
                       </tr>
                     </thead>
                     <tbody>
                       {viewPayments.payments.map((p) => (
                         <tr key={p.id} className="border-b border-secondary-light">
                           <td className="p-2 text-sm">{p.payment_date}</td>
-                          <td className="p-2 text-sm font-medium">₹{Number(p.amount).toLocaleString()}</td>
+                          <td className="p-2 text-sm">₹{Number(p.base_amount || p.amount).toFixed(2)}</td>
+                          <td className="p-2 text-sm text-primary">₹{Number(p.tax_amount || 0).toFixed(2)}</td>
+                          <td className="p-2 text-sm font-medium">₹{Number(p.amount).toFixed(2)}</td>
                           <td className="p-2 text-sm">{p.payment_mode}</td>
-                          <td className="p-2 text-sm">{p.transaction_no || "-"}</td>
                         </tr>
                       ))}
                     </tbody>

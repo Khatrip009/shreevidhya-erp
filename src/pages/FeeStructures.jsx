@@ -1,3 +1,4 @@
+// src/pages/FeeStructures.jsx
 import React, { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
@@ -10,6 +11,7 @@ import {
   BookOpen,
   DollarSign,
   Layers,
+  Receipt,
 } from "lucide-react";
 import AdminLayout from "../layouts/AdminLayout";
 import {
@@ -20,29 +22,25 @@ import {
 } from "../services/feeService";
 import { supabase } from "../api/supabase";
 import { useOrgDarkLogo } from "../hooks/useOrgDarkLogo";
+import FeeStructureForm from "../components/FeeStructureForm";
 
 export default function FeeStructures() {
   const queryClient = useQueryClient();
   const darkLogo = useOrgDarkLogo();
 
   const [search, setSearch] = useState("");
-  const [mediumFilter, setMediumFilter] = useState("");   // NEW
+  const [mediumFilter, setMediumFilter] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
-  const [form, setForm] = useState({
-    course_id: "",
-    fee_amount: "",
-    installment_allowed: false,
-  });
 
-  // Fetch fee structures (service now returns medium_name)
+  // Fetch fee structures (service now returns tax info)
   const { data: structures = [], isLoading } = useQuery({
     queryKey: ["feeStructures"],
     queryFn: getFeeStructures,
     staleTime: 5 * 60 * 1000,
   });
 
-  // Fetch courses for dropdown
+  // Fetch courses for dropdown (not used directly, but available)
   const { data: courses = [] } = useQuery({
     queryKey: ["courses-dropdown"],
     queryFn: async () => {
@@ -84,6 +82,7 @@ export default function FeeStructures() {
       toast.success("Fee structure updated");
       queryClient.invalidateQueries({ queryKey: ["feeStructures"] });
       setEditing(null);
+      setShowForm(false);
     },
     onError: () => toast.error("Failed to update fee structure"),
   });
@@ -105,33 +104,19 @@ export default function FeeStructures() {
   });
 
   function openCreate() {
-    setForm({ course_id: "", fee_amount: "", installment_allowed: false });
     setEditing(null);
     setShowForm(true);
   }
 
   function openEdit(structure) {
-    setForm({
-      course_id: structure.course_id,
-      fee_amount: structure.fee_amount,
-      installment_allowed: structure.installment_allowed,
-    });
     setEditing(structure);
     setShowForm(true);
   }
 
-  async function handleSubmit(e) {
-    e.preventDefault();
-    const payload = {
-      course_id: form.course_id,
-      fee_amount: Number(form.fee_amount),
-      installment_allowed: form.installment_allowed,
-    };
-    if (editing) {
-      updateMutation.mutate({ id: editing.id, payload });
-    } else {
-      createMutation.mutate(payload);
-    }
+  function handleFormSuccess() {
+    queryClient.invalidateQueries({ queryKey: ["feeStructures"] });
+    setShowForm(false);
+    setEditing(null);
   }
 
   return (
@@ -143,7 +128,7 @@ export default function FeeStructures() {
             Fee Structures
           </h1>
           <p className="text-sm text-secondary-dark font-montserrat mt-1">
-            Define course fees
+            Define course fees with tax rules
           </p>
         </div>
         <button
@@ -184,7 +169,7 @@ export default function FeeStructures() {
       {/* Table */}
       <div className="bg-white rounded-xl shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[600px]">
+          <table className="w-full min-w-[800px]">
             <thead className="bg-slate-100 border-b border-secondary-light">
               <tr>
                 <th className="p-3 text-left text-sm font-montserrat text-secondary-dark">
@@ -197,6 +182,12 @@ export default function FeeStructures() {
                   Fee Amount
                 </th>
                 <th className="text-left text-sm font-montserrat text-secondary-dark">
+                  Tax Rate
+                </th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">
+                  Tax Inclusive
+                </th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">
                   Installments
                 </th>
                 <th className="text-left text-sm font-montserrat text-secondary-dark">
@@ -207,13 +198,13 @@ export default function FeeStructures() {
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan={5} className="p-6 text-center text-secondary">
+                  <td colSpan={7} className="p-6 text-center text-secondary">
                     Loading fee structures…
                   </td>
                 </tr>
               ) : filteredStructures.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="p-6 text-center text-secondary">
+                  <td colSpan={7} className="p-6 text-center text-secondary">
                     <div className="flex flex-col items-center gap-2">
                       <DollarSign size={32} className="text-secondary-light" />
                       <span>No fee structures defined yet</span>
@@ -237,6 +228,23 @@ export default function FeeStructures() {
                     </td>
                     <td className="text-sm font-semibold">
                       ₹{Number(s.fee_amount).toLocaleString()}
+                    </td>
+                    <td className="text-sm">
+                      {s.tax_rates?.name ? (
+                        <span className="inline-flex items-center gap-1 bg-blue-50 text-blue-800 px-2 py-0.5 rounded text-xs">
+                          <Receipt size={12} />
+                          {s.tax_rates.name} ({s.tax_rates.rate}%)
+                        </span>
+                      ) : (
+                        <span className="text-gray-400 text-xs">No Tax</span>
+                      )}
+                    </td>
+                    <td className="text-sm">
+                      {s.tax_inclusive ? (
+                        <span className="text-green-600 text-xs font-medium">Yes</span>
+                      ) : (
+                        <span className="text-gray-400 text-xs">No</span>
+                      )}
                     </td>
                     <td className="text-sm">
                       {s.installment_allowed ? "Yes" : "No"}
@@ -271,101 +279,16 @@ export default function FeeStructures() {
         </div>
       </div>
 
-      {/* Add / Edit Modal – unchanged */}
-      {showForm && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl w-full max-w-md shadow-xl">
-            <div className="sticky top-0 bg-white border-b border-secondary-light px-6 py-4 flex items-center justify-between rounded-t-xl">
-              <div className="flex items-center gap-3">
-                <img
-                  src={darkLogo}
-                  alt="ShreeVidhya Academy"
-                  className="h-10 w-auto"
-                />
-                <h2 className="text-xl font-righteous text-primary-dark">
-                  {editing ? "Edit Structure" : "New Structure"}
-                </h2>
-              </div>
-              <button
-                onClick={() => setShowForm(false)}
-                className="p-2 hover:bg-secondary-bg rounded-lg transition"
-              >
-                <X size={20} className="text-secondary-dark" />
-              </button>
-            </div>
-
-            <form onSubmit={handleSubmit} className="p-6 space-y-4">
-              <div>
-                <label className="block text-sm font-montserrat text-secondary-dark mb-1">
-                  <BookOpen size={14} className="inline mr-1" /> Course *
-                </label>
-                <select
-                  value={form.course_id}
-                  onChange={(e) =>
-                    setForm({ ...form, course_id: e.target.value })
-                  }
-                  className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
-                  required
-                >
-                  <option value="">Select Course</option>
-                  {courses.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.course_name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-montserrat text-secondary-dark mb-1">
-                  <DollarSign size={14} className="inline mr-1" /> Fee Amount *
-                </label>
-                <input
-                  type="number"
-                  value={form.fee_amount}
-                  onChange={(e) =>
-                    setForm({ ...form, fee_amount: e.target.value })
-                  }
-                  className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light"
-                  placeholder="e.g., 5000"
-                  required
-                />
-              </div>
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={form.installment_allowed}
-                  onChange={(e) =>
-                    setForm({ ...form, installment_allowed: e.target.checked })
-                  }
-                  id="installment"
-                  className="rounded accent-primary h-4 w-4"
-                />
-                <label
-                  htmlFor="installment"
-                  className="text-sm font-montserrat text-secondary-dark cursor-pointer"
-                >
-                  Allow Installments
-                </label>
-              </div>
-              <div className="flex flex-col sm:flex-row-reverse gap-3 pt-2">
-                <button
-                  type="submit"
-                  className="w-full sm:w-auto bg-primary hover:bg-primary-light text-white px-6 py-2.5 rounded-lg font-montserrat transition"
-                >
-                  {editing ? "Update" : "Create"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowForm(false)}
-                  className="w-full sm:w-auto border border-secondary-light text-secondary-dark hover:bg-secondary-bg px-6 py-2.5 rounded-lg font-montserrat transition"
-                >
-                  Cancel
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      {/* FeeStructureForm Modal – handles both Create & Edit */}
+      <FeeStructureForm
+        isOpen={showForm}
+        onClose={() => {
+          setShowForm(false);
+          setEditing(null);
+        }}
+        onSuccess={handleFormSuccess}
+        initialData={editing} // Pre‑fills form when editing
+      />
     </AdminLayout>
   );
 }
