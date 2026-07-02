@@ -200,17 +200,52 @@ export default function MarkAttendance() {
                     {student.first_name} {student.last_name}
                   </td>
                   <td className="p-3 text-center">
-                    <select
-                      value={attendance[student.student_id] || "Absent"}
-                      onChange={(e) =>
-                        handleStatusChange(student.student_id, e.target.value)
-                      }
-                      className="border border-secondary-light rounded p-2 text-sm focus:ring-1 focus:ring-primary focus:border-primary outline-none"
-                    >
-                      <option value="Present">Present</option>
-                      <option value="Absent">Absent</option>
-                      <option value="Late">Late</option>
-                    </select>
+                    <div className="flex items-center justify-center gap-6">
+                      {/* Present radio */}
+                      <label className="flex items-center gap-1.5 cursor-pointer">
+                        <input
+                          type="radio"
+                          name={`status-${student.student_id}`}
+                          value="Present"
+                          checked={
+                            (attendance[student.student_id] || "Present") ===
+                            "Present"
+                          }
+                          onChange={() =>
+                            handleStatusChange(
+                              student.student_id,
+                              "Present"
+                            )
+                          }
+                          className="w-4 h-4 text-green-600 accent-green-600"
+                        />
+                        <span className="text-sm text-green-700 font-medium">
+                          Present
+                        </span>
+                      </label>
+
+                      {/* Absent radio */}
+                      <label className="flex items-center gap-1.5 cursor-pointer">
+                        <input
+                          type="radio"
+                          name={`status-${student.student_id}`}
+                          value="Absent"
+                          checked={
+                            attendance[student.student_id] === "Absent"
+                          }
+                          onChange={() =>
+                            handleStatusChange(
+                              student.student_id,
+                              "Absent"
+                            )
+                          }
+                          className="w-4 h-4 text-red-600 accent-red-600"
+                        />
+                        <span className="text-sm text-red-700 font-medium">
+                          Absent
+                        </span>
+                      </label>
+                    </div>
                   </td>
                   <td className="p-3">
                     <input

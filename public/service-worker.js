@@ -1,13 +1,17 @@
 const CACHE_NAME = 'shreevidhya-v4';
 
 self.addEventListener('install', (event) => {
-  self.skipWaiting();
+  event.waitUntil(self.skipWaiting());
 });
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((cacheNames) =>
-      Promise.all(cacheNames.map((name) => caches.delete(name)))
+      Promise.all(
+        cacheNames
+          .filter((name) => name !== CACHE_NAME)
+          .map((name) => caches.delete(name))
+      )
     ).then(() => self.clients.claim())
   );
 });

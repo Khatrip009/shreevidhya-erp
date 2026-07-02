@@ -32,6 +32,7 @@ import {
   deleteIncome,
   getAllIncomesForExport,
 } from "../services/financeService";
+import { supabase } from "../api/supabase";
 import { useOrgDarkLogo } from "../hooks/useOrgDarkLogo";
 
 export default function Income() {

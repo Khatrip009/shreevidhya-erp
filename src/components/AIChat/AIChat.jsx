@@ -1,15 +1,12 @@
 // src/components/AIChat/AIChat.jsx
 import React, { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { createClient } from "@supabase/supabase-js";
 import { MessageCircle, X, Trash2 } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
+import { supabase } from "../../api/supabase";
 import "./AIChat.css";
 
-const supabase = createClient(
-  import.meta.env.VITE_SUPABASE_URL,
-  import.meta.env.VITE_SUPABASE_ANON_KEY
-);
+const aiChatFunctionUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-chat`;
 
 const AIChat = () => {
   const navigate = useNavigate();
@@ -64,7 +61,7 @@ const AIChat = () => {
       const history = [...messages, userMessage].slice(-10);
 
       const response = await fetch(
-        "https://xdnebzhxjlkeqhjsmiow.supabase.co/functions/v1/ai-chat",
+        aiChatFunctionUrl,
         {
           method: "POST",
           headers: {

@@ -114,23 +114,13 @@ function FilterDropdown({ field, filters, onChange }) {
 /* ------------------------------------------------------------------ */
 export default function ReportPage({ reportId }) {
   const { profile } = useAuth();
-
-  /* ---------- Access control ---------- */
-  if (!profile || !['admin', 'super_admin'].includes(profile.role)) {
-    return <Navigate to="/" replace />;
-  }
+  const hasReportAccess = Boolean(profile && ['admin', 'super_admin'].includes(profile.role));
 
   /* ---------- Config & initial filters ---------- */
   const config = useMemo(() => getReportConfig(reportId), [reportId]);
-  if (!config) {
-    return (
-      <div className="p-6 text-center text-red-600">
-        Report configuration not found for "<strong>{reportId}</strong>".
-      </div>
-    );
-  }
 
   const initialFilters = useMemo(() => {
+    if (!config) return {};
     if (typeof config.defaultFilters === 'function') return config.defaultFilters();
     return config.defaultFilters || {};
   }, [config]);
@@ -143,17 +133,31 @@ export default function ReportPage({ reportId }) {
     queryFn: () => fetchReportData(reportId, filters),
     keepPreviousData: true,
     staleTime: 30_000,
+    enabled: hasReportAccess && Boolean(config),
   });
 
   const { data: org } = useQuery({
     queryKey: ['organization'],
     queryFn: getOrganization,
     staleTime: 10 * 60 * 1000,
+    enabled: hasReportAccess,
   });
 
   /* ---------- Derived values ---------- */
   const rows = Array.isArray(data) ? data : [];
-  const hasChart = Boolean(config.chartConfig && rows.length > 0);
+  const hasChart = Boolean(config?.chartConfig && rows.length > 0);
+
+  if (!hasReportAccess) {
+    return <Navigate to="/" replace />;
+  }
+
+  if (!config) {
+    return (
+      <div className="p-6 text-center text-red-600">
+        Report configuration not found for "<strong>{reportId}</strong>".
+      </div>
+    );
+  }
 
   /* ---------- Handlers ---------- */
   const handleFilterChange = (field, value) => {

@@ -39,7 +39,6 @@ export function ReportFooter() {
 
 // ---------- ADMISSION FORM ----------
 export function AdmissionFormDocument({ data, org }) {
-  // data is a student row with joined parents & batches & fees
   const student = data;
   const parents = student.parents || [];
   const batches = student.batches || [];
@@ -53,7 +52,6 @@ export function AdmissionFormDocument({ data, org }) {
       <ReportHeader org={org} />
       <div style={styles.title}>ADMISSION FORM</div>
 
-      {/* Photo placeholder */}
       <div style={styles.photoFrame}>
         {student.photo_url ? <img src={student.photo_url} style={{ width:'100%', height:'100%', objectFit:'cover' }} /> : 'Photo'}
       </div>
@@ -74,7 +72,6 @@ export function AdmissionFormDocument({ data, org }) {
         </tbody>
       </table>
 
-      {/* Parent details */}
       {parents.map((p, i) => (
         <div key={i}>
           <h4 style={{ color:'#0D47A1', marginBottom:5 }}>Parent / Guardian {i+1}</h4>
@@ -92,7 +89,6 @@ export function AdmissionFormDocument({ data, org }) {
         </div>
       ))}
 
-      {/* Batches */}
       {batches.length > 0 && (
         <>
           <h4 style={{ color:'#0D47A1' }}>Enrolled Batches</h4>
@@ -117,7 +113,6 @@ export function AdmissionFormDocument({ data, org }) {
         </>
       )}
 
-      {/* Fee summary */}
       <h4 style={{ color:'#0D47A1' }}>Fee Summary</h4>
       <table style={styles.table}>
         <thead>
@@ -147,7 +142,7 @@ export function AdmissionFormDocument({ data, org }) {
   );
 }
 
-// ---------- FEE RECEIPT (with tax) ----------
+// ---------- FEE RECEIPT ----------
 export function FeeReceiptDocument({ data, org }) {
   return (
     <div style={styles.container} className="print-area">
@@ -174,7 +169,7 @@ export function FeeReceiptDocument({ data, org }) {
   );
 }
 
-// ---------- INCOME RECEIPT (with tax) ----------
+// ---------- INCOME RECEIPT ----------
 export function IncomeReceiptDocument({ data, org }) {
   return (
     <div style={styles.container} className="print-area">
@@ -247,14 +242,12 @@ export function SalarySlipDocument({ data, org }) {
   );
 }
 
-// ---------- CERTIFICATE (landscape layout) ----------
+// ---------- CERTIFICATE ----------
 export function CertificateDocument({ data, org }) {
   return (
     <div style={{ ...styles.container, maxWidth:'297mm', padding:'30px' }} className="print-area">
-      {/* Outer double border */}
       <div style={{ border:'2px solid #0D47A1', padding:'15px', position:'relative', minHeight:'180mm' }}>
         <div style={{ border:'1px solid #0D47A1', padding:'20px', height:'100%' }}>
-          {/* Logo */}
           <div style={{ textAlign:'center', marginBottom:20 }}>
             {org?.logo_dark_url && <img src={org.logo_dark_url} style={{ height:'50px' }} alt="Logo" />}
             <h2 style={{ fontSize:28, color:'#0D47A1', margin:'10px 0 0' }}>{org?.company_name || 'ShreeVidhya Academy'}</h2>

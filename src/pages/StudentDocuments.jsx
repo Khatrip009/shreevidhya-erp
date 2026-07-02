@@ -33,7 +33,9 @@ export default function StudentDocuments() {
   const [search, setSearch] = useState("");
   const [filterCourse, setFilterCourse] = useState("");
   const [filterBatch, setFilterBatch] = useState("");
+  const [filterMedium, setFilterMedium] = useState(""); // NEW
   const [filterStandard, setFilterStandard] = useState("");
+  const [filterStatus, setFilterStatus] = useState(""); // NEW
   const [showFilters, setShowFilters] = useState(false);
 
   // Fetch courses for filter
@@ -46,7 +48,7 @@ export default function StudentDocuments() {
     staleTime: 10 * 60 * 1000,
   });
 
-  // Fetch batches for filter (can be filtered by course later)
+  // Fetch batches for filter
   const { data: batches = [] } = useQuery({
     queryKey: ["batches-dropdown"],
     queryFn: async () => {
@@ -56,13 +58,23 @@ export default function StudentDocuments() {
     staleTime: 10 * 60 * 1000,
   });
 
-  // Fetch students with filters
+  // Fetch mediums for filter (NEW)
+  const { data: mediums = [] } = useQuery({
+    queryKey: ["mediums-dropdown"],
+    queryFn: async () => {
+      const { data } = await supabase.from("mediums").select("id, name").order("name");
+      return data || [];
+    },
+    staleTime: 10 * 60 * 1000,
+  });
+
+  // Fetch students with all filters
   const { data: students = [], isLoading: studentsLoading } = useQuery({
-    queryKey: ["students-filtered", { search, course: filterCourse, batch: filterBatch, standard: filterStandard }],
+    queryKey: ["students-filtered", { search, course: filterCourse, batch: filterBatch, medium: filterMedium, standard: filterStandard, status: filterStatus }],
     queryFn: async () => {
       let query = supabase
         .from("students")
-        .select("id, first_name, last_name, admission_no, standard, photo_url")
+        .select("id, first_name, last_name, admission_no, standard, photo_url, status, medium_id")
         .order("first_name");
 
       if (search) {
@@ -70,6 +82,12 @@ export default function StudentDocuments() {
       }
       if (filterStandard) {
         query = query.eq("standard", filterStandard);
+      }
+      if (filterMedium) {
+        query = query.eq("medium_id", filterMedium);
+      }
+      if (filterStatus) {
+        query = query.eq("status", filterStatus);
       }
 
       // Course and batch filters require joining
@@ -106,7 +124,7 @@ export default function StudentDocuments() {
         }
       }
 
-      const { data, error } = await query.limit(100); // reasonable limit for dropdown
+      const { data, error } = await query.limit(200); // increased for better filtering
       if (error) throw error;
       return data || [];
     },
@@ -195,7 +213,7 @@ export default function StudentDocuments() {
 
       {/* Advanced Filters Panel */}
       {showFilters && (
-        <div className="bg-white rounded-xl p-4 shadow-sm mb-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 border border-secondary-light">
+        <div className="bg-white rounded-xl p-4 shadow-sm mb-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 border border-secondary-light">
           <div>
             <label className="text-xs font-montserrat text-secondary-dark">Course</label>
             <select
@@ -222,6 +240,20 @@ export default function StudentDocuments() {
               ))}
             </select>
           </div>
+          {/* NEW: Medium filter */}
+          <div>
+            <label className="text-xs font-montserrat text-secondary-dark">Medium</label>
+            <select
+              value={filterMedium}
+              onChange={(e) => setFilterMedium(e.target.value)}
+              className="w-full border border-secondary-light rounded p-2 text-sm mt-1 focus:ring-1 focus:ring-primary"
+            >
+              <option value="">All Mediums</option>
+              {mediums.map((m) => (
+                <option key={m.id} value={m.id}>{m.name}</option>
+              ))}
+            </select>
+          </div>
           <div>
             <label className="text-xs font-montserrat text-secondary-dark">Standard</label>
             <input
@@ -232,13 +264,29 @@ export default function StudentDocuments() {
               className="w-full border border-secondary-light rounded p-2 text-sm mt-1 focus:ring-1 focus:ring-primary"
             />
           </div>
-          <div className="flex items-end">
+          {/* NEW: Status filter */}
+          <div>
+            <label className="text-xs font-montserrat text-secondary-dark">Status</label>
+            <select
+              value={filterStatus}
+              onChange={(e) => setFilterStatus(e.target.value)}
+              className="w-full border border-secondary-light rounded p-2 text-sm mt-1 focus:ring-1 focus:ring-primary"
+            >
+              <option value="">All Statuses</option>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+              <option value="graduated">Graduated</option>
+            </select>
+          </div>
+          <div className="flex items-end col-span-full lg:col-span-1">
             <button
               onClick={() => {
                 setSearch("");
                 setFilterCourse("");
                 setFilterBatch("");
+                setFilterMedium("");
                 setFilterStandard("");
+                setFilterStatus("");
               }}
               className="text-primary text-sm hover:underline"
             >
@@ -261,7 +309,7 @@ export default function StudentDocuments() {
           <option value="">Choose a student…</option>
           {students.map((s) => (
             <option key={s.id} value={s.id}>
-              {s.first_name} {s.last_name} ({s.admission_no}) - Std {s.standard}
+              {s.first_name} {s.last_name} ({s.admission_no}) - Std {s.standard} ({s.status})
             </option>
           ))}
         </select>

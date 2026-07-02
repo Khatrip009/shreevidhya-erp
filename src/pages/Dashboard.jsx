@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+// src/pages/Dashboard.jsx
+import { useQuery } from "@tanstack/react-query";
 import {
   Users,
   BookOpen,
@@ -13,7 +14,6 @@ import {
   PlusCircle,
   Receipt,
   FileText,
-  BarChart3,
 } from "lucide-react";
 import {
   BarChart,
@@ -109,232 +109,57 @@ export default function Dashboard() {
   const { profile } = useAuth();
   const navigate = useNavigate();
 
-  const [stats, setStats] = useState({
-    totalStudents: 0,
-    activeBatches: 0,
-    todayAttendance: { present: 0, total: 0 },
-    monthlyFeeCollection: 0,
-    pendingFees: 0,
-    totalTeachers: 0,
-    activeCourses: 0,
-    totalParents: 0,
-    newInquiriesThisMonth: 0,
-    recentInquiries: [],
-    recentPayments: [],
-    upcomingExams: [],
-    monthlyFeeData: [],
-    batchStudentData: [],
-    inquiryTrendData: [],
-    feeStatusData: [], // paid vs pending
-    attendanceTrend: [], // last 7 days
-    courseWiseStudents: [], // students per course
+  // Single RPC call – returns everything
+  const { data: rawStats, isLoading, isError } = useQuery({
+    queryKey: ["dashboardStats"],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("get_dashboard_stats");
+      if (error) throw error;
+      return data;
+    },
+    staleTime: 60 * 1000,        // cache for 1 minute
+    refetchOnWindowFocus: false, // don't refetch on tab switch
   });
-  const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    loadDashboardData();
-  }, []);
+  // Ensure all array fields are arrays (RPC may return null)
+  const s = rawStats || {};
+  const stats = {
+    totalStudents: s.totalStudents ?? 0,
+    activeBatches: s.activeBatches ?? 0,
+    todayAttendance: s.todayAttendance ?? { present: 0, total: 0 },
+    monthlyFeeCollection: s.monthlyFeeCollection ?? 0,
+    pendingFees: s.pendingFees ?? 0,
+    totalTeachers: s.totalTeachers ?? 0,
+    activeCourses: s.activeCourses ?? 0,
+    totalParents: s.totalParents ?? 0,
+    newInquiriesThisMonth: s.newInquiriesThisMonth ?? 0,
+    recentInquiries: s.recentInquiries || [],
+    recentPayments: s.recentPayments || [],
+    upcomingExams: s.upcomingExams || [],
+    monthlyFeeData: s.monthlyFeeData || [],
+    batchStudentData: s.batchStudentData || [],
+    inquiryTrendData: s.inquiryTrendData || [],
+    feeStatusData: s.feeStatusData || [],
+    attendanceTrend: s.attendanceTrend || [],
+    courseWiseStudents: s.courseWiseStudents || [],
+  };
 
-  async function loadDashboardData() {
-    setLoading(true);
-    try {
-      const today = new Date().toISOString().split("T")[0];
-      const firstOfMonth = new Date(
-        new Date().getFullYear(),
-        new Date().getMonth(),
-        1
-      )
-        .toISOString()
-        .split("T")[0];
-
-      // ── Basic counts ──────────────────────────────────────────────────
-      const [
-        { count: studentCount },
-        { count: batchCount },
-        { count: teacherCount },
-        { count: courseCount },
-        { count: parentCount },
-        { data: todaySessions },
-        { data: monthlyPayments },
-        { data: pendingFeeResult },
-        { data: recentInquiries },
-        { data: recentPayments },
-        { data: upcomingExams },
-        { count: newInquiriesCount },
-      ] = await Promise.all([
-        supabase.from("students").select("*", { count: "exact", head: true }),
-        supabase.from("batches").select("*", { count: "exact", head: true }).eq("status", "active"),
-        supabase.from("teachers").select("*", { count: "exact", head: true }),
-        supabase.from("courses").select("*", { count: "exact", head: true }).eq("status", true),
-        supabase.from("parents").select("*", { count: "exact", head: true }),
-        supabase.from("attendance_sessions").select("id").eq("attendance_date", today),
-        supabase.from("fee_payments").select("amount").gte("payment_date", firstOfMonth),
-        supabase.from("student_fees").select("id, final_fee"),
-        supabase.from("inquiries").select("inquiry_no, student_name, mobile, status").order("created_at", { ascending: false }).limit(5),
-        supabase.from("fee_payments").select("payment_date, amount, payment_mode, student_fees(student_id, students(first_name, last_name))").order("payment_date", { ascending: false }).limit(5),
-        supabase.from("exams").select("exam_name, exam_date, batches(batch_name)").gte("exam_date", today).order("exam_date", { ascending: true }).limit(5),
-        supabase.from("inquiries").select("*", { count: "exact", head: true }).gte("created_at", firstOfMonth),
-      ]);
-
-      // ── Today's attendance ──────────────────────────────────────────────
-      let presentCount = 0;
-      let totalMarked = 0;
-      if (todaySessions.length > 0) {
-        const sessionIds = todaySessions.map((s) => s.id);
-        const { data: marks } = await supabase
-          .from("student_attendance")
-          .select("status")
-          .in("session_id", sessionIds);
-        if (marks) {
-          presentCount = marks.filter((m) => m.status === "Present").length;
-          totalMarked = marks.length;
-        }
-      }
-
-      // ── Pending fees ───────────────────────────────────────────────────
-      let pendingTotal = 0;
-      if (pendingFeeResult) {
-        const paymentSums = await Promise.all(
-          pendingFeeResult.map(async (fee) => {
-            const { data: pays } = await supabase
-              .from("fee_payments")
-              .select("amount")
-              .eq("student_fee_id", fee.id);
-            const paid = pays?.reduce((sum, p) => sum + Number(p.amount), 0) || 0;
-            return Math.max(Number(fee.final_fee) - paid, 0);
-          })
-        );
-        pendingTotal = paymentSums.reduce((sum, p) => sum + p, 0);
-      }
-
-      const monthlyTotal = monthlyPayments?.reduce((sum, p) => sum + Number(p.amount), 0) || 0;
-
-      // ── Charts data ─────────────────────────────────────────────────────
-
-      // Monthly fee collection (last 6 months)
-      const feeData = [];
-      for (let i = 5; i >= 0; i--) {
-        const d = new Date();
-        d.setMonth(d.getMonth() - i);
-        const month = d.toLocaleString("default", { month: "short" });
-        const year = d.getFullYear();
-        const startOfMonth = `${year}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
-        const endOfMonth = new Date(year, d.getMonth() + 1, 0).toISOString().split("T")[0];
-        const { data: payments } = await supabase
-          .from("fee_payments")
-          .select("amount")
-          .gte("payment_date", startOfMonth)
-          .lte("payment_date", endOfMonth);
-        feeData.push({ month, collection: payments?.reduce((s, p) => s + Number(p.amount), 0) || 0 });
-      }
-
-      // Students per batch
-      const { data: activeBatches } = await supabase.from("batches").select("id, batch_name").eq("status", "active");
-      const batchStudentData = [];
-      if (activeBatches) {
-        for (const batch of activeBatches) {
-          const { data: enrollments } = await supabase.from("student_batches").select("id").eq("batch_id", batch.id).eq("status", "active");
-          batchStudentData.push({ name: batch.batch_name, students: enrollments?.length || 0 });
-        }
-      }
-
-      // Inquiry trend (last 6 months)
-      const inquiryData = [];
-      for (let i = 5; i >= 0; i--) {
-        const d = new Date();
-        d.setMonth(d.getMonth() - i);
-        const month = d.toLocaleString("default", { month: "short" });
-        const year = d.getFullYear();
-        const startOfMonth = `${year}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
-        const endOfMonth = new Date(year, d.getMonth() + 1, 0).toISOString().split("T")[0];
-        const { count } = await supabase.from("inquiries").select("*", { count: "exact", head: true }).gte("created_at", startOfMonth).lte("created_at", endOfMonth);
-        inquiryData.push({ month, inquiries: count || 0 });
-      }
-
-      // Fee status (paid vs pending)
-      let totalFee = 0;
-      let paidFee = 0;
-      if (pendingFeeResult) {
-        for (const fee of pendingFeeResult) {
-          totalFee += Number(fee.final_fee);
-          const { data: pays } = await supabase.from("fee_payments").select("amount").eq("student_fee_id", fee.id);
-          paidFee += pays?.reduce((s, p) => s + Number(p.amount), 0) || 0;
-        }
-      }
-      const pendingFee = totalFee - paidFee;
-      const feeStatusData = [
-        { name: "Paid", value: paidFee },
-        { name: "Pending", value: pendingFee },
-      ];
-
-      // Attendance trend (last 7 days)
-      const attendanceTrend = [];
-      for (let i = 6; i >= 0; i--) {
-        const d = new Date();
-        d.setDate(d.getDate() - i);
-        const day = d.toISOString().split("T")[0];
-        const label = d.toLocaleDateString("en-IN", { weekday: "short" });
-        const { data: sessions } = await supabase.from("attendance_sessions").select("id").eq("attendance_date", day);
-        if (sessions?.length) {
-          const ids = sessions.map(s => s.id);
-          const { data: marks } = await supabase.from("student_attendance").select("status").in("session_id", ids);
-          const present = marks?.filter(m => m.status === "Present").length || 0;
-          const total = marks?.length || 0;
-          attendanceTrend.push({ day: label, date: day, percentage: total > 0 ? Math.round((present / total) * 100) : 0 });
-        } else {
-          attendanceTrend.push({ day: label, date: day, percentage: 0 });
-        }
-      }
-
-      // Students per course (doughnut chart)
-      const { data: courseStudentData } = await supabase.from("courses").select("id, course_name").eq("status", true);
-      const courseWiseStudents = [];
-      if (courseStudentData) {
-        for (const course of courseStudentData) {
-          const { data: batchesOfCourse } = await supabase.from("batches").select("id").eq("course_id", course.id).eq("status", "active");
-          const batchIds = batchesOfCourse?.map(b => b.id) || [];
-          if (batchIds.length > 0) {
-            const { data: enrollments } = await supabase.from("student_batches").select("id").in("batch_id", batchIds).eq("status", "active");
-            courseWiseStudents.push({ name: course.course_name, students: enrollments?.length || 0 });
-          } else {
-            courseWiseStudents.push({ name: course.course_name, students: 0 });
-          }
-        }
-      }
-
-      setStats({
-        totalStudents: studentCount,
-        activeBatches: batchCount,
-        todayAttendance: { present: presentCount, total: totalMarked },
-        monthlyFeeCollection: monthlyTotal,
-        pendingFees: pendingTotal,
-        totalTeachers: teacherCount,
-        activeCourses: courseCount,
-        totalParents: parentCount,
-        newInquiriesThisMonth: newInquiriesCount,
-        recentInquiries: recentInquiries || [],
-        recentPayments: recentPayments || [],
-        upcomingExams: upcomingExams || [],
-        monthlyFeeData: feeData,
-        batchStudentData,
-        inquiryTrendData: inquiryData,
-        feeStatusData,
-        attendanceTrend,
-        courseWiseStudents,
-      });
-    } catch (err) {
-      console.error("Dashboard load error:", err);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  if (loading) {
+  if (isLoading) {
     return (
       <AdminLayout>
         <div className="p-8 text-center">
           <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-primary border-r-transparent" />
           <p className="mt-4 text-secondary font-montserrat">Loading dashboard…</p>
+        </div>
+      </AdminLayout>
+    );
+  }
+
+  if (isError) {
+    return (
+      <AdminLayout>
+        <div className="p-8 text-center text-red-600">
+          Failed to load dashboard data. Please try again later.
         </div>
       </AdminLayout>
     );
@@ -442,7 +267,7 @@ export default function Dashboard() {
         {/* Fee Status (Paid vs Pending) */}
         <div className="bg-white rounded-xl p-5 shadow-sm border border-secondary-light">
           <h3 className="text-lg font-righteous text-primary-dark mb-4">Fee Status (Overall)</h3>
-          {stats.feeStatusData.reduce((s, i) => s + i.value, 0) === 0 ? (
+          {stats.feeStatusData.reduce((sum, item) => sum + item.value, 0) === 0 ? (
             <p className="text-sm text-secondary text-center py-12">No fee data available.</p>
           ) : (
             <ResponsiveContainer width="100%" height={250}>
@@ -517,7 +342,7 @@ export default function Dashboard() {
           columns={["Date", "Student", "Amount", "Mode"]}
           data={stats.recentPayments.map((pay) => [
             pay.payment_date,
-            pay.student_fees?.students ? `${pay.student_fees.students.first_name} ${pay.student_fees.students.last_name}` : "N/A",
+            pay.student_fees?.student ? `${pay.student_fees.student.first_name} ${pay.student_fees.student.last_name}` : "N/A",
             `₹${Number(pay.amount).toLocaleString()}`,
             pay.payment_mode,
           ])}

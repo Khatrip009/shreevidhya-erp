@@ -1,16 +1,46 @@
-# React + Vite
+# ShreeVidhya ERP
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A React, Vite, and Supabase based ERP for ShreeVidhya Academy.
 
-Currently, two official plugins are available:
+## Features
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- Role-based dashboards for admins, teachers, students, and parents
+- Admissions, student profiles, batches, courses, subjects, and mediums
+- Attendance, homework, exams, results, certificates, and progress reports
+- Fees, receipts, income, expenses, tax reports, salaries, and profit/loss
+- Notifications, learning resources, online classes, and AI assistant
 
-## React Compiler
+## Local Setup
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+1. Install dependencies:
 
-## Expanding the ESLint configuration
+```bash
+npm install
+```
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+2. Copy the environment template and fill in local values:
+
+```bash
+cp .env.example .env
+```
+
+3. Start the development server:
+
+```bash
+npm run dev
+```
+
+## Scripts
+
+```bash
+npm run dev
+npm run build
+npm run lint
+npm run preview
+```
+
+## Security Notes
+
+- Keep `.env`, private keys, and Supabase/Jitsi/Groq secrets out of git.
+- Store edge-function secrets in Supabase project secrets.
+- Database schema, migrations, and row-level security policies should be versioned under `supabase/migrations`.

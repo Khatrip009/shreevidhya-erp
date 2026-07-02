@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
 import {
   useInfiniteQuery,
   useMutation,
@@ -20,6 +20,7 @@ import {
 import Papa from "papaparse";
 import AdminLayout from "../layouts/AdminLayout";
 import BatchForm from "../components/BatchForm";
+import { supabase } from "../api/supabase";
 import {
   getBatches,
   createBatch,
@@ -27,7 +28,6 @@ import {
   deleteBatch,
   getAllBatchesForExport,
   getCourseOptions,
-  getTeacherOptions,
   getMediumOptions,
 } from "../services/batchService";
 
@@ -38,7 +38,7 @@ export default function Batches() {
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState({
     course_id: "",
-    teacher_id: "",
+    teacher_id: "",   // still used for filtering via batch_teachers
     status: "",
     medium_id: "",
   });
@@ -68,24 +68,69 @@ export default function Batches() {
 
   const batches = data?.pages.flatMap((page) => page.data) || [];
 
+  // Extract all batch IDs for the teacher lookup
+  const batchIds = useMemo(() => batches.map((b) => b.id), [batches]);
+
+  // Fetch teacher assignments for displayed batches (only when IDs change)
+  const { data: teacherAssignments = [] } = useQuery({
+    queryKey: ["batch-teachers", batchIds],
+    queryFn: async () => {
+      if (batchIds.length === 0) return [];
+      const { data } = await supabase
+        .from("batch_teachers")
+        .select("batch_id, teachers(first_name, last_name)")
+        .in("batch_id", batchIds);
+      return data || [];
+    },
+    enabled: batchIds.length > 0,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  // Build a map: batchId -> teacher names string
+  const teacherMap = useMemo(() => {
+    const map = {};
+    teacherAssignments.forEach((row) => {
+      if (!map[row.batch_id]) map[row.batch_id] = [];
+      if (row.teachers) {
+        map[row.batch_id].push(
+          `${row.teachers.first_name} ${row.teachers.last_name}`
+        );
+      }
+    });
+    // Convert arrays to comma-separated strings
+    for (const key in map) {
+      map[key] = map[key].join(", ");
+    }
+    return map;
+  }, [teacherAssignments]);
+
   // Dropdowns for filters
   const { data: courses = [] } = useQuery({
     queryKey: ["coursesDropdown"],
     queryFn: getCourseOptions,
     staleTime: 10 * 60 * 1000,
   });
+
+  // Teacher dropdown – direct query (no service needed)
   const { data: teachers = [] } = useQuery({
     queryKey: ["teachersDropdown"],
-    queryFn: getTeacherOptions,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("teachers")
+        .select("id, first_name, last_name")
+        .order("first_name");
+      return data || [];
+    },
     staleTime: 10 * 60 * 1000,
   });
+
   const { data: mediums = [] } = useQuery({
     queryKey: ["mediumsDropdown"],
     queryFn: getMediumOptions,
     staleTime: 10 * 60 * 1000,
   });
 
-  // Mutations
+  // Mutations (unchanged)
   const createMutation = useMutation({
     mutationFn: createBatch,
     onSuccess: () => {
@@ -120,7 +165,7 @@ export default function Batches() {
   const [editing, setEditing] = useState(null);
   const fileInputRef = useRef(null);
 
-  // CSV Import
+  // CSV Import (unchanged)
   async function handleCSVImport(event) {
     const file = event.target.files[0];
     if (!file) return;
@@ -134,14 +179,13 @@ export default function Batches() {
             const payload = {
               batch_name: row.batch_name,
               course_id: row.course_id ? Number(row.course_id) : null,
-              teacher_id: row.teacher_id ? Number(row.teacher_id) : null,
               start_date: row.start_date || null,
               end_date: row.end_date || null,
               start_time: row.start_time || null,
               end_time: row.end_time || null,
               capacity: row.capacity ? Number(row.capacity) : null,
               status: row.status || "active",
-              medium_id: row.medium_id ? Number(row.medium_id) : null,   // NEW
+              medium_id: row.medium_id ? Number(row.medium_id) : null,
             };
             await createBatch(payload);
             successCount++;
@@ -156,7 +200,7 @@ export default function Batches() {
     });
   }
 
-  // CSV Export
+  // CSV Export (unchanged)
   async function handleCSVExport() {
     try {
       const allData = await getAllBatchesForExport(allFilters);
@@ -165,7 +209,7 @@ export default function Batches() {
           batch_name: b.batch_name,
           course: b.courses?.course_name,
           medium: b.medium_name || "",
-          teacher: `${b.teachers?.first_name} ${b.teachers?.last_name}`,
+          teachers: teacherMap[b.id] || "",
           start_date: b.start_date,
           end_date: b.end_date,
           start_time: b.start_time,
@@ -352,11 +396,10 @@ export default function Batches() {
                   <tr key={batch.id} className="border-b border-secondary-light hover:bg-primary-bg transition">
                     <td className="p-3 text-sm font-medium">{batch.batch_name}</td>
                     <td className="text-sm">{batch.courses?.course_name || "-"}</td>
+                    <td className="text-sm">{batch.medium_name || "-"}</td>
+                    {/* TEACHER column now uses the map */}
                     <td className="text-sm">
-                      {batch.medium_name || "-"}
-                    </td>
-                    <td className="text-sm">
-                      {batch.teachers ? `${batch.teachers.first_name} ${batch.teachers.last_name}` : "-"}
+                      {teacherMap[batch.id] || "-"}
                     </td>
                     <td className="text-sm">
                       <div>{batch.start_time} - {batch.end_time}</div>

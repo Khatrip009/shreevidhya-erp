@@ -59,10 +59,10 @@ export async function generateAdmissionPdf(studentId) {
     .eq("student_id", studentId)
     .eq("status", "active");
 
-  // ---------- 5. Fee summary ----------
+  // ---------- 5. Fee summary (FIXED: added `id`) ----------
   const { data: fees } = await supabase
     .from("student_fees")
-    .select("final_fee, status, fee_structures(fee_amount)")
+    .select("id, final_fee, status, fee_structures(fee_amount)")   // <-- id added
     .eq("student_id", studentId);
 
   let totalFee = 0;
@@ -73,7 +73,7 @@ export async function generateAdmissionPdf(studentId) {
       const { data: payments } = await supabase
         .from("fee_payments")
         .select("amount")
-        .eq("student_fee_id", f.id);
+        .eq("student_fee_id", f.id);   // now f.id is defined
       paidAmount += payments?.reduce((sum, p) => sum + Number(p.amount), 0) || 0;
     }
   }
@@ -114,15 +114,13 @@ export async function generateAdmissionPdf(studentId) {
   }
 
   // ---------- HEADER (light blue background) ----------
-  doc.setFillColor("#E3F2FD");               // light blue
+  doc.setFillColor("#E3F2FD");
   doc.rect(0, 0, pageWidth, 38, "F");
 
-  // Logo inside header (left)
   if (logoBase64) {
     doc.addImage(logoBase64, "PNG", margin, 5, 28, 28);
   }
 
-  // Academy name & details (dark blue text)
   doc.setFont("times", "bold");
   doc.setFontSize(22);
   doc.setTextColor("#0D47A1");
@@ -151,7 +149,6 @@ export async function generateAdmissionPdf(studentId) {
   doc.text("ADMISSION FORM", pageWidth / 2, y, { align: "center" });
   y += 8;
 
-  // Horizontal line
   doc.setDrawColor("#0D47A1");
   doc.setLineWidth(0.6);
   doc.line(margin, y, pageWidth - margin, y);
@@ -186,7 +183,6 @@ export async function generateAdmissionPdf(studentId) {
     infoRows.push(["Medium", mediumName.toUpperCase()]);
   }
 
-  // Reduce margin for the table so photo on the right doesn't overlap
   const tableMarginLeft = margin;
   const tableMarginRight = photoBase64 ? pageWidth - margin - 32 : margin;
 
@@ -203,14 +199,6 @@ export async function generateAdmissionPdf(studentId) {
       1: { cellWidth: "auto" },
     },
     margin: { left: tableMarginLeft, right: tableMarginRight },
-    didParseCell: function (data) {
-      // Make label column background light blue
-      if (data.column.index === 0) {
-        data.cell.styles.fillColor = "#E3F2FD";
-        data.cell.styles.textColor = "#0D47A1";
-        data.cell.styles.fontStyle = "bold";
-      }
-    },
   });
   y = doc.lastAutoTable.finalY + 10;
 
@@ -242,10 +230,7 @@ export async function generateAdmissionPdf(studentId) {
         },
         margin: { left: margin, right: margin },
         showHead: false,
-        // Add a small header above the table
-        didDrawPage: function () {}, // not needed
       });
-      // Add a section heading just before the table
       doc.setFont("times", "bold");
       doc.setFontSize(13);
       doc.setTextColor("#0D47A1");
@@ -341,7 +326,6 @@ export async function generateAdmissionPdf(studentId) {
   doc.text("SIGNATURES", margin, y);
   y += 12;
 
-  // Authorised signatory (left)
   doc.setDrawColor("#0D47A1");
   doc.line(margin, y, margin + 60, y);
   doc.setFont("helvetica", "normal");
@@ -349,7 +333,6 @@ export async function generateAdmissionPdf(studentId) {
   doc.setTextColor("#333");
   doc.text("AUTHORISED SIGNATORY", margin + 30, y + 5, { align: "center" });
 
-  // Parent signature (right)
   doc.line(pageWidth - margin - 60, y, pageWidth - margin, y);
   doc.text("PARENT / GUARDIAN", pageWidth - margin - 30, y + 5, { align: "center" });
 
@@ -360,7 +343,6 @@ export async function generateAdmissionPdf(studentId) {
   doc.setTextColor("#999");
   doc.text(`This is a computer-generated document issued by ${academyName}.`, pageWidth / 2, footerY, { align: "center" });
 
-  // Page numbers
   const pageCount = doc.getNumberOfPages();
   for (let i = 1; i <= pageCount; i++) {
     doc.setPage(i);
@@ -368,6 +350,5 @@ export async function generateAdmissionPdf(studentId) {
     doc.text(`Page ${i} of ${pageCount}`, pageWidth - margin, footerY, { align: "right" });
   }
 
-  // ---------- SAVE ----------
   doc.save(`Admission_${student.admission_no || studentId}.pdf`);
 }

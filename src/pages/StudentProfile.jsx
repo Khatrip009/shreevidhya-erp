@@ -1,5 +1,6 @@
+import { useState } from "react";
 import { useParams, Link } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   UserCircle2,
   Phone,
@@ -20,12 +21,17 @@ import {
 import AdminLayout from "../layouts/AdminLayout";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../api/supabase";
+import StudentForm from "../components/StudentForm";
 
 const formatCurrency = (amount) => `₹${Number(amount).toLocaleString("en-IN")}`;
 
 export default function StudentProfile() {
   const { id } = useParams();
   const { user } = useAuth();
+  const queryClient = useQueryClient();
+
+  // Local state for editing modal
+  const [editingStudent, setEditingStudent] = useState(null);
 
   // Resolve student ID (from URL or from logged-in student)
   const { data: resolvedStudentId, isLoading: resolving } = useQuery({
@@ -73,7 +79,6 @@ export default function StudentProfile() {
         .select("relation, parents(*)")
         .eq("student_id", targetId);
       if (error) throw error;
-      // Filter out any null parents entries
       return (data || [])
         .filter((item) => item.parents !== null)
         .map((item) => item.parents);
@@ -252,13 +257,14 @@ export default function StudentProfile() {
               </span>
             </div>
           </div>
+          {/* Working Edit button */}
           {id && (
-            <Link
-              to={`/students/${student.id}`}
+            <button
+              onClick={() => setEditingStudent(student)}
               className="text-xs bg-primary text-white px-3 py-1.5 rounded-lg hover:bg-primary-light"
             >
               Edit
-            </Link>
+            </button>
           )}
         </div>
       </div>
@@ -427,6 +433,19 @@ export default function StudentProfile() {
           </div>
         </div>
       </div>
+
+      {/* StudentForm modal for editing */}
+      {editingStudent && (
+        <StudentForm
+          initialData={editingStudent}
+          onSuccess={() => {
+            queryClient.invalidateQueries({ queryKey: ["student", targetId] });
+            queryClient.invalidateQueries({ queryKey: ["students"] });
+            setEditingStudent(null);
+          }}
+          onClose={() => setEditingStudent(null)}
+        />
+      )}
     </AdminLayout>
   );
 }

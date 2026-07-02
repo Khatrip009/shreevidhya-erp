@@ -3,7 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { SignJWT, importPKCS8 } from "https://esm.sh/jose@5";
 
 const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Origin": Deno.env.get("ALLOWED_ORIGIN") || "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Authorization",
 };
@@ -48,9 +48,6 @@ Deno.serve(async (req: Request) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-
-    console.log("kid used:", keyId);
-    console.log("Private Key starts with:", privateKeyPem.substring(0, 30));
 
     const cleanedKey = privateKeyPem
       .replace(/\\n/g, "\n")
@@ -101,7 +98,6 @@ Deno.serve(async (req: Request) => {
       })
       .sign(privateKey);
 
-    console.log("JWT generated successfully with kid:", keyId);
     return new Response(JSON.stringify({ token: jwt }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

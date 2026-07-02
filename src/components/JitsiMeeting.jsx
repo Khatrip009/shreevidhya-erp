@@ -40,7 +40,7 @@ const JitsiMeeting = ({ roomName, displayName, onMeetingEnd, onParticipantJoined
       };
 
       try {
-        const api = new JitsiMeetExternalAPI(domain, options);
+        const api = new window.JitsiMeetExternalAPI(domain, options);
 
         api.addEventListener('videoConferenceJoined', () => {
           console.log('Joined conference');

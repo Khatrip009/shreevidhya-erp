@@ -1,4 +1,5 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import {
   X,
@@ -9,11 +10,13 @@ import {
   Star,
   MessageSquareText,
   Filter,
+  BarChart3,
 } from "lucide-react";
 import {
   getActiveBatches,
   getStudentsByBatch,
   getMediumOptions,
+  getProgressEvaluations,
 } from "../services/progressService";
 import { useOrgDarkLogo } from "../hooks/useOrgDarkLogo";
 
@@ -38,17 +41,33 @@ export default function ProgressEvaluationForm({
     teacher_remarks: initialData.teacher_remarks || "",
   });
 
+  // Load dropdowns once
   useEffect(() => {
     loadDropdowns();
   }, []);
 
+  // If editing, preselect medium based on the existing batch
   useEffect(() => {
-    if (form.batch_id) {
+    if (initialData.batch_id && batches.length > 0) {
+      const batch = batches.find((b) => b.id == initialData.batch_id);
+      if (batch) {
+        setSelectedMediumId(batch.medium_id ? String(batch.medium_id) : "");
+      }
+    }
+  }, [initialData.batch_id, batches]);
+
+  // When batch changes, update medium and load students
+  useEffect(() => {
+    if (form.batch_id && batches.length > 0) {
+      const batch = batches.find((b) => b.id == form.batch_id);
+      if (batch) {
+        setSelectedMediumId(batch.medium_id ? String(batch.medium_id) : "");
+      }
       loadStudents(form.batch_id);
     } else {
       setStudents([]);
     }
-  }, [form.batch_id]);
+  }, [form.batch_id, batches]);
 
   async function loadDropdowns() {
     try {
@@ -76,9 +95,38 @@ export default function ProgressEvaluationForm({
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
   }
 
-  // Filter batches by selected medium
-  const filteredBatches = batches.filter((b) =>
-    !selectedMediumId ? true : b.medium_id === parseInt(selectedMediumId)
+  // Fetch previous evaluations for the selected student
+  const { data: studentEvals = [] } = useQuery({
+    queryKey: ["student-evaluations", form.student_id],
+    queryFn: async () => {
+      if (!form.student_id) return [];
+      const { data } = await getProgressEvaluations({
+        pageParam: 0,
+        filters: { student_id: form.student_id, pageSize: 100 },
+      });
+      return data || [];
+    },
+    enabled: !!form.student_id,
+    staleTime: 1 * 60 * 1000,
+  });
+
+  // Auto‑compute averages
+  const averages = useMemo(() => {
+    const valid = studentEvals.filter(
+      (e) => e.attendance_percentage != null && e.performance_score != null
+    );
+    if (valid.length === 0) return { avgAtt: "—", avgScore: "—" };
+    const totalAtt = valid.reduce((s, e) => s + Number(e.attendance_percentage), 0);
+    const totalScore = valid.reduce((s, e) => s + Number(e.performance_score), 0);
+    return {
+      avgAtt: (totalAtt / valid.length).toFixed(1) + "%",
+      avgScore: (totalScore / valid.length).toFixed(1),
+    };
+  }, [studentEvals]);
+
+  // Filter batches by selected medium (but keep current batch visible even if it doesn't match)
+  const filteredBatches = batches.filter(
+    (b) => !selectedMediumId || b.medium_id == selectedMediumId || b.id == form.batch_id
   );
 
   async function handleSubmit(e) {
@@ -105,9 +153,9 @@ export default function ProgressEvaluationForm({
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl w-full max-w-lg shadow-xl">
-        {/* Header with logo */}
-        <div className="sticky top-0 bg-white border-b border-secondary-light px-6 py-4 flex items-center justify-between rounded-t-xl">
+      <div className="bg-white rounded-xl w-full max-w-lg max-h-[90vh] flex flex-col shadow-xl">
+        {/* Header */}
+        <div className="flex-shrink-0 bg-white border-b border-secondary-light px-6 py-4 flex items-center justify-between rounded-t-xl">
           <div className="flex items-center gap-3">
             <img
               src={darkLogo}
@@ -126,31 +174,9 @@ export default function ProgressEvaluationForm({
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-5">
-          {/* Medium Filter – NEW */}
-          <div>
-            <label className="block text-sm font-montserrat text-secondary-dark mb-1">
-              <Filter size={14} className="inline mr-1" />
-              Medium
-            </label>
-            <select
-              value={selectedMediumId}
-              onChange={(e) => {
-                setSelectedMediumId(e.target.value);
-                setForm((prev) => ({ ...prev, batch_id: "", student_id: "" }));
-              }}
-              className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
-            >
-              <option value="">All Mediums</option>
-              {mediums.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Batch */}
+        {/* Scrollable form */}
+        <div className="flex-1 overflow-y-auto p-6 space-y-5">
+          {/* Batch first */}
           <div>
             <label className="block text-sm font-montserrat text-secondary-dark mb-1">
               <Layers size={14} className="inline mr-1" />
@@ -167,6 +193,35 @@ export default function ProgressEvaluationForm({
               {filteredBatches.map((b) => (
                 <option key={b.id} value={b.id}>
                   {b.batch_name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Medium filter (below batch) */}
+          <div>
+            <label className="block text-sm font-montserrat text-secondary-dark mb-1">
+              <Filter size={14} className="inline mr-1" />
+              Medium
+            </label>
+            <select
+              value={selectedMediumId}
+              onChange={(e) => {
+                setSelectedMediumId(e.target.value);
+                // Don't clear batch if it still matches the new medium
+                if (form.batch_id && e.target.value) {
+                  const batch = batches.find((b) => b.id == form.batch_id);
+                  if (batch && batch.medium_id != e.target.value) {
+                    setForm((prev) => ({ ...prev, batch_id: "", student_id: "" }));
+                  }
+                }
+              }}
+              className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
+            >
+              <option value="">All Mediums</option>
+              {mediums.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name}
                 </option>
               ))}
             </select>
@@ -194,6 +249,25 @@ export default function ProgressEvaluationForm({
               ))}
             </select>
           </div>
+
+          {/* Auto Averages */}
+          {form.student_id && (
+            <div className="bg-gray-50 p-3 rounded-lg border border-secondary-light">
+              <p className="text-xs font-medium text-secondary-dark mb-2 flex items-center gap-1">
+                <BarChart3 size={14} /> Student Averages (from previous evaluations)
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="text-center">
+                  <p className="text-sm font-bold text-primary-dark">{averages.avgAtt}</p>
+                  <p className="text-xs text-secondary-light">Avg Attendance</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-sm font-bold text-primary-dark">{averages.avgScore}</p>
+                  <p className="text-xs text-secondary-light">Avg Score</p>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Evaluation Date */}
           <div>
@@ -264,24 +338,25 @@ export default function ProgressEvaluationForm({
               className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light resize-none"
             />
           </div>
+        </div>
 
-          {/* Buttons */}
-          <div className="flex flex-col sm:flex-row-reverse gap-3 pt-2">
-            <button
-              type="submit"
-              className="w-full sm:w-auto bg-primary hover:bg-primary-light text-white px-6 py-2.5 rounded-lg font-montserrat transition flex items-center justify-center gap-2"
-            >
-              {initialData.id ? "Update Evaluation" : "Save Evaluation"}
-            </button>
-            <button
-              type="button"
-              onClick={onClose}
-              className="w-full sm:w-auto border border-secondary-light text-secondary-dark hover:bg-secondary-bg px-6 py-2.5 rounded-lg font-montserrat transition"
-            >
-              Cancel
-            </button>
-          </div>
-        </form>
+        {/* Footer buttons */}
+        <div className="flex-shrink-0 border-t border-secondary-light px-6 py-4 flex flex-col sm:flex-row-reverse gap-3 rounded-b-xl">
+          <button
+            type="submit"
+            onClick={handleSubmit}
+            className="w-full sm:w-auto bg-primary hover:bg-primary-light text-white px-6 py-2.5 rounded-lg font-montserrat transition flex items-center justify-center gap-2"
+          >
+            {initialData.id ? "Update Evaluation" : "Save Evaluation"}
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-full sm:w-auto border border-secondary-light text-secondary-dark hover:bg-secondary-bg px-6 py-2.5 rounded-lg font-montserrat transition"
+          >
+            Cancel
+          </button>
+        </div>
       </div>
     </div>
   );

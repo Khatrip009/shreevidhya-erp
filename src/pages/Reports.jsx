@@ -29,6 +29,7 @@ const CATEGORIES = {
     reports: [
       'attendance_summary',
       'student_attendance_pct',
+      'student_attendance_detail',
       'homework_submissions',
       'exam_results',
       'student_progress',
@@ -87,10 +88,6 @@ export default function Reports() {
   const { profile } = useAuth();
   const [search, setSearch] = useState('');
 
-  if (!profile || !['admin', 'super_admin'].includes(profile.role)) {
-    return <Navigate to="/" replace />;
-  }
-
   const filteredCategories = useMemo(() => {
     const term = search.toLowerCase().trim();
     return Object.entries(CATEGORIES).map(([key, cat]) => {
@@ -105,6 +102,10 @@ export default function Reports() {
       return { ...cat, key, reports: filteredReports };
     }).filter(cat => cat.reports.length > 0);
   }, [search]);
+
+  if (!profile || !['admin', 'super_admin'].includes(profile.role)) {
+    return <Navigate to="/" replace />;
+  }
 
   return (
     <AdminLayout>

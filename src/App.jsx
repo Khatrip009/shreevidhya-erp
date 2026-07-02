@@ -80,18 +80,17 @@ import OnlineClassList from "./pages/OnlineClassList";
 import CreateOnlineClass from "./components/CreateOnlineClass";
 import JoinOnlineClass from "./components/JoinOnlineClass";
 
-function App() {
-  // Report wrapper – reads :reportId from URL and decides which page to show
-  const ReportPageWrapper = () => {
-    const { reportId } = useParams();
-    const config = getReportConfig(reportId);
-    if (!config) return <NotFound />;
-    if (config.reportType === 'document') {
-      return <DocumentReportPage reportId={reportId} />;
-    }
-    return <ReportPage reportId={reportId} />;
-  };
+function ReportPageWrapper() {
+  const { reportId } = useParams();
+  const config = getReportConfig(reportId);
+  if (!config) return <NotFound />;
+  if (config.reportType === 'document') {
+    return <DocumentReportPage reportId={reportId} />;
+  }
+  return <ReportPage reportId={reportId} />;
+}
 
+function App() {
   return (
     <ErrorBoundary>
       <Routes>

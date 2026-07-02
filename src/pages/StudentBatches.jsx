@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useMemo } from "react";
 import {
   useInfiniteQuery,
   useMutation,
@@ -20,7 +20,7 @@ import {
 import Papa from "papaparse";
 import AdminLayout from "../layouts/AdminLayout";
 import AssignBatchModal from "../components/AssignBatchModal";
-import { supabase } from "../api/supabase"; // NEW – for fetching mediums locally
+import { supabase } from "../api/supabase";
 import {
   getStudentBatches,
   assignStudentToBatch,
@@ -39,7 +39,7 @@ export default function StudentBatches() {
   const [filters, setFilters] = useState({
     batch_id: "",
     course_id: "",
-    medium_id: "", // NEW
+    medium_id: "",
     status: "",
   });
   const [showFilters, setShowFilters] = useState(false);
@@ -73,17 +73,28 @@ export default function StudentBatches() {
   const assignments = data?.pages.flatMap((page) => page.data) || [];
 
   // ---- Dropdowns for filters ----
+  // 1. Batches with medium included
   const { data: batches = [] } = useQuery({
-    queryKey: ["activeBatches"],
-    queryFn: getActiveBatches,
+    queryKey: ["activeBatchesWithMedium"],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("batches")
+        .select("id, batch_name, medium_id, mediums(name)")
+        .eq("status", "active")
+        .order("batch_name");
+      return data || [];
+    },
     staleTime: 10 * 60 * 1000,
   });
+
+  // 2. Courses
   const { data: courses = [] } = useQuery({
     queryKey: ["coursesFilter"],
     queryFn: getCoursesForFilter,
     staleTime: 10 * 60 * 1000,
   });
-  // NEW: fetch mediums for filter dropdown
+
+  // 3. Mediums for the separate filter dropdown
   const { data: mediums = [] } = useQuery({
     queryKey: ["mediums"],
     queryFn: async () => {
@@ -95,6 +106,15 @@ export default function StudentBatches() {
     },
     staleTime: 10 * 60 * 1000,
   });
+
+  // Build a lookup map: batch_id -> medium name
+  const mediumMap = useMemo(() => {
+    const map = {};
+    batches.forEach((b) => {
+      map[b.id] = b.mediums?.name || "";
+    });
+    return map;
+  }, [batches]);
 
   // ---- Mutations ----
   const assignMutation = useMutation({
@@ -172,7 +192,7 @@ export default function StudentBatches() {
           student: `${a.students?.first_name} ${a.students?.last_name}`,
           admission_no: a.students?.admission_no,
           batch: a.batches?.batch_name,
-          medium: a.medium_name || "", // NEW – medium name from service
+          medium: mediumMap[a.batch_id] || "",
           course: a.batches?.courses?.course_name,
           enrollment_date: a.enrollment_date,
           status: a.status,
@@ -310,7 +330,6 @@ export default function StudentBatches() {
               ))}
             </select>
           </div>
-          {/* NEW: Medium filter */}
           <div>
             <label className="text-xs font-montserrat text-secondary-dark">
               Medium
@@ -380,7 +399,7 @@ export default function StudentBatches() {
                 </th>
                 <th className="text-left text-sm font-montserrat text-secondary-dark">
                   Medium
-                </th> {/* NEW */}
+                </th>
                 <th className="text-left text-sm font-montserrat text-secondary-dark">
                   Course
                 </th>
@@ -434,10 +453,10 @@ export default function StudentBatches() {
                     <td className="text-sm">
                       {assignment.batches?.batch_name}
                     </td>
+                    {/* Fixed medium column using lookup map */}
                     <td className="text-sm">
-                      {assignment.medium_name || "—"}
-                    </td>{" "}
-                    {/* NEW */}
+                      {mediumMap[assignment.batch_id] || "—"}
+                    </td>
                     <td className="text-sm">
                       {assignment.batches?.courses?.course_name || "-"}
                     </td>

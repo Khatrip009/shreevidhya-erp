@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { Navigate, useParams, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
   ArrowLeft, Award, Calendar, Layers, FileText,
@@ -13,12 +13,7 @@ export default function ViewResults() {
   const { examId } = useParams();
   const navigate = useNavigate();
   const [search, setSearch] = useState("");
-
-  // Redirect if examId is missing or the literal string "undefined"
-  if (!examId || examId === "undefined") {
-    navigate("/results", { replace: true });
-    return null;
-  }
+  const hasValidExamId = !!examId && examId !== "undefined";
 
   const {
     data: exam,
@@ -27,13 +22,13 @@ export default function ViewResults() {
   } = useQuery({
     queryKey: ["exam", examId],
     queryFn: () => getExamById(examId),
-    enabled: !!examId && examId !== "undefined",
+    enabled: hasValidExamId,
   });
 
   const { data: results = [], isLoading: resultsLoading } = useQuery({
     queryKey: ["results", examId],
     queryFn: () => getResultsByExam(examId),
-    enabled: !!examId && examId !== "undefined",
+    enabled: hasValidExamId,
   });
 
   const courseName = exam?.batches?.courses?.course_name || "-";
@@ -67,6 +62,10 @@ export default function ViewResults() {
     a.download = `results_${exam?.exam_name || examId}.csv`;
     a.click();
     URL.revokeObjectURL(url);
+  }
+
+  if (!hasValidExamId) {
+    return <Navigate to="/results" replace />;
   }
 
   if (examLoading || resultsLoading) {

@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useMemo } from "react";
 import {
   useInfiniteQuery,
   useMutation,
@@ -36,14 +36,14 @@ export default function ProgressEvaluations() {
 
   // Filters
   const [batchFilter, setBatchFilter] = useState("");
-  const [mediumFilter, setMediumFilter] = useState("");  // NEW
+  const [mediumFilter, setMediumFilter] = useState("");
   const [search, setSearch] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [showFilters, setShowFilters] = useState(false);
   const allFilters = {
     batchId: batchFilter,
-    medium_id: mediumFilter,   // NEW
+    medium_id: mediumFilter,
     search,
     startDate,
     endDate,
@@ -90,6 +90,20 @@ export default function ProgressEvaluations() {
   });
 
   const evaluations = data?.pages.flatMap((page) => page.data) || [];
+
+  // Auto-computed averages
+  const averages = useMemo(() => {
+    const items = evaluations.filter(
+      (e) => e.attendance_percentage != null && e.performance_score != null
+    );
+    if (items.length === 0) return { avgAttendance: "—", avgScore: "—" };
+    const totalAtt = items.reduce((sum, e) => sum + Number(e.attendance_percentage), 0);
+    const totalScore = items.reduce((sum, e) => sum + Number(e.performance_score), 0);
+    return {
+      avgAttendance: (totalAtt / items.length).toFixed(1) + "%",
+      avgScore: (totalScore / items.length).toFixed(1),
+    };
+  }, [evaluations]);
 
   // Mutations
   const createMutation = useMutation({
@@ -163,7 +177,7 @@ export default function ProgressEvaluations() {
           admission_no: e.students?.admission_no,
           batch: e.batches?.batch_name,
           course: e.batches?.courses?.course_name,
-          medium: e.medium_name || "",          // NEW
+          medium: e.medium_name || "",
           evaluation_date: e.evaluation_date,
           attendance_percentage: e.attendance_percentage,
           performance_score: e.performance_score,
@@ -273,7 +287,6 @@ export default function ProgressEvaluations() {
               ))}
             </select>
           </div>
-          {/* NEW: Medium filter */}
           <div>
             <label className="text-xs font-montserrat text-secondary-dark">Medium</label>
             <select
@@ -324,6 +337,28 @@ export default function ProgressEvaluations() {
         </div>
       )}
 
+      {/* Averages Summary Card */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+        <div className="bg-white rounded-xl p-4 shadow-sm border border-secondary-light flex items-center justify-between">
+          <div>
+            <p className="text-xs font-montserrat text-secondary">Average Attendance</p>
+            <p className="text-2xl font-bold text-primary-dark mt-1">{averages.avgAttendance}</p>
+          </div>
+          <div className="p-3 rounded-full bg-blue-50">
+            <Calendar size={22} className="text-blue-600" />
+          </div>
+        </div>
+        <div className="bg-white rounded-xl p-4 shadow-sm border border-secondary-light flex items-center justify-between">
+          <div>
+            <p className="text-xs font-montserrat text-secondary">Average Score</p>
+            <p className="text-2xl font-bold text-primary-dark mt-1">{averages.avgScore}</p>
+          </div>
+          <div className="p-3 rounded-full bg-emerald-50">
+            <TrendingUp size={22} className="text-emerald-600" />
+          </div>
+        </div>
+      </div>
+
       {/* Evaluations Table */}
       <div className="bg-white rounded-xl shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
@@ -332,7 +367,7 @@ export default function ProgressEvaluations() {
               <tr>
                 <th className="p-3 text-left text-sm font-montserrat text-secondary-dark">Student</th>
                 <th className="text-left text-sm font-montserrat text-secondary-dark">Batch</th>
-                <th className="text-left text-sm font-montserrat text-secondary-dark">Medium</th> {/* NEW */}
+                <th className="text-left text-sm font-montserrat text-secondary-dark">Medium</th>
                 <th className="text-left text-sm font-montserrat text-secondary-dark">Date</th>
                 <th className="text-left text-sm font-montserrat text-secondary-dark">Attendance %</th>
                 <th className="text-left text-sm font-montserrat text-secondary-dark">Score</th>
@@ -342,71 +377,30 @@ export default function ProgressEvaluations() {
             </thead>
             <tbody>
               {isLoading ? (
-                <tr>
-                  <td colSpan={8} className="p-6 text-center text-secondary">Loading evaluations…</td>
-                </tr>
+                <tr><td colSpan={8} className="p-6 text-center text-secondary">Loading evaluations…</td></tr>
               ) : evaluations.length === 0 ? (
-                <tr>
-                  <td colSpan={8} className="p-6 text-center text-secondary">
-                    <div className="flex flex-col items-center gap-2">
-                      <TrendingUp size={32} className="text-secondary-light" />
-                      <span>No evaluations found</span>
-                      <span className="text-xs text-secondary-light">
-                        {search || batchFilter || mediumFilter || startDate || endDate
-                          ? "Try adjusting your filters"
-                          : "Add a new evaluation to get started"}
-                      </span>
-                    </div>
-                  </td>
-                </tr>
+                <tr><td colSpan={8} className="p-6 text-center text-secondary">
+                  <div className="flex flex-col items-center gap-2">
+                    <TrendingUp size={32} className="text-secondary-light" />
+                    <span>No evaluations found</span>
+                    <span className="text-xs text-secondary-light">
+                      {search || batchFilter || mediumFilter || startDate || endDate
+                        ? "Try adjusting your filters"
+                        : "Add a new evaluation to get started"}
+                    </span>
+                  </div>
+                </td></tr>
               ) : (
                 evaluations.map((evalItem) => (
-                  <tr
-                    key={evalItem.id}
-                    className="border-b border-secondary-light hover:bg-primary-bg transition"
-                  >
-                    <td className="p-3 text-sm">
-                      <div className="font-medium">
-                        {evalItem.students?.first_name} {evalItem.students?.last_name}
-                      </div>
-                      <div className="text-xs text-secondary-light">
-                        {evalItem.students?.admission_no}
-                      </div>
-                    </td>
+                  <tr key={evalItem.id} className="border-b border-secondary-light hover:bg-primary-bg transition">
+                    <td className="p-3 text-sm"><div className="font-medium">{evalItem.students?.first_name} {evalItem.students?.last_name}</div><div className="text-xs text-secondary-light">{evalItem.students?.admission_no}</div></td>
                     <td className="text-sm">{evalItem.batches?.batch_name}</td>
-                    <td className="text-sm">{evalItem.medium_name || "—"}</td>  {/* NEW */}
+                    <td className="text-sm">{evalItem.medium_name || "—"}</td>
                     <td className="text-sm">{evalItem.evaluation_date}</td>
-                    <td className="text-sm">
-                      {evalItem.attendance_percentage != null
-                        ? `${evalItem.attendance_percentage}%`
-                        : "-"}
-                    </td>
-                    <td className="text-sm">
-                      {evalItem.performance_score != null
-                        ? evalItem.performance_score
-                        : "-"}
-                    </td>
-                    <td className="text-sm max-w-[200px] truncate">
-                      {evalItem.teacher_remarks || "-"}
-                    </td>
-                    <td className="text-sm">
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => setEditing(evalItem)}
-                          className="text-blue-600 hover:underline"
-                          title="Edit"
-                        >
-                          <Edit3 size={15} />
-                        </button>
-                        <button
-                          onClick={() => handleDelete(evalItem.id)}
-                          className="text-red-600 hover:underline"
-                          title="Delete"
-                        >
-                          <Trash2 size={15} />
-                        </button>
-                      </div>
-                    </td>
+                    <td className="text-sm">{evalItem.attendance_percentage != null ? `${evalItem.attendance_percentage}%` : "-"}</td>
+                    <td className="text-sm">{evalItem.performance_score != null ? evalItem.performance_score : "-"}</td>
+                    <td className="text-sm max-w-[200px] truncate">{evalItem.teacher_remarks || "-"}</td>
+                    <td className="text-sm"><div className="flex gap-2"><button onClick={() => setEditing(evalItem)} className="text-blue-600 hover:underline" title="Edit"><Edit3 size={15} /></button><button onClick={() => handleDelete(evalItem.id)} className="text-red-600 hover:underline" title="Delete"><Trash2 size={15} /></button></div></td>
                   </tr>
                 ))
               )}
