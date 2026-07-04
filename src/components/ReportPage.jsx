@@ -1,8 +1,8 @@
 // src/components/ReportPage.jsx
 import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Navigate } from 'react-router-dom';
-import { FileDown, BarChart3, RotateCcw, Printer } from 'lucide-react';
+import { Navigate, Link } from 'react-router-dom';   // add Link
+import { FileDown, BarChart3, RotateCcw, Printer, ArrowLeft } from 'lucide-react';
 import { fetchReportData } from '../services/reportService';
 import { getReportConfig } from '../utils/reportConfig';
 import { exportToPDF, exportToExcel } from '../utils/reportExport';
@@ -12,7 +12,7 @@ import { supabase } from '../api/supabase';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts';
-import AdminLayout from "../layouts/AdminLayout"
+
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                           */
 /* ------------------------------------------------------------------ */
@@ -267,8 +267,12 @@ export default function ReportPage({ reportId }) {
 
   /* ---------- UI ---------- */
   return (
-    <AdminLayout>
+    
     <div className="p-4 md:p-6 max-w-7xl mx-auto space-y-6">
+       {/* Back button */}
+      <Link to="/reports" className="inline-flex items-center gap-2 text-secondary hover:text-primary-dark mb-2 font-montserrat text-sm">
+        <ArrowLeft size={18} /> Back to Reports
+      </Link>
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
@@ -433,6 +437,6 @@ export default function ReportPage({ reportId }) {
         </p>
       )}
     </div>
-    </AdminLayout>
+    
   );
 }

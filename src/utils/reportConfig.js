@@ -1465,14 +1465,14 @@ export const reportTypes = {
   },
 
   // ========== DOCUMENT REPORTS ==========
-  admission_form: {
+admission_form: {
     id: 'admission_form',
     title: 'Admission Form',
     description: 'Printable student admission form with full details',
     reportType: 'document',
     documentComponent: AdmissionFormDocument,
     fields: ['course_id', 'batch_id', 'medium_id', 'student_id'],
-    recordQuery: (filters) => {
+    recordQuery: async (filters) => {                          // ← async
       let q = supabase
         .from('students')
         .select(`
@@ -1482,28 +1482,76 @@ export const reportTypes = {
           student_batches ( enrollment_date, batches ( batch_name, courses ( course_name ) ) ),
           student_fees ( final_fee, status, deleted_at, fee_payments ( amount ) )
         `);
-      if (filters.student_id) q = q.eq('id', filters.student_id);
-      if (filters.batch_id || filters.course_id || filters.medium_id) {
-        let subQuery = supabase
-          .from('student_batches')
-          .select('student_id')
-          .eq('status', 'active');
 
-        if (filters.batch_id) subQuery = subQuery.eq('batch_id', filters.batch_id);
+      if (filters.student_id) q = q.eq('id', filters.student_id);
+
+      // Build list of matching student IDs from batch/course/medium
+      if (filters.batch_id || filters.course_id || filters.medium_id) {
+        let studentIds = null;
+
+        // Filter by batch
+        if (filters.batch_id) {
+          const { data } = await supabase
+            .from('student_batches')
+            .select('student_id')
+            .eq('batch_id', filters.batch_id)
+            .eq('status', 'active');
+          studentIds = (data || []).map((r) => r.student_id);
+        }
+
+        // Filter by course (via batches)
         if (filters.course_id) {
-          subQuery = subQuery.in(
-            'batch_id',
-            supabase.from('batches').select('id').eq('course_id', filters.course_id)
-          );
+          const { data: batchRows } = await supabase
+            .from('batches')
+            .select('id')
+            .eq('course_id', filters.course_id);
+          const batchIds = (batchRows || []).map((b) => b.id);
+          if (batchIds.length > 0) {
+            const { data } = await supabase
+              .from('student_batches')
+              .select('student_id')
+              .in('batch_id', batchIds)
+              .eq('status', 'active');
+            const courseIds = (data || []).map((r) => r.student_id);
+            studentIds = studentIds
+              ? studentIds.filter((id) => courseIds.includes(id))
+              : courseIds;
+          } else {
+            studentIds = [];
+          }
         }
+
+        // Filter by medium (via batches)
         if (filters.medium_id) {
-          subQuery = subQuery.in(
-            'batch_id',
-            supabase.from('batches').select('id').eq('medium_id', filters.medium_id)
-          );
+          const { data: batchRows } = await supabase
+            .from('batches')
+            .select('id')
+            .eq('medium_id', filters.medium_id);
+          const batchIds = (batchRows || []).map((b) => b.id);
+          if (batchIds.length > 0) {
+            const { data } = await supabase
+              .from('student_batches')
+              .select('student_id')
+              .in('batch_id', batchIds)
+              .eq('status', 'active');
+            const mediumIds = (data || []).map((r) => r.student_id);
+            studentIds = studentIds
+              ? studentIds.filter((id) => mediumIds.includes(id))
+              : mediumIds;
+          } else {
+            studentIds = [];
+          }
         }
-        q = q.in('id', subQuery);
+
+        // Apply the list of student IDs
+        if (studentIds && studentIds.length > 0) {
+          q = q.in('id', studentIds);
+        } else {
+          // No students match these filters – return empty result
+          return { data: [], error: null };
+        }
       }
+
       return q.order('admission_no');
     },
     recordTransform: (row) => ({

@@ -1,6 +1,7 @@
 // src/utils/reportDocuments.jsx
 import React from 'react';
 
+
 /* ------------------------------------------------------------------ */
 /*  Number‑to‑words helper (Indian English)                            */
 /* ------------------------------------------------------------------ */
@@ -60,6 +61,7 @@ export function ReportFooter() {
 }
 
 // ---------- ADMISSION FORM ----------
+// ---------- ADMISSION FORM (matches PDF layout) ----------
 export function AdmissionFormDocument({ data, org }) {
   const student = data;
   const parents = student.parents || [];
@@ -69,65 +71,176 @@ export function AdmissionFormDocument({ data, org }) {
   const paidFee = fees.reduce((s, f) => s + (f.paid || 0), 0);
   const pendingFee = totalFee - paidFee;
 
-  return (
-    <div style={styles.container} className="print-area">
-      <ReportHeader org={org} />
-      <div style={styles.title}>ADMISSION FORM</div>
+  // Base style (similar to PDF dimensions)
+  const pageStyle = {
+    maxWidth: '210mm',
+    margin: '0 auto',
+    padding: '20px',
+    fontFamily: 'Montserrat, sans-serif',
+    backgroundColor: '#fff',
+    position: 'relative',
+  };
 
-      <div style={styles.photoFrame}>
-        {student.photo_url ? <img src={student.photo_url} style={{ width:'100%', height:'100%', objectFit:'cover' }} /> : 'Photo'}
+  const headerBg = { backgroundColor: '#E3F2FD', padding: '15px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderRadius: '8px', marginBottom: '20px' };
+  const sectionTitle = { fontSize: '16px', fontWeight: 'bold', color: '#0D47A1', borderBottom: '2px solid #0D47A1', paddingBottom: '4px', margin: '20px 0 10px' };
+
+  return (
+    <div style={pageStyle} className="print-area">
+      {/* ── HEADER ── */}
+      <div style={headerBg}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+          <img src={org?.logo_dark_url || '/ShreeVidhyaDark.png'} style={{ height: '50px' }} alt="Logo" />
+          <div>
+            <h1 style={{ margin: 0, fontSize: '22px', color: '#0D47A1', fontWeight: 'bold' }}>
+              {org?.company_name?.toUpperCase() || 'SHREEVIDHYA ACADEMY'}
+            </h1>
+            <div style={{ fontSize: '10px', color: '#1A237E', marginTop: '4px' }}>
+              {org?.address && <div>{org.address}</div>}
+              {org?.phone && <div>Ph: {org.phone}</div>}
+              {org?.email && <div>Email: {org.email}</div>}
+            </div>
+          </div>
+        </div>
+        <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#0D47A1' }}>Admission Form</div>
       </div>
 
-      <table style={styles.table}>
+      {/* ── STUDENT PHOTO (top right) ── */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <div style={{ flex: 1 }}>
+          <h2 style={sectionTitle}>Student Information</h2>
+        </div>
+        <div style={{ width: '100px', height: '120px', border: '2px solid #0D47A1', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', color: '#aaa', marginLeft: '20px' }}>
+          {student.photo_url ? <img src={student.photo_url} style={{ width: '100%', height: '100%', objectFit: 'cover' }} alt="Student" /> : 'Photo'}
+        </div>
+      </div>
+
+      {/* ── STUDENT DETAILS TABLE ── */}
+      <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '10px' }}>
         <tbody>
-          <tr><td style={styles.th}>Admission No</td><td style={styles.td}>{student.admission_no?.toUpperCase()}</td></tr>
-          <tr><td style={styles.th}>Name</td><td style={styles.td}>{student.first_name?.toUpperCase()} {student.last_name?.toUpperCase()}</td></tr>
-          <tr><td style={styles.th}>Gender</td><td style={styles.td}>{student.gender}</td></tr>
-          <tr><td style={styles.th}>Date of Birth</td><td style={styles.td}>{student.dob}</td></tr>
-          <tr><td style={styles.th}>Mobile</td><td style={styles.td}>{student.mobile}</td></tr>
-          <tr><td style={styles.th}>WhatsApp</td><td style={styles.td}>{student.whatsapp || '-'}</td></tr>
-          <tr><td style={styles.th}>Email</td><td style={styles.td}>{student.email || '-'}</td></tr>
-          <tr><td style={styles.th}>Address</td><td style={styles.td}>{student.address}, {student.city} {student.pincode}</td></tr>
-          <tr><td style={styles.th}>School</td><td style={styles.td}>{student.school_name} (Board: {student.board}, Class: {student.standard})</td></tr>
-          <tr><td style={styles.th}>Joining Date</td><td style={styles.td}>{student.joining_date}</td></tr>
-          <tr><td style={styles.th}>Medium</td><td style={styles.td}>{student.mediums?.name}</td></tr>
+          <tr>
+            <td style={{ width: '30%', fontWeight: 'bold', padding: '5px 8px', border: '1px solid #ddd', backgroundColor: '#E3F2FD', color: '#0D47A1' }}>Admission No</td>
+            <td style={{ padding: '5px 8px', border: '1px solid #ddd' }}>{student.admission_no?.toUpperCase() || '-'}</td>
+          </tr>
+          <tr>
+            <td style={{ fontWeight: 'bold', padding: '5px 8px', border: '1px solid #ddd', backgroundColor: '#E3F2FD', color: '#0D47A1' }}>Name</td>
+            <td style={{ padding: '5px 8px', border: '1px solid #ddd' }}>{student.first_name?.toUpperCase()} {student.last_name?.toUpperCase()}</td>
+          </tr>
+          <tr>
+            <td style={{ fontWeight: 'bold', padding: '5px 8px', border: '1px solid #ddd', backgroundColor: '#E3F2FD', color: '#0D47A1' }}>Gender</td>
+            <td style={{ padding: '5px 8px', border: '1px solid #ddd' }}>{student.gender || '-'}</td>
+          </tr>
+          <tr>
+            <td style={{ fontWeight: 'bold', padding: '5px 8px', border: '1px solid #ddd', backgroundColor: '#E3F2FD', color: '#0D47A1' }}>Date of Birth</td>
+            <td style={{ padding: '5px 8px', border: '1px solid #ddd' }}>{student.dob || '-'}</td>
+          </tr>
+          <tr>
+            <td style={{ fontWeight: 'bold', padding: '5px 8px', border: '1px solid #ddd', backgroundColor: '#E3F2FD', color: '#0D47A1' }}>Mobile</td>
+            <td style={{ padding: '5px 8px', border: '1px solid #ddd' }}>{student.mobile}</td>
+          </tr>
+          <tr>
+            <td style={{ fontWeight: 'bold', padding: '5px 8px', border: '1px solid #ddd', backgroundColor: '#E3F2FD', color: '#0D47A1' }}>WhatsApp</td>
+            <td style={{ padding: '5px 8px', border: '1px solid #ddd' }}>{student.whatsapp || '-'}</td>
+          </tr>
+          <tr>
+            <td style={{ fontWeight: 'bold', padding: '5px 8px', border: '1px solid #ddd', backgroundColor: '#E3F2FD', color: '#0D47A1' }}>Email</td>
+            <td style={{ padding: '5px 8px', border: '1px solid #ddd' }}>{student.email || '-'}</td>
+          </tr>
+          <tr>
+            <td style={{ fontWeight: 'bold', padding: '5px 8px', border: '1px solid #ddd', backgroundColor: '#E3F2FD', color: '#0D47A1' }}>Address</td>
+            <td style={{ padding: '5px 8px', border: '1px solid #ddd' }}>
+              {[student.address, student.city, student.state, student.pincode].filter(Boolean).join(', ')}
+            </td>
+          </tr>
+          <tr>
+            <td style={{ fontWeight: 'bold', padding: '5px 8px', border: '1px solid #ddd', backgroundColor: '#E3F2FD', color: '#0D47A1' }}>School</td>
+            <td style={{ padding: '5px 8px', border: '1px solid #ddd' }}>{student.school_name || '-'}</td>
+          </tr>
+          <tr>
+            <td style={{ fontWeight: 'bold', padding: '5px 8px', border: '1px solid #ddd', backgroundColor: '#E3F2FD', color: '#0D47A1' }}>Board</td>
+            <td style={{ padding: '5px 8px', border: '1px solid #ddd' }}>{student.board || '-'}</td>
+          </tr>
+          <tr>
+            <td style={{ fontWeight: 'bold', padding: '5px 8px', border: '1px solid #ddd', backgroundColor: '#E3F2FD', color: '#0D47A1' }}>Standard</td>
+            <td style={{ padding: '5px 8px', border: '1px solid #ddd' }}>{student.standard || '-'}</td>
+          </tr>
+          <tr>
+            <td style={{ fontWeight: 'bold', padding: '5px 8px', border: '1px solid #ddd', backgroundColor: '#E3F2FD', color: '#0D47A1' }}>Joining Date</td>
+            <td style={{ padding: '5px 8px', border: '1px solid #ddd' }}>{student.joining_date || '-'}</td>
+          </tr>
+          <tr>
+            <td style={{ fontWeight: 'bold', padding: '5px 8px', border: '1px solid #ddd', backgroundColor: '#E3F2FD', color: '#0D47A1' }}>Status</td>
+            <td style={{ padding: '5px 8px', border: '1px solid #ddd' }}>{student.status || '-'}</td>
+          </tr>
+          {student.mediums?.name && (
+            <tr>
+              <td style={{ fontWeight: 'bold', padding: '5px 8px', border: '1px solid #ddd', backgroundColor: '#E3F2FD', color: '#0D47A1' }}>Medium</td>
+              <td style={{ padding: '5px 8px', border: '1px solid #ddd' }}>{student.mediums.name}</td>
+            </tr>
+          )}
         </tbody>
       </table>
 
-      {parents.map((p, i) => (
-        <div key={i}>
-          <h4 style={{ color:'#0D47A1', marginBottom:5 }}>Parent / Guardian {i+1}</h4>
-          <table style={styles.table}>
-            <tbody>
-              <tr><td style={styles.th}>Father Name</td><td style={styles.td}>{p.father_name?.toUpperCase()}</td></tr>
-              <tr><td style={styles.th}>Mother Name</td><td style={styles.td}>{p.mother_name?.toUpperCase()}</td></tr>
-              <tr><td style={styles.th}>Mobile</td><td style={styles.td}>{p.mobile}</td></tr>
-              <tr><td style={styles.th}>WhatsApp</td><td style={styles.td}>{p.whatsapp || '-'}</td></tr>
-              <tr><td style={styles.th}>Email</td><td style={styles.td}>{p.email || '-'}</td></tr>
-              <tr><td style={styles.th}>Occupation</td><td style={styles.td}>{p.occupation?.toUpperCase()}</td></tr>
-              <tr><td style={styles.th}>Address</td><td style={styles.td}>{p.address?.toUpperCase()}</td></tr>
-            </tbody>
-          </table>
-        </div>
-      ))}
+      {/* ── PARENT / GUARDIAN DETAILS ── */}
+      {parents.length > 0 && (
+        <>
+          <h2 style={sectionTitle}>Parent / Guardian Details</h2>
+          {parents.map((p, i) => (
+            <div key={i} style={{ marginBottom: '15px', border: '1px solid #ddd', padding: '10px', borderRadius: '6px' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <tbody>
+                  <tr>
+                    <td style={{ width: '30%', fontWeight: 'bold', padding: '4px 8px', border: '1px solid #ddd', backgroundColor: '#E3F2FD', color: '#0D47A1' }}>Father Name</td>
+                    <td style={{ padding: '4px 8px', border: '1px solid #ddd' }}>{p.father_name?.toUpperCase() || '-'}</td>
+                  </tr>
+                  <tr>
+                    <td style={{ fontWeight: 'bold', padding: '4px 8px', border: '1px solid #ddd', backgroundColor: '#E3F2FD', color: '#0D47A1' }}>Mother Name</td>
+                    <td style={{ padding: '4px 8px', border: '1px solid #ddd' }}>{p.mother_name?.toUpperCase() || '-'}</td>
+                  </tr>
+                  <tr>
+                    <td style={{ fontWeight: 'bold', padding: '4px 8px', border: '1px solid #ddd', backgroundColor: '#E3F2FD', color: '#0D47A1' }}>Mobile</td>
+                    <td style={{ padding: '4px 8px', border: '1px solid #ddd' }}>{p.mobile || '-'}</td>
+                  </tr>
+                  <tr>
+                    <td style={{ fontWeight: 'bold', padding: '4px 8px', border: '1px solid #ddd', backgroundColor: '#E3F2FD', color: '#0D47A1' }}>WhatsApp</td>
+                    <td style={{ padding: '4px 8px', border: '1px solid #ddd' }}>{p.whatsapp || '-'}</td>
+                  </tr>
+                  <tr>
+                    <td style={{ fontWeight: 'bold', padding: '4px 8px', border: '1px solid #ddd', backgroundColor: '#E3F2FD', color: '#0D47A1' }}>Email</td>
+                    <td style={{ padding: '4px 8px', border: '1px solid #ddd' }}>{p.email || '-'}</td>
+                  </tr>
+                  <tr>
+                    <td style={{ fontWeight: 'bold', padding: '4px 8px', border: '1px solid #ddd', backgroundColor: '#E3F2FD', color: '#0D47A1' }}>Occupation</td>
+                    <td style={{ padding: '4px 8px', border: '1px solid #ddd' }}>{p.occupation?.toUpperCase() || '-'}</td>
+                  </tr>
+                  <tr>
+                    <td style={{ fontWeight: 'bold', padding: '4px 8px', border: '1px solid #ddd', backgroundColor: '#E3F2FD', color: '#0D47A1' }}>Address</td>
+                    <td style={{ padding: '4px 8px', border: '1px solid #ddd' }}>{p.address?.toUpperCase() || '-'}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          ))}
+        </>
+      )}
 
+      {/* ── ENROLLED BATCHES ── */}
       {batches.length > 0 && (
         <>
-          <h4 style={{ color:'#0D47A1' }}>Enrolled Batches</h4>
-          <table style={styles.table}>
+          <h2 style={sectionTitle}>Enrolled Batches</h2>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
-              <tr>
-                <th style={styles.th}>Batch Name</th>
-                <th style={styles.th}>Course</th>
-                <th style={styles.th}>Enrollment Date</th>
+              <tr style={{ backgroundColor: '#0D47A1', color: '#fff' }}>
+                <th style={{ padding: '6px', textAlign: 'left' }}>Batch Name</th>
+                <th style={{ padding: '6px', textAlign: 'left' }}>Course</th>
+                <th style={{ padding: '6px', textAlign: 'left' }}>Enrollment Date</th>
               </tr>
             </thead>
             <tbody>
               {batches.map((b, i) => (
                 <tr key={i}>
-                  <td style={styles.td}>{b.batches?.batch_name}</td>
-                  <td style={styles.td}>{b.batches?.courses?.course_name}</td>
-                  <td style={styles.td}>{b.enrollment_date}</td>
+                  <td style={{ padding: '6px', border: '1px solid #ddd' }}>{b.batches?.batch_name?.toUpperCase() || '-'}</td>
+                  <td style={{ padding: '6px', border: '1px solid #ddd' }}>{b.batches?.courses?.course_name?.toUpperCase() || '-'}</td>
+                  <td style={{ padding: '6px', border: '1px solid #ddd' }}>{b.enrollment_date || '-'}</td>
                 </tr>
               ))}
             </tbody>
@@ -135,35 +248,62 @@ export function AdmissionFormDocument({ data, org }) {
         </>
       )}
 
-      <h4 style={{ color:'#0D47A1' }}>Fee Summary</h4>
-      <table style={styles.table}>
+      {/* ── FEE SUMMARY ── */}
+      <h2 style={sectionTitle}>Fee Summary</h2>
+      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
         <thead>
-          <tr>
-            <th style={styles.th}>Total Fee</th>
-            <th style={styles.th}>Paid</th>
-            <th style={styles.th}>Pending</th>
-            <th style={styles.th}>Status</th>
+          <tr style={{ backgroundColor: '#0D47A1', color: '#fff' }}>
+            <th style={{ padding: '6px' }}>Total Fee</th>
+            <th style={{ padding: '6px' }}>Paid</th>
+            <th style={{ padding: '6px' }}>Pending</th>
+            <th style={{ padding: '6px' }}>Status</th>
           </tr>
         </thead>
         <tbody>
           <tr>
-            <td style={styles.td}>₹{totalFee.toLocaleString()}</td>
-            <td style={styles.td}>₹{paidFee.toLocaleString()}</td>
-            <td style={styles.td}>₹{pendingFee.toLocaleString()}</td>
-            <td style={styles.td}>{pendingFee <= 0 ? 'PAID' : 'PENDING'}</td>
+            <td style={{ padding: '6px', border: '1px solid #ddd' }}>₹ {totalFee.toLocaleString()}</td>
+            <td style={{ padding: '6px', border: '1px solid #ddd' }}>₹ {paidFee.toLocaleString()}</td>
+            <td style={{ padding: '6px', border: '1px solid #ddd' }}>₹ {pendingFee.toLocaleString()}</td>
+            <td style={{ padding: '6px', border: '1px solid #ddd', fontWeight: 'bold', color: pendingFee <= 0 ? 'green' : 'red' }}>
+              {pendingFee <= 0 ? 'PAID' : 'PENDING'}
+            </td>
           </tr>
         </tbody>
       </table>
 
-      <div style={styles.signatureLine}>
-        <div>Authorised Signatory</div>
-        <div>Parent / Guardian</div>
+      {/* ── RULES & REGULATIONS ── */}
+      <h2 style={sectionTitle}>Rules & Regulations</h2>
+      <ol style={{ paddingLeft: '20px', fontSize: '13px', color: '#333' }}>
+        <li>Minimum 75% attendance is mandatory to appear in exams.</li>
+        <li>Fees must be paid on or before the 10th of every month.</li>
+        <li>Mobile phones are strictly prohibited inside classrooms.</li>
+        <li>Students must wear the prescribed uniform and carry ID card.</li>
+        <li>Disciplinary action will be taken for any misconduct.</li>
+        <li>Parents must attend parent-teacher meetings regularly.</li>
+        <li>Any damage to institute property will be charged accordingly.</li>
+        <li>The institute reserves the right to amend these rules at any time.</li>
+      </ol>
+
+      {/* ── SIGNATURES ── */}
+      <h2 style={sectionTitle}>Signatures</h2>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '30px' }}>
+        <div style={{ width: '40%', textAlign: 'center' }}>
+          <div style={{ borderBottom: '1px solid #0D47A1', marginBottom: '5px' }}></div>
+          <p style={{ fontWeight: 'bold', fontSize: '13px' }}>Authorised Signatory</p>
+        </div>
+        <div style={{ width: '40%', textAlign: 'center' }}>
+          <div style={{ borderBottom: '1px solid #0D47A1', marginBottom: '5px' }}></div>
+          <p style={{ fontWeight: 'bold', fontSize: '13px' }}>Parent / Guardian</p>
+        </div>
       </div>
-      <ReportFooter />
+
+      {/* ── FOOTER ── */}
+      <div style={{ marginTop: '30px', borderTop: '1px solid #ddd', paddingTop: '10px', fontSize: '9px', color: '#888', textAlign: 'center' }}>
+        This is a computer-generated document issued by {org?.company_name || 'ShreeVidhya Academy'}.
+      </div>
     </div>
   );
 }
-
 // ---------- FEE RECEIPT (professional invoice preview) ----------
 export function FeeReceiptDocument({ data, org }) {
   const {

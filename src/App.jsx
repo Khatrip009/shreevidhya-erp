@@ -79,6 +79,7 @@ import AIChat from "./components/AIChat/AIChat";
 import OnlineClassList from "./pages/OnlineClassList";
 import CreateOnlineClass from "./components/CreateOnlineClass";
 import JoinOnlineClass from "./components/JoinOnlineClass";
+import AdminLayout from "./layouts/AdminLayout";
 
 function ReportPageWrapper() {
   const { reportId } = useParams();
@@ -165,7 +166,9 @@ function App() {
           path="/reports/:reportId"
           element={
             <ProtectedRoute>
+              <AdminLayout>
               <ReportPageWrapper />
+              </AdminLayout>
             </ProtectedRoute>
           }
         />
