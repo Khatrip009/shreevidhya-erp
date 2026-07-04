@@ -25,6 +25,7 @@ import {
   TrendingUp,
   Calendar,
   CalendarCheck,    // ← missing import
+  Palette, 
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { useState } from "react";
@@ -387,6 +388,9 @@ export default function Sidebar({ onClose, collapsed, onToggleCollapse }) {
       </SidebarLink>
       <SidebarLink to="/organization-settings" icon={Building}>
         Organization
+      </SidebarLink>
+      <SidebarLink to="/theme-settings" icon={Palette}>
+        Theme Settings
       </SidebarLink>
     </>
   );

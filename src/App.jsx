@@ -81,6 +81,9 @@ import CreateOnlineClass from "./components/CreateOnlineClass";
 import JoinOnlineClass from "./components/JoinOnlineClass";
 import AdminLayout from "./layouts/AdminLayout";
 
+// Theme Settings
+import ThemeSettings from "./pages/ThemeSettings";
+
 function ReportPageWrapper() {
   const { reportId } = useParams();
   const config = getReportConfig(reportId);
@@ -160,6 +163,9 @@ function App() {
         <Route path="/tax-settings" element={<ProtectedRoute><TaxSettings /></ProtectedRoute>} />
         <Route path="/tax-report" element={<ProtectedRoute><TaxReport /></ProtectedRoute>} />
 
+        {/* Theme Settings (NEW) */}
+        <Route path="/theme-settings" element={<ProtectedRoute><ThemeSettings /></ProtectedRoute>} />
+
         {/* ── Report Engine ── */}
         <Route path="/reports" element={<ProtectedRoute><Reports /></ProtectedRoute>} />
         <Route
@@ -167,7 +173,7 @@ function App() {
           element={
             <ProtectedRoute>
               <AdminLayout>
-              <ReportPageWrapper />
+                <ReportPageWrapper />
               </AdminLayout>
             </ProtectedRoute>
           }
