@@ -3,15 +3,17 @@ import toast from "react-hot-toast";
 import { X, User, Phone, Mail, Briefcase, MapPin, Users, Unlink } from "lucide-react";
 import { supabase } from "../api/supabase";
 import { useOrgDarkLogo } from "../hooks/useOrgDarkLogo";
-import { createParent } from "../services/parentService";
+import { createParent, updateParent, linkStudentToParent } from "../services/parentService";
 
 export default function ParentForm({
-  onSubmit,          // callback when parent is created/updated
+  onSubmit,          // callback({ form, studentId }) for create, (form) for update
   onClose,
   initialData = {},
-  studentId = null,  // if provided, parent will be auto-linked to this student
+  studentId = null,  // only used for create from student profile
 }) {
   const darkLogo = useOrgDarkLogo();
+  const isEditing = !!initialData.id;
+
   const [form, setForm] = useState({
     father_name: initialData.father_name || "",
     mother_name: initialData.mother_name || "",
@@ -22,18 +24,19 @@ export default function ParentForm({
     address: initialData.address || "",
   });
 
-  // Standalone mode: student selection is required
+  // Student selection – for create (required) or edit (optional)
   const [selectedStudentId, setSelectedStudentId] = useState(studentId || null);
   const [students, setStudents] = useState([]);
   const [loadingStudents, setLoadingStudents] = useState(!studentId);
 
-  // Existing linked students (for edit mode)
+  // Linked students (edit mode)
   const [linkedStudents, setLinkedStudents] = useState([]);
-  const [loadingLinked, setLoadingLinked] = useState(!!initialData.id);
+  const [loadingLinked, setLoadingLinked] = useState(isEditing);
 
-  // Fetch all active students (if not given a specific student)
+  // Fetch all active students (always, but filter out linked ones in edit mode)
   useEffect(() => {
     if (!studentId) {
+      setLoadingStudents(true);
       supabase
         .from("students")
         .select("id, first_name, last_name, standard")
@@ -44,9 +47,10 @@ export default function ParentForm({
     }
   }, [studentId]);
 
-  // Fetch already linked students when editing an existing parent
+  // Fetch linked students when editing
   useEffect(() => {
-    if (initialData.id) {
+    if (isEditing) {
+      setLoadingLinked(true);
       supabase
         .from("student_parents")
         .select("student_id, students(first_name, last_name, standard, admission_no)")
@@ -66,7 +70,7 @@ export default function ParentForm({
     } else {
       setLoadingLinked(false);
     }
-  }, [initialData.id]);
+  }, [initialData.id, isEditing]);
 
   function handleChange(e) {
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
@@ -99,20 +103,53 @@ export default function ParentForm({
       toast.error("Mobile number is required");
       return;
     }
-    if (!studentId && !selectedStudentId) {
-      toast.error("Please select a student to link this parent");
-      return;
-    }
 
     try {
-      const idToLink = studentId || selectedStudentId;
-      const createdParent = await createParent(form, idToLink);
-      onSubmit(createdParent);   // pass back to parent component
-      toast.success("Parent saved and linked");
+      if (isEditing) {
+        // Update parent fields
+        await updateParent(initialData.id, form);
+        toast.success("Parent updated");
+
+        // If a student is selected, link them (additional link)
+        if (selectedStudentId) {
+          await linkStudentToParent(initialData.id, selectedStudentId);
+          toast.success("Student linked successfully");
+          // Refresh linked students
+          const { data } = await supabase
+            .from("student_parents")
+            .select("student_id, students(first_name, last_name, standard, admission_no)")
+            .eq("parent_id", initialData.id);
+          const mapped = data.map((link) => ({
+            student_id: link.student_id,
+            name: `${link.students.first_name} ${link.students.last_name}`,
+            standard: link.students.standard,
+            admission_no: link.students.admission_no,
+          }));
+          setLinkedStudents(mapped);
+          setSelectedStudentId(null);
+        }
+
+        onSubmit(form);
+      } else {
+        // Create new parent – must select a student
+        if (!studentId && !selectedStudentId) {
+          toast.error("Please select a student to link this parent");
+          return;
+        }
+        const idToLink = studentId || selectedStudentId;
+        const createdParent = await createParent(form, idToLink);
+        toast.success("Parent created and linked");
+        onSubmit({ form, studentId: idToLink, parent: createdParent });
+      }
     } catch (err) {
       toast.error(err.message || "Failed to save parent");
     }
   }
+
+  // Filter out already linked students from the dropdown in edit mode
+  const availableStudents = isEditing
+    ? students.filter((s) => !linkedStudents.some((ls) => ls.student_id === s.id))
+    : students;
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
@@ -126,7 +163,7 @@ export default function ParentForm({
               className="h-10 w-auto"
             />
             <h2 className="text-xl font-righteous text-primary-dark">
-              {initialData.id ? "Edit Parent" : "Add Parent"}
+              {isEditing ? "Edit Parent" : "Add Parent"}
             </h2>
           </div>
           <button
@@ -138,12 +175,12 @@ export default function ParentForm({
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-5">
-          {/* Student selector – only when not already inside a student form */}
+          {/* Student selector – shown in both modes (except when studentId is fixed) */}
           {!studentId && (
             <div>
               <label className="block text-sm font-montserrat text-secondary-dark mb-1">
                 <Users size={14} className="inline mr-1" />
-                Link to Student *
+                {isEditing ? "Link Additional Student" : "Link to Student *"}
               </label>
               {loadingStudents ? (
                 <p className="text-sm text-secondary">Loading students...</p>
@@ -152,10 +189,10 @@ export default function ParentForm({
                   value={selectedStudentId || ""}
                   onChange={(e) => setSelectedStudentId(e.target.value ? Number(e.target.value) : null)}
                   className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary outline-none"
-                  required
+                  required={!isEditing}
                 >
-                  <option value="" disabled>Select a student</option>
-                  {students.map((s) => (
+                  <option value="">{isEditing ? "None" : "Select a student"}</option>
+                  {availableStudents.map((s) => (
                     <option key={s.id} value={s.id}>
                       {s.first_name} {s.last_name} {s.standard ? `(Std ${s.standard})` : ""}
                     </option>
@@ -273,8 +310,8 @@ export default function ParentForm({
             />
           </div>
 
-          {/* Linked Students (editing existing parent) */}
-          {initialData.id && (
+          {/* Linked Students (edit mode) */}
+          {isEditing && (
             <div>
               <label className="block text-sm font-montserrat text-secondary-dark mb-2">
                 <Users size={14} className="inline mr-1" />
@@ -317,7 +354,7 @@ export default function ParentForm({
               type="submit"
               className="w-full sm:w-auto bg-primary hover:bg-primary-light text-white px-6 py-2.5 rounded-lg font-montserrat transition flex items-center justify-center gap-2"
             >
-              {initialData.id ? "Update Parent" : "Create Parent"}
+              {isEditing ? "Update Parent" : "Create Parent"}
             </button>
             <button
               type="button"

@@ -1,7 +1,30 @@
 import {
-  LayoutDashboard, Users, GraduationCap, BookOpen, Award,
-  IndianRupee, Settings, ChevronDown, Bell, X, CalendarClock,
-  Wallet, Building, Calendar, Layers, Video, FileText,
+  LayoutDashboard,
+  Users,
+  GraduationCap,
+  BookOpen,
+  Award,
+  IndianRupee,
+  Settings,
+  ChevronDown,
+  Bell,
+  X,
+  CalendarClock,
+  Wallet,
+  Building,
+  Video,
+  FileText,
+  PanelLeftOpen,
+  PanelLeftClose,
+  Megaphone,
+  ClipboardCheck,
+  BarChart3,
+  UserCog,
+  Shield,
+  Layers,
+  TrendingUp,
+  Calendar,
+  CalendarCheck,    // ← missing import
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { useState } from "react";
@@ -13,11 +36,64 @@ function normaliseRole(rawRole) {
   return (rawRole || "").toLowerCase().replace(/\s+/g, "_");
 }
 
-export default function Sidebar({ onClose }) {
+/* ─── Small Section Header (only visible when expanded) ─── */
+function SectionLabel({ children }) {
+  return (
+    <p className="px-4 pt-4 pb-1 text-[10px] font-montserrat font-semibold uppercase tracking-wider text-secondary-light">
+      {children}
+    </p>
+  );
+}
+
+/* ─── Sidebar Link – always shows icon, hides text when collapsed ─── */
+function SidebarLink({ to, icon: Icon, children, end }) {
+  return (
+    <NavLink
+      to={to}
+      end={end}
+      title={children}
+      className={({ isActive }) =>
+        `flex items-center gap-3 px-4 py-2.5 rounded-lg transition-colors ${
+          isActive
+            ? "bg-primary-light text-white"
+            : "hover:bg-primary-light/50 text-secondary-light hover:text-white"
+        }`
+      }
+    >
+      <Icon size={18} className="flex-shrink-0" />
+      <span className="truncate">{children}</span>
+    </NavLink>
+  );
+}
+
+/* ─── Accordion Toggle ─── */
+function AccordionToggle({ icon: Icon, label, open, onClick, collapsed }) {
+  return (
+    <button
+      onClick={onClick}
+      title={collapsed ? label : undefined}
+      className="w-full flex items-center justify-between gap-3 px-4 py-2.5 rounded-lg hover:bg-primary-light/50 transition-colors text-secondary-light hover:text-white"
+    >
+      <span className="flex items-center gap-3 truncate">
+        <Icon size={18} className="flex-shrink-0" />
+        {!collapsed && <span>{label}</span>}
+      </span>
+      {!collapsed && (
+        <ChevronDown
+          size={16}
+          className={`transition-transform ${open ? "rotate-180" : ""}`}
+        />
+      )}
+    </button>
+  );
+}
+
+export default function Sidebar({ onClose, collapsed, onToggleCollapse }) {
   const { profile } = useAuth();
-  const [admissionOpen, setAdmissionOpen] = useState(true);
-  const [academicOpen, setAcademicOpen] = useState(true);
-  const [financeOpen, setFinanceOpen] = useState(true);
+  const [admissionOpen, setAdmissionOpen] = useState(false);
+  const [academicOpen, setAcademicOpen] = useState(false);
+  const [financeOpen, setFinanceOpen] = useState(false);
+  const [commOpen, setCommOpen] = useState(false);
 
   const { data: org } = useQuery({
     queryKey: ["organization"],
@@ -27,9 +103,12 @@ export default function Sidebar({ onClose }) {
 
   if (!profile) {
     return (
-      <aside className="w-72 bg-primary text-white h-screen border-r border-primary-dark flex flex-col">
+      <aside
+        className="bg-primary text-white h-screen border-r border-primary-dark flex flex-col transition-all duration-300"
+        style={{ width: collapsed ? 64 : 288 }}
+      >
         <div className="flex items-center justify-center h-full">
-          <p className="text-sm text-secondary-light">Loading menu…</p>
+          <p className="text-sm text-secondary-light">Loading…</p>
         </div>
       </aside>
     );
@@ -37,200 +116,318 @@ export default function Sidebar({ onClose }) {
 
   const role = normaliseRole(profile.role);
 
-  // ---------- Student links ----------
+  // ────────────── Student Links ──────────────
   const studentLinks = (
-    // unchanged…
     <>
-      <NavLink to="/student" end className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-lg transition ${isActive ? "bg-primary-light" : "hover:bg-primary-light"}`}>
-        <LayoutDashboard size={18} /> Dashboard
-      </NavLink>
-      <div className="ml-8 space-y-1">
-        <NavLink to="/student/profile" className="block py-2 text-secondary-light hover:text-white">My Profile</NavLink>
-        <NavLink to="/student/batch" className="block py-2 text-secondary-light hover:text-white">Batch & Course</NavLink>
-        <NavLink to="/student/attendance" className="block py-2 text-secondary-light hover:text-white">Attendance</NavLink>
-        <NavLink to="/student/fees" className="block py-2 text-secondary-light hover:text-white">Fees</NavLink>
-        <NavLink to="/student/homework" className="block py-2 text-secondary-light hover:text-white">Homework</NavLink>
-        <NavLink to="/student/exams" className="block py-2 text-secondary-light hover:text-white">Exams</NavLink>
-        <NavLink to="/student/results" className="block py-2 text-secondary-light hover:text-white">Results</NavLink>
-        <NavLink to="/student/certificates" className="block py-2 text-secondary-light hover:text-white">Certificates</NavLink>
-        <NavLink to="/student/timetable" className="block py-2 text-secondary-light hover:text-white">Timetable</NavLink>
-        <NavLink to="/student/resources" className="block py-2 text-secondary-light hover:text-white">Learning Resources</NavLink>
-      </div>
-      <NavLink to="/online-classes" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-primary-light transition">
-        <Video size={18} /> Online Classes
-      </NavLink>
-      <NavLink to="/student/notifications" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-primary-light transition">
-        <Bell size={18} /> Notifications
-      </NavLink>
-      <NavLink to="/settings" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-primary-light transition">
-        <Settings size={18} /> Settings
-      </NavLink>
+      <SidebarLink to="/student" end icon={LayoutDashboard}>
+        Dashboard
+      </SidebarLink>
+      {!collapsed && <SectionLabel>My Space</SectionLabel>}
+      <SidebarLink to="/student/profile" icon={BookOpen}>
+        My Profile
+      </SidebarLink>
+      <SidebarLink to="/student/batch" icon={Layers}>
+        Batch & Course
+      </SidebarLink>
+      <SidebarLink to="/student/attendance" icon={CalendarCheck}>
+        Attendance
+      </SidebarLink>
+      <SidebarLink to="/student/fees" icon={IndianRupee}>
+        Fees
+      </SidebarLink>
+      <SidebarLink to="/student/homework" icon={FileText}>
+        Homework
+      </SidebarLink>
+      <SidebarLink to="/student/exams" icon={ClipboardCheck}>
+        Exams
+      </SidebarLink>
+      <SidebarLink to="/student/results" icon={BarChart3}>
+        Results
+      </SidebarLink>
+      <SidebarLink to="/student/certificates" icon={Award}>
+        Certificates
+      </SidebarLink>
+      <SidebarLink to="/student/timetable" icon={Calendar}>
+        Timetable
+      </SidebarLink>
+      <SidebarLink to="/student/resources" icon={BookOpen}>
+        Learning Resources
+      </SidebarLink>
+      <SidebarLink to="/online-classes" icon={Video}>
+        Online Classes
+      </SidebarLink>
+      <div className="border-t border-primary-dark my-2" />
+      <SidebarLink to="/student/notifications" icon={Bell}>
+        Notifications
+      </SidebarLink>
+      <SidebarLink to="/settings" icon={Settings}>
+        Settings
+      </SidebarLink>
     </>
   );
 
-  // ---------- Teacher links ----------
+  // ────────────── Teacher Links ──────────────
   const teacherLinks = (
-    // unchanged…
     <>
-      <NavLink to="/teacher" end className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-lg transition ${isActive ? "bg-primary-light" : "hover:bg-primary-light"}`}>
-        <LayoutDashboard size={18} /> Dashboard
-      </NavLink>
-
-      <button onClick={() => setAcademicOpen(!academicOpen)} className="w-full flex justify-between items-center px-4 py-3 rounded-lg hover:bg-primary-light transition">
-        <span className="flex items-center gap-3"><GraduationCap size={18} />Academics</span>
-        <ChevronDown size={16} className={`transition ${academicOpen ? "rotate-180" : ""}`} />
-      </button>
-      {academicOpen && (
-        <div className="ml-8 space-y-1">
-          <NavLink to="/attendance" className="block py-2 text-secondary-light hover:text-white">Attendance</NavLink>
-          <NavLink to="/homework" className="block py-2 text-secondary-light hover:text-white">Homework</NavLink>
-          <NavLink to="/exams" className="block py-2 text-secondary-light hover:text-white">Exams</NavLink>
-          <NavLink to="/results" className="block py-2 text-secondary-light hover:text-white">Results</NavLink>
-          <NavLink to="/teacher/resources" className="block py-2 text-secondary-light hover:text-white">Learning Resources</NavLink>
-          <NavLink to="/online-classes" className="block py-2 text-secondary-light hover:text-white">Online Classes</NavLink>
+      <SidebarLink to="/teacher" end icon={LayoutDashboard}>
+        Dashboard
+      </SidebarLink>
+      <AccordionToggle
+        icon={GraduationCap}
+        label="Academics"
+        open={academicOpen}
+        onClick={() => setAcademicOpen(!academicOpen)}
+        collapsed={collapsed}
+      />
+      {academicOpen && !collapsed && (
+        <div className="ml-6 space-y-1">
+          <SidebarLink to="/attendance" icon={CalendarCheck}>
+            Attendance
+          </SidebarLink>
+          <SidebarLink to="/homework" icon={FileText}>
+            Homework
+          </SidebarLink>
+          <SidebarLink to="/exams" icon={ClipboardCheck}>
+            Exams
+          </SidebarLink>
+          <SidebarLink to="/results" icon={BarChart3}>
+            Results
+          </SidebarLink>
+          <SidebarLink to="/teacher/resources" icon={BookOpen}>
+            Learning Resources
+          </SidebarLink>
+          <SidebarLink to="/online-classes" icon={Video}>
+            Online Classes
+          </SidebarLink>
         </div>
       )}
-
-      <NavLink to="/teacher/salary" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-primary-light transition">
-        <Wallet size={18} /> My Salary
-      </NavLink>
-      <NavLink to="/teacher/leaves" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-primary-light transition">
-        <CalendarClock size={18} /> My Leaves
-      </NavLink>
-      <NavLink to="/teacher/profile" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-primary-light transition">
-        <BookOpen size={18} /> My Profile
-      </NavLink>
-      <NavLink to="/teacher/timetable" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-primary-light transition">
-        <CalendarClock size={18} /> My Timetable
-      </NavLink>
-      <NavLink to="/notifications" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-primary-light transition">
-        <Bell size={18} /> Notifications
-      </NavLink>
-      <NavLink to="/settings" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-primary-light transition">
-        <Settings size={18} /> Settings
-      </NavLink>
+      <SidebarLink to="/teacher/salary" icon={Wallet}>
+        My Salary
+      </SidebarLink>
+      <SidebarLink to="/teacher/leaves" icon={CalendarClock}>
+        My Leaves
+      </SidebarLink>
+      <SidebarLink to="/teacher/profile" icon={BookOpen}>
+        My Profile
+      </SidebarLink>
+      <SidebarLink to="/teacher/timetable" icon={Calendar}>
+        My Timetable
+      </SidebarLink>
+      <div className="border-t border-primary-dark my-2" />
+      <SidebarLink to="/notifications" icon={Bell}>
+        Notifications
+      </SidebarLink>
+      <SidebarLink to="/settings" icon={Settings}>
+        Settings
+      </SidebarLink>
     </>
   );
 
-  // ---------- Admin / Super Admin links (UPDATED) ----------
+  // ────────────── Admin Links (re‑organised) ──────────────
   const adminLinks = (
     <>
-      <NavLink to="/" end className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-lg transition ${isActive ? "bg-primary-light" : "hover:bg-primary-light"}`}>
-        <LayoutDashboard size={18} /> Dashboard
-      </NavLink>
+      <SidebarLink to="/" end icon={LayoutDashboard}>
+        Dashboard
+      </SidebarLink>
 
       {/* Admissions */}
-      <button onClick={() => setAdmissionOpen(!admissionOpen)} className="w-full flex justify-between items-center px-4 py-3 rounded-lg hover:bg-primary-light transition">
-        <span className="flex items-center gap-3"><Users size={18} />Admissions</span>
-        <ChevronDown size={16} className={`transition ${admissionOpen ? "rotate-180" : ""}`} />
-      </button>
-      {admissionOpen && (
-        <div className="ml-8 space-y-1">
-          <NavLink to="/inquiries" className="block py-2 text-secondary-light hover:text-white">Inquiries</NavLink>
-          <NavLink to="/students" className="block py-2 text-secondary-light hover:text-white">Students</NavLink>
-          <NavLink to="/parents" className="block py-2 text-secondary-light hover:text-white">Parents</NavLink>
-          <NavLink to="/student-batches" className="block py-2 text-secondary-light hover:text-white">Batch Assign</NavLink>
-          <NavLink to="/student-documents" className="block py-2 text-secondary-light hover:text-white">Documents</NavLink>
+      <AccordionToggle
+        icon={Users}
+        label="Admissions"
+        open={admissionOpen}
+        onClick={() => setAdmissionOpen(!admissionOpen)}
+        collapsed={collapsed}
+      />
+      {admissionOpen && !collapsed && (
+        <div className="ml-6 space-y-1">
+          <SidebarLink to="/inquiries" icon={Megaphone}>
+            Inquiries
+          </SidebarLink>
+          <SidebarLink to="/students" icon={Users}>
+            Students
+          </SidebarLink>
+          <SidebarLink to="/parents" icon={Users}>
+            Parents
+          </SidebarLink>
+          <SidebarLink to="/student-batches" icon={Layers}>
+            Batch Assign
+          </SidebarLink>
+          <SidebarLink to="/student-documents" icon={FileText}>
+            Documents
+          </SidebarLink>
         </div>
       )}
 
       {/* Academics */}
-      <button onClick={() => setAcademicOpen(!academicOpen)} className="w-full flex justify-between items-center px-4 py-3 rounded-lg hover:bg-primary-light transition">
-        <span className="flex items-center gap-3"><GraduationCap size={18} />Academics</span>
-        <ChevronDown size={16} className={`transition ${academicOpen ? "rotate-180" : ""}`} />
-      </button>
-      {academicOpen && (
-        <div className="ml-8 space-y-1">
-          <NavLink to="/courses" className="block py-2 text-secondary-light hover:text-white">Courses</NavLink>
-          <NavLink to="/subjects" className="block py-2 text-secondary-light hover:text-white">Subjects</NavLink>
-          <NavLink to="/mediums" className="block py-2 text-secondary-light hover:text-white">Mediums</NavLink>
-          <NavLink to="/batches" className="block py-2 text-secondary-light hover:text-white">Batches</NavLink>
-          <NavLink to="/attendance" className="block py-2 text-secondary-light hover:text-white">Attendance</NavLink>
-          <NavLink to="/attendance/reports" className="block py-2 text-secondary-light hover:text-white">Attendance Reports</NavLink>
-          <NavLink to="/progress" className="block py-2 text-secondary-light hover:text-white">Progress</NavLink>
-          <NavLink to="/student-progress" className="block py-2 text-secondary-light hover:text-white">Progress Report</NavLink>
-          <NavLink to="/homework" className="block py-2 text-secondary-light hover:text-white">Homework</NavLink>
-          <NavLink to="/exams" className="block py-2 text-secondary-light hover:text-white">Exams</NavLink>
-          <NavLink to="/results" className="block py-2 text-secondary-light hover:text-white">Results</NavLink>
-          <NavLink to="/timetable" className="block py-2 text-secondary-light hover:text-white">Class Timetable</NavLink>
-          <NavLink to="/online-classes" className="block py-2 text-secondary-light hover:text-white">Online Classes</NavLink>
+      <AccordionToggle
+        icon={GraduationCap}
+        label="Academics"
+        open={academicOpen}
+        onClick={() => setAcademicOpen(!academicOpen)}
+        collapsed={collapsed}
+      />
+      {academicOpen && !collapsed && (
+        <div className="ml-6 space-y-1">
+          <SidebarLink to="/courses" icon={BookOpen}>
+            Courses
+          </SidebarLink>
+          <SidebarLink to="/subjects" icon={BookOpen}>
+            Subjects
+          </SidebarLink>
+          <SidebarLink to="/mediums" icon={BookOpen}>
+            Mediums
+          </SidebarLink>
+          <SidebarLink to="/batches" icon={Layers}>
+            Batches
+          </SidebarLink>
+          <SidebarLink to="/attendance" icon={CalendarCheck}>
+            Attendance
+          </SidebarLink>
+          <SidebarLink to="/attendance/reports" icon={BarChart3}>
+            Attendance Reports
+          </SidebarLink>
+          <SidebarLink to="/progress" icon={TrendingUp}>
+            Progress
+          </SidebarLink>
+          <SidebarLink to="/student-progress" icon={TrendingUp}>
+            Progress Report
+          </SidebarLink>
+          <SidebarLink to="/homework" icon={FileText}>
+            Homework
+          </SidebarLink>
+          <SidebarLink to="/exams" icon={ClipboardCheck}>
+            Exams
+          </SidebarLink>
+          <SidebarLink to="/results" icon={BarChart3}>
+            Results
+          </SidebarLink>
+          <SidebarLink to="/timetable" icon={Calendar}>
+            Class Timetable
+          </SidebarLink>
+          <SidebarLink to="/online-classes" icon={Video}>
+            Online Classes
+          </SidebarLink>
         </div>
       )}
 
       {/* Finance */}
-      <button onClick={() => setFinanceOpen(!financeOpen)} className="w-full flex justify-between items-center px-4 py-3 rounded-lg hover:bg-primary-light transition">
-        <span className="flex items-center gap-3"><IndianRupee size={18} />Finance</span>
-        <ChevronDown size={16} className={`transition ${financeOpen ? "rotate-180" : ""}`} />
-      </button>
-      {financeOpen && (
-        <div className="ml-8 space-y-1">
-          <NavLink to="/fees/structures" className="block py-2 text-secondary-light hover:text-white">Fee Structures</NavLink>
-          <NavLink to="/fees" className="block py-2 text-secondary-light hover:text-white">Fees</NavLink>
-          <NavLink to="/receipts" className="block py-2 text-secondary-light hover:text-white">Receipts</NavLink>
-          <NavLink to="/income" className="block py-2 text-secondary-light hover:text-white">Income</NavLink>
-          <NavLink to="/expenses" className="block py-2 text-secondary-light hover:text-white">Expenses</NavLink>
-          <NavLink to="/salary-payments" className="block py-2 text-secondary-light hover:text-white">Salary Payments</NavLink>
-          <NavLink to="/profit-loss" className="block py-2 text-secondary-light hover:text-white">Profit & Loss</NavLink>
-          <NavLink to="/learning-resources" className="block py-2 text-secondary-light hover:text-white">Learning Resources</NavLink>
-          <NavLink to="/tax-settings" className="block py-2 text-secondary-light hover:text-white">Tax Settings</NavLink>
-          <NavLink to="/tax-report" className="block py-2 text-secondary-light hover:text-white">Tax Report</NavLink>
+      <AccordionToggle
+        icon={IndianRupee}
+        label="Finance"
+        open={financeOpen}
+        onClick={() => setFinanceOpen(!financeOpen)}
+        collapsed={collapsed}
+      />
+      {financeOpen && !collapsed && (
+        <div className="ml-6 space-y-1">
+          <SidebarLink to="/fees/structures" icon={IndianRupee}>
+            Fee Structures
+          </SidebarLink>
+          <SidebarLink to="/fees" icon={IndianRupee}>
+            Fees
+          </SidebarLink>
+          <SidebarLink to="/receipts" icon={FileText}>
+            Receipts
+          </SidebarLink>
+          <SidebarLink to="/income" icon={IndianRupee}>
+            Income
+          </SidebarLink>
+          <SidebarLink to="/expenses" icon={IndianRupee}>
+            Expenses
+          </SidebarLink>
+          <SidebarLink to="/salary-payments" icon={Wallet}>
+            Salary Payments
+          </SidebarLink>
+          <SidebarLink to="/profit-loss" icon={BarChart3}>
+            Profit & Loss
+          </SidebarLink>
+          <SidebarLink to="/learning-resources" icon={BookOpen}>
+            Learning Resources
+          </SidebarLink>
+          <SidebarLink to="/tax-settings" icon={Settings}>
+            Tax Settings
+          </SidebarLink>
+          <SidebarLink to="/tax-report" icon={FileText}>
+            Tax Report
+          </SidebarLink>
         </div>
       )}
 
       {/* HR & Staff */}
-      <NavLink to="/teachers" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-primary-light transition">
-        <BookOpen size={18} /> Teachers
-      </NavLink>
-      <NavLink to="/leave-management" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-primary-light transition">
-        <CalendarClock size={18} /> Leave Management
-      </NavLink>
+      {!collapsed && <SectionLabel>HR & Staff</SectionLabel>}
+      <SidebarLink to="/teachers" icon={BookOpen}>
+        Teachers
+      </SidebarLink>
+      <SidebarLink to="/leave-management" icon={CalendarClock}>
+        Leave Management
+      </SidebarLink>
 
-      {/* Awards & Certificates */}
-      <NavLink to="/certificates" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-primary-light transition">
-        <Award size={18} /> Certificates
-      </NavLink>
+      {/* Certificates & Reports */}
+      {!collapsed && <SectionLabel>Documents</SectionLabel>}
+      <SidebarLink to="/certificates" icon={Award}>
+        Certificates
+      </SidebarLink>
+      <SidebarLink to="/reports" icon={FileText}>
+        Reports
+      </SidebarLink>
 
-      {/* ── REPORTS (NEW) ── */}
-      <NavLink
-        to="/reports"
-        className={({ isActive }) =>
-          `flex items-center gap-3 px-4 py-3 rounded-lg transition ${
-            isActive ? "bg-primary-light" : "hover:bg-primary-light"
-          }`
-        }
-      >
-        <FileText size={18} /> Reports
-      </NavLink>
+      {/* Communication */}
+      {!collapsed && <SectionLabel>Communication</SectionLabel>}
+      <SidebarLink to="/notifications" icon={Bell}>
+        Notifications
+      </SidebarLink>
 
-      {/* Communication & System */}
-      <NavLink to="/notifications" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-primary-light transition">
-        <Bell size={18} /> Notifications
-      </NavLink>
-      <NavLink to="/user-management" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-primary-light transition">
-        <Users size={18} /> Users
-      </NavLink>
-      <NavLink to="/settings" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-primary-light transition">
-        <Settings size={18} /> Settings
-      </NavLink>
-      <NavLink to="/organization-settings" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-primary-light transition">
-        <Building size={18} /> Organization
-      </NavLink>
+      {/* System */}
+      {!collapsed && <SectionLabel>System</SectionLabel>}
+      <SidebarLink to="/user-management" icon={Shield}>
+        Users
+      </SidebarLink>
+      <SidebarLink to="/settings" icon={Settings}>
+        Settings
+      </SidebarLink>
+      <SidebarLink to="/organization-settings" icon={Building}>
+        Organization
+      </SidebarLink>
     </>
   );
 
   return (
-    <aside className="w-72 bg-primary text-white h-screen border-r border-primary-dark flex flex-col overflow-y-auto sidebar-scroll">
-      <div className="lg:hidden flex justify-end p-2">
-        <button onClick={onClose} className="text-white p-1"><X size={24} /></button>
+    <aside
+      className="bg-primary text-white h-screen border-r border-primary-dark flex flex-col overflow-y-auto sidebar-scroll transition-all duration-300"
+      style={{ width: collapsed ? 64 : 288 }}
+    >
+      {/* Top bar with collapse toggle and mobile close */}
+      <div className="flex items-center justify-between p-2">
+        <button
+          onClick={onToggleCollapse}
+          className="hidden lg:block text-white/80 hover:text-white p-1 rounded hover:bg-primary-light"
+          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+        >
+          {collapsed ? <PanelLeftOpen size={20} /> : <PanelLeftClose size={20} />}
+        </button>
+        <button
+          onClick={onClose}
+          className="lg:hidden text-white/80 hover:text-white p-1 ml-auto"
+        >
+          <X size={24} />
+        </button>
       </div>
-      <div className="p-6 border-b border-primary-dark flex justify-center">
+
+      {/* Logo */}
+      <div className="flex justify-center border-b border-primary-dark py-4">
         <img
           src={org?.logo_light_url || "/ShreeVidhyalight.png"}
           alt="ShreeVidhya Academy"
-          className="h-28 w-auto"
+          style={{
+            height: collapsed ? 32 : 64,
+            width: "auto",
+            transition: "height 0.3s",
+          }}
         />
       </div>
-      <nav className="p-4 space-y-2 flex-1">
+
+      {/* Navigation */}
+      <nav className="flex-1 px-2 py-4 space-y-1 overflow-y-auto">
         {role === "student" && studentLinks}
         {role === "teacher" && teacherLinks}
         {(role === "admin" || role === "super_admin") && adminLinks}

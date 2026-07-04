@@ -1,6 +1,28 @@
 // src/utils/reportDocuments.jsx
 import React from 'react';
 
+/* ------------------------------------------------------------------ */
+/*  Number‑to‑words helper (Indian English)                            */
+/* ------------------------------------------------------------------ */
+function numberToWords(num) {
+  const a = [
+    "", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten",
+    "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen", "Eighteen", "Nineteen"
+  ];
+  const b = ["", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety"];
+
+  function convert(n) {
+    if (n < 20) return a[n];
+    if (n < 100) return b[Math.floor(n / 10)] + (n % 10 ? " " + a[n % 10] : "");
+    if (n < 1000) return a[Math.floor(n / 100)] + " Hundred" + (n % 100 ? " and " + convert(n % 100) : "");
+    if (n < 100000) return convert(Math.floor(n / 1000)) + " Thousand" + (n % 1000 ? " " + convert(n % 1000) : "");
+    if (n < 10000000) return convert(Math.floor(n / 100000)) + " Lakh" + (n % 100000 ? " " + convert(n % 100000) : "");
+    return convert(Math.floor(n / 10000000)) + " Crore" + (n % 10000000 ? " " + convert(n % 10000000) : "");
+  }
+
+  return num === 0 ? "Zero" : convert(num);
+}
+
 const styles = {
   container: { maxWidth: '210mm', margin: '0 auto', padding: '20px', fontFamily: 'Montserrat, sans-serif', backgroundColor: '#fff' },
   header: { display: 'flex', alignItems: 'center', borderBottom: '2px solid #0D47A1', paddingBottom: '15px', marginBottom: '20px' },
@@ -142,28 +164,105 @@ export function AdmissionFormDocument({ data, org }) {
   );
 }
 
-// ---------- FEE RECEIPT ----------
+// ---------- FEE RECEIPT (professional invoice preview) ----------
 export function FeeReceiptDocument({ data, org }) {
+  const {
+    receipt_no,
+    payment_date,
+    student_name,
+    admission_no,
+    base_amount = 0,
+    tax_amount = 0,
+    amount = 0,
+    payment_mode,
+    transaction_no,
+    remarks,
+    tax_rate_name,
+    tax_rate_value,
+    tax_inclusive,
+    courseName,
+  } = data;
+
+  const totalDisplay = tax_rate_value > 0
+    ? (tax_inclusive ? amount : base_amount + tax_amount)
+    : amount;
+
+  const amountWords = numberToWords(totalDisplay) + " Only";
+
   return (
-    <div style={styles.container} className="print-area">
+    <div style={{ fontFamily: 'Montserrat, sans-serif', maxWidth: '210mm', margin: '0 auto', backgroundColor: '#fff', padding: '20px' }}>
       <ReportHeader org={org} />
-      <div style={styles.title}>FEE RECEIPT</div>
-      <table style={styles.table}>
+      <div style={{ textAlign: 'center', fontSize: '20px', fontWeight: 'bold', color: '#0D47A1', margin: '20px 0' }}>FEE RECEIPT</div>
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px' }}>
+        <div>
+          <p style={{ fontWeight: 'bold', color: '#0D47A1' }}>Student Details</p>
+          <p>Student: {student_name}</p>
+          <p>Admission No: {admission_no}</p>
+          {courseName && <p>Course: {courseName}</p>}
+        </div>
+        <div style={{ textAlign: 'right' }}>
+          <p style={{ fontWeight: 'bold', color: '#0D47A1' }}>Receipt Details</p>
+          <p>Receipt No: {receipt_no}</p>
+          <p>Date: {payment_date}</p>
+        </div>
+      </div>
+
+      <table style={{ width: '100%', borderCollapse: 'collapse', margin: '15px 0' }}>
+        <thead>
+          <tr style={{ backgroundColor: '#0D47A1', color: '#fff' }}>
+            <th style={{ padding: '8px', textAlign: 'center', width: '10%' }}>Sr.</th>
+            <th style={{ padding: '8px', textAlign: 'left' }}>Description</th>
+            <th style={{ padding: '8px', textAlign: 'right', width: '30%' }}>Amount</th>
+          </tr>
+        </thead>
         <tbody>
-          <tr><td style={styles.th}>Receipt No</td><td style={styles.td}>RCP-{data.id}</td></tr>
-          <tr><td style={styles.th}>Date</td><td style={styles.td}>{data.payment_date}</td></tr>
-          <tr><td style={styles.th}>Student</td><td style={styles.td}>{data.student_name} ({data.admission_no})</td></tr>
-          <tr><td style={styles.th}>Base Amount</td><td style={styles.td}>₹{data.base_amount || data.amount}</td></tr>
-          <tr><td style={styles.th}>Tax Amount</td><td style={styles.td}>₹{data.tax_amount || 0}</td></tr>
-          <tr><td style={styles.th}>Total Paid</td><td style={styles.td}>₹{data.amount}</td></tr>
-          <tr><td style={styles.th}>Payment Mode</td><td style={styles.td}>{data.payment_mode}</td></tr>
-          <tr><td style={styles.th}>Transaction No</td><td style={styles.td}>{data.transaction_no || '-'}</td></tr>
+          <tr>
+            <td style={{ padding: '8px', textAlign: 'center', border: '1px solid #ddd' }}>1</td>
+            <td style={{ padding: '8px', border: '1px solid #ddd' }}>Fee Payment</td>
+            <td style={{ padding: '8px', textAlign: 'right', border: '1px solid #ddd' }}>₹{amount.toLocaleString('en-IN')}</td>
+          </tr>
+          {tax_rate_value > 0 && (
+            <>
+              <tr>
+                <td style={{ padding: '8px', textAlign: 'center', border: '1px solid #ddd' }}></td>
+                <td style={{ padding: '8px', border: '1px solid #ddd' }}>Base Amount ({tax_rate_name} {tax_rate_value}%)</td>
+                <td style={{ padding: '8px', textAlign: 'right', border: '1px solid #ddd' }}>₹{base_amount.toLocaleString('en-IN')}</td>
+              </tr>
+              <tr>
+                <td style={{ padding: '8px', textAlign: 'center', border: '1px solid #ddd' }}></td>
+                <td style={{ padding: '8px', border: '1px solid #ddd' }}>Tax Amount</td>
+                <td style={{ padding: '8px', textAlign: 'right', border: '1px solid #ddd' }}>₹{tax_amount.toLocaleString('en-IN')}</td>
+              </tr>
+            </>
+          )}
         </tbody>
       </table>
-      <div style={styles.signatureLine}>
-        <div>Received By</div>
-        <div>Paid By</div>
+
+      <div style={{ backgroundColor: '#f5f5f5', padding: '15px', borderRadius: '5px', display: 'flex', justifyContent: 'space-between' }}>
+        <div>
+          <p style={{ fontWeight: 'bold', color: '#0D47A1', fontSize: '14px' }}>Total Amount Paid</p>
+          <p style={{ fontSize: '16px', fontWeight: 'bold' }}>₹{totalDisplay.toLocaleString('en-IN')}</p>
+          <p style={{ fontSize: '10px', color: '#555' }}>In Words: {amountWords}</p>
+        </div>
+        <div style={{ textAlign: 'right' }}>
+          <p>Payment Mode: {payment_mode || 'N/A'}</p>
+          <p>Transaction No: {transaction_no || '-'}</p>
+          {remarks && <p>Remarks: {remarks}</p>}
+        </div>
       </div>
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '30px' }}>
+        <div style={{ width: '40%' }}>
+          <div style={{ borderBottom: '1px solid #0D47A1', marginBottom: '5px' }}></div>
+          <p style={{ textAlign: 'center', fontSize: '12px' }}>Authorised Signatory</p>
+        </div>
+        <div style={{ width: '40%' }}>
+          <div style={{ borderBottom: '1px solid #0D47A1', marginBottom: '5px' }}></div>
+          <p style={{ textAlign: 'center', fontSize: '12px' }}>Parent / Guardian</p>
+        </div>
+      </div>
+
       <ReportFooter />
     </div>
   );

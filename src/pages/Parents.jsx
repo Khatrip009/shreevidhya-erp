@@ -62,7 +62,7 @@ export default function Parents() {
 
   // Mutations
   const createMutation = useMutation({
-    mutationFn: createParent,
+    mutationFn: ({ form, studentId }) => createParent(form, studentId),
     onSuccess: () => {
       toast.success("Parent created and linked");
       queryClient.invalidateQueries({ queryKey: ["parents"] });
@@ -141,12 +141,15 @@ export default function Parents() {
     }
   }
 
+  // Handlers for the form callbacks
   function handleCreate(payload) {
-    createMutation.mutate(payload);
+    // payload is { form, studentId, parent }
+    createMutation.mutate({ form: payload.form, studentId: payload.studentId });
   }
 
-  function handleUpdate(payload) {
-    updateMutation.mutate({ id: editing.id, payload });
+  function handleUpdate(updatedFields) {
+    // updatedFields is just the form object (parent fields)
+    updateMutation.mutate({ id: editing.id, payload: updatedFields });
   }
 
   function handleDelete(id) {
@@ -313,8 +316,6 @@ export default function Parents() {
           initialData={editing}
           onSubmit={handleUpdate}
           onClose={() => setEditing(null)}
-          // Note: when editing, we do not pass studentId – linking is not changed here;
-          // but you could add a “link to student” feature later if needed.
         />
       )}
     </AdminLayout>

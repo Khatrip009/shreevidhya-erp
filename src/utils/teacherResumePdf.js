@@ -1,5 +1,4 @@
 import { jsPDF } from "jspdf";
-import autoTable from "jspdf-autotable";
 import { supabase } from "../api/supabase";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -15,18 +14,37 @@ async function loadImageAsBase64(url) {
 }
 
 export async function generateTeacherResumePdf(teacherId) {
-  // 1. Fetch teacher with medium and course info
-  const { data: teacher } = await supabase
+  // 1. Teacher base record
+  const { data: teacher, error: teacherError } = await supabase
     .from("teachers")
-    .select("*, mediums(name), courses(course_name)")
+    .select("*")
     .eq("id", teacherId)
     .single();
+  if (teacherError) throw teacherError;
   if (!teacher) throw new Error("Teacher not found");
 
-  const mediumName = teacher.mediums?.name || "";
-  const courseName = teacher.courses?.course_name || "";
+  // 2. Mediums (via junction)
+  const { data: mediumLinks } = await supabase
+    .from("teacher_mediums")
+    .select("mediums(name)")
+    .eq("teacher_id", teacherId);
+  const mediums = mediumLinks?.map(l => l.mediums?.name).filter(Boolean) || [];
 
-  // 2. Fetch organisation
+  // 3. Courses (via junction)
+  const { data: courseLinks } = await supabase
+    .from("teacher_courses")
+    .select("courses(course_name)")
+    .eq("teacher_id", teacherId);
+  const courses = courseLinks?.map(l => l.courses?.course_name).filter(Boolean) || [];
+
+  // 4. Subjects (via junction)
+  const { data: subjectLinks } = await supabase
+    .from("teacher_subjects")
+    .select("subjects(subject_name)")
+    .eq("teacher_id", teacherId);
+  const subjects = subjectLinks?.map(l => l.subjects?.subject_name).filter(Boolean) || [];
+
+  // 5. Organisation
   const { data: org } = await supabase
     .from("organization")
     .select("logo_dark_url, company_name, address, phone, email")
@@ -35,192 +53,271 @@ export async function generateTeacherResumePdf(teacherId) {
 
   const logoUrl = org?.logo_dark_url || "/ShreeVidhyaDark.png";
   const academyName = org?.company_name || "ShreeVidhya Academy";
-  const address = org?.address || "";
-  const phone = org?.phone || "";
-  const email = org?.email || "";
+  const orgAddress = org?.address || "";
+  const orgPhone = org?.phone || "";
+  const orgEmail = org?.email || "";
 
-  // 3. Load logo
   const logoBase64 = await loadImageAsBase64(logoUrl).catch(() => null);
 
-  // 4. Fetch assigned batches (active)
+  // 6. Batches (active assignments)
   const { data: batchAssignments } = await supabase
     .from("batch_teachers")
     .select(`
       batch_id,
-      day,
-      subject_id,
       subjects(subject_name),
       batches(batch_name, start_time, end_time, days, courses(course_name))
     `)
     .eq("teacher_id", teacherId);
 
-  const batches = batchAssignments || [];
-
-  // Group batches (unique) with their days and subjects
+  // Group by batch
   const batchMap = new Map();
-  batches.forEach((b) => {
+  (batchAssignments || []).forEach(b => {
     const bid = b.batch_id;
     if (!batchMap.has(bid)) {
       batchMap.set(bid, {
-        batch_name: b.batches?.batch_name || "",
-        course_name: b.batches?.courses?.course_name || "",
-        schedule: `${b.batches?.start_time || "?"} - ${b.batches?.end_time || "?"} (${b.batches?.days || ""})`,
-        days: [],
+        name: b.batches?.batch_name || "Unnamed Batch",
+        course: b.batches?.courses?.course_name || "",
+        schedule: `${b.batches?.start_time || "?"} – ${b.batches?.end_time || "?"}  |  ${b.batches?.days || ""}`,
         subjects: [],
       });
     }
     const entry = batchMap.get(bid);
-    if (b.day && !entry.days.includes(b.day)) entry.days.push(b.day);
-    const subj = b.subjects?.subject_name;
-    if (subj && !entry.subjects.includes(subj)) entry.subjects.push(subj);
+    if (b.subjects?.subject_name) entry.subjects.push(b.subjects.subject_name);
   });
   const batchList = Array.from(batchMap.values());
 
-  // ─── PDF Creation ──────────────────────────────────────────────────────
-  const doc = new jsPDF();
-  const pageWidth = doc.internal.pageSize.getWidth();
-  const pageHeight = doc.internal.pageSize.getHeight();
-  const margin = 14;
+  // ─── PDF Setup ────────────────────────────────────────────────────────────
+  const doc = new jsPDF({ unit: "mm", format: "a4" });
+  const pageWidth = doc.internal.pageSize.getWidth();   // 210mm
+  const pageHeight = doc.internal.pageSize.getHeight(); // 297mm
 
-  // ── Header with blue bar and name ──────────────────────────────────────
+  // Margins
+  const leftColWidth = 52;    // sidebar width
+  const marginLeft = 6;
+  const marginRight = 6;
+  const mainLeft = leftColWidth + 4; // where main content starts
+  const mainWidth = pageWidth - mainLeft - marginRight;
+
+  // Helper to add text in main area with consistent font
+  const mainText = (text, x, y, size = 9, color = "#333", font = "helvetica", style = "normal") => {
+    doc.setFont(font, style);
+    doc.setFontSize(size);
+    doc.setTextColor(color);
+    doc.text(text, x, y);
+  };
+
+  // ── LEFT SIDEBAR BACKGROUND ────────────────────────────────────────────────
   doc.setFillColor("#0D47A1");
-  doc.rect(0, 0, pageWidth, 45, "F");
+  doc.rect(0, 0, leftColWidth, pageHeight, "F");
 
-  // Logo inside header (left)
+  let yLeft = 20;
+
+  // Logo / Academy Name in sidebar (top)
   if (logoBase64) {
-    doc.addImage(logoBase64, "PNG", margin, 8, 28, 28);
+    doc.addImage(logoBase64, "PNG", marginLeft, yLeft, 24, 24);
+    yLeft += 30;
   }
 
-  // Name and designation
-  const nameY = 18;
+  // Teacher Name
   doc.setFont("times", "bold");
-  doc.setFontSize(26);
+  doc.setFontSize(14);
   doc.setTextColor("#FFFFFF");
-  doc.text(`${teacher.first_name} ${teacher.last_name}`, margin + 35, nameY);
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(12);
-  doc.text("Teacher", margin + 35, nameY + 8);
+  const fullName = `${teacher.first_name} ${teacher.last_name}`;
+  const nameLines = doc.splitTextToSize(fullName, leftColWidth - 8);
+  doc.text(nameLines, marginLeft + 2, yLeft);
+  yLeft += nameLines.length * 7 + 4;
 
-  // Contact info (top right)
-  const contactX = pageWidth - margin;
-  doc.setFontSize(9);
-  doc.setTextColor("#FFFFFF");
-  doc.text(`📞 ${teacher.mobile}`, contactX, 20, { align: "right" });
-  doc.text(`✉️ ${teacher.email || "-"}`, contactX, 27, { align: "right" });
-  doc.text(`${address ? "📍 " + address : ""}`, contactX, 34, { align: "right" });
-
-  let y = 52;
-
-  // ── Personal Details (left column) ──────────────────────────────────────
-  const leftColX = margin;
-  const rightColX = pageWidth / 2 + 10;
-  const leftWidth = pageWidth / 2 - margin - 10;
-
-  // Left column card
-  doc.setFillColor("#F0F4FF");
-  doc.rect(leftColX, y, leftWidth, 85, "F");
-
-  let ly = y + 6;
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(12);
-  doc.setTextColor("#0D47A1");
-  doc.text("PERSONAL DETAILS", leftColX + 4, ly);
-  ly += 7;
-
+  // Title
   doc.setFont("helvetica", "normal");
   doc.setFontSize(9);
-  doc.setTextColor("#333");
-  const personalFields = [
-    ["Employee Code", teacher.employee_code || "-"],
-    ["Mobile", teacher.mobile],
-    ["Email", teacher.email || "-"],
-    ["Qualification", teacher.qualification || "-"],
-    ["Joining Date", teacher.joining_date || "-"],
-    ["Status", teacher.status?.toUpperCase()],
-    ["Medium", mediumName || "-"],
-    ["Course", courseName || "-"],
-  ];
-  personalFields.forEach(([label, value]) => {
-    doc.setFont("helvetica", "bold");
-    doc.text(`${label}:`, leftColX + 6, ly);
+  doc.setTextColor("#B3D4FF");
+  doc.text("TEACHER", marginLeft + 2, yLeft);
+  yLeft += 10;
+
+  // Small line
+  doc.setDrawColor("#FFFFFF");
+  doc.setLineWidth(0.3);
+  doc.line(marginLeft + 2, yLeft, leftColWidth - 4, yLeft);
+  yLeft += 6;
+
+  // Contact details
+  const addLeftItem = (icon, text, yStart) => {
     doc.setFont("helvetica", "normal");
-    doc.text(value, leftColX + 40, ly);
-    ly += 7;
-  });
+    doc.setFontSize(8);
+    doc.setTextColor("#E3F2FD");
+    const lines = doc.splitTextToSize(text, leftColWidth - 12);
+    doc.text(lines, marginLeft + 6, yStart);
+    return yStart + lines.length * 4 + 3;
+  };
 
-  // ── Professional Summary (right column) ─────────────────────────────────
-  let ry = y;
+  yLeft = addLeftItem("📞", teacher.mobile || "—", yLeft);
+  if (teacher.email) yLeft = addLeftItem("✉️", teacher.email, yLeft);
+  yLeft = addLeftItem("📍", orgAddress || "—", yLeft);
+  yLeft += 4;
+
+  // Mediums section
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(12);
-  doc.setTextColor("#0D47A1");
-  doc.text("PROFESSIONAL SUMMARY", rightColX, ry);
-  ry += 7;
-
-  doc.setFont("helvetica", "normal");
   doc.setFontSize(9);
-  doc.setTextColor("#333");
-  const summary = `Dedicated and passionate educator with experience at ${academyName}. ${teacher.qualification ? "Holding " + teacher.qualification + ", " : ""}${mediumName ? "proficient in " + mediumName + " medium, " : ""}skilled in classroom management and student engagement. Currently teaching ${batchList.length > 0 ? batchList.map(b => b.batch_name).join(", ") : "no batches"}.`;
-  const summaryLines = doc.splitTextToSize(summary, 80);
-  doc.text(summaryLines, rightColX, ry);
-
-  ry += summaryLines.length * 5 + 12;
-
-  // ── Batches / Teaching Experience (right column) ─────────────────────────
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(12);
-  doc.setTextColor("#0D47A1");
-  doc.text("TEACHING EXPERIENCE", rightColX, ry);
-  ry += 7;
-
-  if (batchList.length > 0) {
-    batchList.forEach((b) => {
-      // Check vertical space
-      if (ry > pageHeight - 30) {
-        doc.addPage();
-        ry = 20;
-      }
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(10);
-      doc.setTextColor("#0D47A1");
-      doc.text(`${b.batch_name} (${b.course_name})`, rightColX, ry);
-      ry += 6;
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(9);
-      doc.setTextColor("#555");
-      doc.text(`Schedule: ${b.schedule}`, rightColX + 4, ry);
-      ry += 5;
-      if (b.subjects.length) {
-        doc.text(`Subjects: ${b.subjects.join(", ")}`, rightColX + 4, ry);
-        ry += 5;
-      }
-      ry += 3;
+  doc.setTextColor("#FFFFFF");
+  doc.text("MEDIUMS", marginLeft + 2, yLeft);
+  yLeft += 5;
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.setTextColor("#E3F2FD");
+  if (mediums.length) {
+    mediums.forEach(m => {
+      doc.text(`• ${m}`, marginLeft + 6, yLeft);
+      yLeft += 4.5;
     });
   } else {
-    doc.text("No active batches assigned.", rightColX, ry);
-    ry += 6;
+    doc.text("—", marginLeft + 6, yLeft);
+    yLeft += 5;
+  }
+  yLeft += 4;
+
+  // Courses section
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9);
+  doc.setTextColor("#FFFFFF");
+  doc.text("COURSES", marginLeft + 2, yLeft);
+  yLeft += 5;
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.setTextColor("#E3F2FD");
+  if (courses.length) {
+    courses.forEach(c => {
+      doc.text(`• ${c}`, marginLeft + 6, yLeft);
+      yLeft += 4.5;
+    });
+  } else {
+    doc.text("—", marginLeft + 6, yLeft);
+    yLeft += 5;
+  }
+  yLeft += 4;
+
+  // Subjects section
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9);
+  doc.setTextColor("#FFFFFF");
+  doc.text("SUBJECTS", marginLeft + 2, yLeft);
+  yLeft += 5;
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.setTextColor("#E3F2FD");
+  if (subjects.length) {
+    subjects.forEach(s => {
+      doc.text(`• ${s}`, marginLeft + 6, yLeft);
+      yLeft += 4.5;
+    });
+  } else {
+    doc.text("—", marginLeft + 6, yLeft);
+    yLeft += 5;
   }
 
-  // ── Salary Info (bottom left) ────────────────────────────────────────────
-  let bottomY = Math.max(ly + 6, ry + 10);
-  bottomY = y + 95; // ensure below both columns
+  // ── MAIN CONTENT (Right side) ──────────────────────────────────────────────
+  let yMain = 28;
 
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(12);
+  // Professional Summary
+  doc.setFont("times", "bold");
+  doc.setFontSize(16);
   doc.setTextColor("#0D47A1");
-  doc.text("COMPENSATION", leftColX, bottomY);
-  bottomY += 7;
+  doc.text("PROFESSIONAL SUMMARY", mainLeft, yMain);
+  yMain += 8;
+
+  doc.setDrawColor("#0D47A1");
+  doc.setLineWidth(0.5);
+  doc.line(mainLeft, yMain, mainLeft + mainWidth - 2, yMain);
+  yMain += 6;
+
+  const summaryText = `Dedicated educator with ${batchList.length ? "experience teaching " + batchList.map(b => b.name).join(", ") : "a passion for teaching"} at ${academyName}. ${teacher.qualification ? "Holds " + teacher.qualification + ". " : ""}Skilled in classroom management, student engagement, and curriculum delivery.`;
+  const summaryLines = doc.splitTextToSize(summaryText, mainWidth - 4);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(10);
   doc.setTextColor("#333");
-  doc.text(`Monthly Salary: ₹${teacher.salary ? Number(teacher.salary).toLocaleString() : "-"}`, leftColX + 4, bottomY);
+  doc.text(summaryLines, mainLeft, yMain);
+  yMain += summaryLines.length * 5 + 8;
 
-  // ── Footer ───────────────────────────────────────────────────────────────
-  const footerY = pageHeight - 12;
+  // Teaching Experience
+  doc.setFont("times", "bold");
+  doc.setFontSize(16);
+  doc.setTextColor("#0D47A1");
+  doc.text("TEACHING EXPERIENCE", mainLeft, yMain);
+  yMain += 8;
+
+  doc.setDrawColor("#0D47A1");
+  doc.setLineWidth(0.5);
+  doc.line(mainLeft, yMain, mainLeft + mainWidth - 2, yMain);
+  yMain += 6;
+
+  if (batchList.length === 0) {
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    doc.setTextColor("#333");
+    doc.text("No active batches assigned.", mainLeft, yMain);
+    yMain += 8;
+  } else {
+    batchList.forEach(batch => {
+      // Batch name as heading
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(11);
+      doc.setTextColor("#0D47A1");
+      doc.text(`${batch.name}  (${batch.course})`, mainLeft, yMain);
+      yMain += 6;
+
+      // Schedule
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      doc.setTextColor("#666");
+      doc.text(`Schedule: ${batch.schedule}`, mainLeft + 6, yMain);
+      yMain += 5;
+
+      // Subjects
+      if (batch.subjects.length) {
+        doc.text(`Subjects: ${batch.subjects.join(", ")}`, mainLeft + 6, yMain);
+        yMain += 5;
+      }
+      yMain += 3;
+    });
+  }
+
+  // Additional details (Qualification, Joining Date, Salary)
+  yMain += 6;
+  doc.setFont("times", "bold");
+  doc.setFontSize(16);
+  doc.setTextColor("#0D47A1");
+  doc.text("ADDITIONAL DETAILS", mainLeft, yMain);
+  yMain += 8;
+
+  doc.setDrawColor("#0D47A1");
+  doc.setLineWidth(0.5);
+  doc.line(mainLeft, yMain, mainLeft + mainWidth - 2, yMain);
+  yMain += 6;
+
+  const details = [
+    ["Employee Code", teacher.employee_code || "—"],
+    ["Qualification", teacher.qualification || "—"],
+    ["Joining Date", teacher.joining_date || "—"],
+    ["Monthly Salary", teacher.salary ? `₹ ${Number(teacher.salary).toLocaleString("en-IN")}` : "—"],
+    ["Status", teacher.status ? teacher.status.charAt(0).toUpperCase() + teacher.status.slice(1) : "—"],
+  ];
+
+  details.forEach(([label, value]) => {
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9);
+    doc.setTextColor("#333");
+    doc.text(`${label}:`, mainLeft, yMain);
+    doc.setFont("helvetica", "normal");
+    doc.text(value, mainLeft + 38, yMain);
+    yMain += 6;
+  });
+
+  // Footer (discreet)
+  const footerY = pageHeight - 10;
   doc.setFont("helvetica", "italic");
   doc.setFontSize(7);
   doc.setTextColor("#999");
   doc.text(
-    `Generated by ${academyName} on ${new Date().toLocaleDateString()}`,
+    `${academyName} – ${orgAddress}  |  Generated on ${new Date().toLocaleDateString()}`,
     pageWidth / 2,
     footerY,
     { align: "center" }

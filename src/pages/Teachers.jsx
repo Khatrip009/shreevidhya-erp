@@ -18,6 +18,7 @@ import {
   Unlink,
   Filter,
   X,
+  CreditCard,   // <-- added for ID Card button
 } from "lucide-react";
 import Papa from "papaparse";
 import AdminLayout from "../layouts/AdminLayout";
@@ -34,6 +35,7 @@ import {
   getSubjectOptions,
 } from "../services/teacherService";
 import { generateTeacherResumePdf } from "../utils/teacherResumePdf";
+import { generateIdCard } from "../utils/idCardPdf";   // <-- imported
 
 export default function Teachers() {
   const queryClient = useQueryClient();
@@ -143,9 +145,6 @@ export default function Teachers() {
         let successCount = 0;
         for (const row of results.data) {
           try {
-            // Note: The import still uses legacy single medium/course IDs.
-            // For full multi‑support, you'll need to map names to IDs.
-            // We keep it as is for backward compatibility.
             const payload = {
               employee_code: row.employee_code || null,
               first_name: row.first_name,
@@ -156,12 +155,8 @@ export default function Teachers() {
               joining_date: row.joining_date || null,
               salary: row.salary ? Number(row.salary) : null,
               status: row.status || "active",
-              // Legacy fields – service will ignore these if they are not arrays
-              // Actually, our service now expects medium_ids and course_ids.
-              // We'll convert single values to arrays if present.
               medium_ids: row.medium_id ? [Number(row.medium_id)] : [],
               course_ids: row.course_id ? [Number(row.course_id)] : [],
-              // We can also add course_level_ids and subject_ids if columns exist
             };
             await createTeacher(payload);
             successCount++;
@@ -213,6 +208,15 @@ export default function Teachers() {
       await generateTeacherResumePdf(teacherId);
     } catch (err) {
       toast.error("Failed to generate resume PDF");
+    }
+  }
+
+  // ID Card handler
+  async function handlePrintIdCard(teacherId) {
+    try {
+      await generateIdCard({ type: "teacher", id: teacherId });
+    } catch (err) {
+      toast.error(err.message || "Failed to generate ID Card");
     }
   }
 
@@ -462,7 +466,7 @@ export default function Teachers() {
                         : "-"}
                     </td>
                     <td className="text-sm">
-                      <div className="flex gap-2">
+                      <div className="flex gap-2 flex-wrap">
                         <button
                           onClick={() => setEditing(teacher)}
                           className="text-blue-600 hover:underline"
@@ -480,6 +484,13 @@ export default function Teachers() {
                           className="text-green-600 hover:underline flex items-center gap-1"
                         >
                           <Printer size={14} /> Resume
+                        </button>
+                        {/* ID Card Button */}
+                        <button
+                          onClick={() => handlePrintIdCard(teacher.id)}
+                          className="text-indigo-600 hover:underline flex items-center gap-1"
+                        >
+                          <CreditCard size={14} /> ID Card
                         </button>
                       </div>
                     </td>

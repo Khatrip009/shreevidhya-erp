@@ -141,3 +141,28 @@ export async function deleteParent(id) {
     .eq("id", id);
   if (error) throw error;
 }
+
+export async function linkStudentToParent(parentId, studentId) {
+  // Check if link already exists
+  const { data: existing } = await supabase
+    .from("student_parents")
+    .select("id")
+    .eq("parent_id", parentId)
+    .eq("student_id", studentId)
+    .maybeSingle();
+
+  if (existing) {
+    throw new Error("This student is already linked to this parent.");
+  }
+
+  // Create new link
+  const { error } = await supabase
+    .from("student_parents")
+    .insert({
+      parent_id: parentId,
+      student_id: studentId,
+      relation: "parent",
+    });
+
+  if (error) throw error;
+}

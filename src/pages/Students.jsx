@@ -15,6 +15,7 @@ import {
   Printer,
   X,
   Users,
+   CreditCard, 
 } from "lucide-react";
 import Papa from "papaparse";
 import AdminLayout from "../layouts/AdminLayout";
@@ -26,6 +27,7 @@ import {
 } from "../services/studentService";
 import { generateAdmissionPdf } from "../utils/admissionPdf";
 import { printAdmissionForm } from "../utils/printAdmissionForm";
+import { generateIdCard } from "../utils/idCardPdf";
 
 export default function Students() {
   const queryClient = useQueryClient();
@@ -327,7 +329,22 @@ export default function Students() {
                         >
                           <Printer size={14} /> Print
                         </button>
+                        
+                        <button
+                          onClick={async () => {         // <-- make it async
+                            try {
+                              await generateIdCard({ type: "student", id: student.id });
+                            } catch (err) {
+                              toast.error(err.message);
+                            }
+                          }}
+                          className="text-blue-600 hover:underline text-sm flex items-center gap-1"
+                        >
+                          <CreditCard size={14} /> ID Card
+                        </button>
+                        
                       </div>
+                      
                     </td>
                   </tr>
                 ))

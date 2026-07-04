@@ -1,10 +1,15 @@
-import { useState } from "react";
-import { Menu, X } from "lucide-react";
+import { useState, useCallback } from "react";
+import { Menu, X, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import Sidebar from "../components/Sidebar";
 import Header from "../components/Header";
 
 export default function AdminLayout({ children }) {
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false); // mobile overlay
+  const [collapsed, setCollapsed] = useState(false);     // desktop icon mode
+
+  // Memoize callbacks so Sidebar won't re-render unnecessarily
+  const closeMobile = useCallback(() => setSidebarOpen(false), []);
+  const toggleCollapsed = useCallback(() => setCollapsed(prev => !prev), []);
 
   return (
     <div className="flex h-screen overflow-hidden">
@@ -12,17 +17,23 @@ export default function AdminLayout({ children }) {
       {sidebarOpen && (
         <div
           className="fixed inset-0 z-30 bg-black/50 lg:hidden"
-          onClick={() => setSidebarOpen(false)}
+          onClick={closeMobile}
         />
       )}
 
-      {/* Sidebar (fixed on mobile, static on desktop) */}
+      {/* Sidebar wrapper */}
       <div
-        className={`fixed inset-y-0 left-0 z-40 w-72 transform transition-transform duration-300 ease-in-out lg:relative lg:translate-x-0 ${
-          sidebarOpen ? "translate-x-0" : "-translate-x-full"
-        }`}
+        className={`fixed inset-y-0 left-0 z-40 transition-all duration-300
+          ${collapsed ? 'w-16' : 'w-72'}
+          lg:relative lg:translate-x-0
+          ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}
+        `}
       >
-        <Sidebar onClose={() => setSidebarOpen(false)} />
+        <Sidebar
+          onClose={closeMobile}
+          collapsed={collapsed}
+          onToggleCollapse={toggleCollapsed}
+        />
       </div>
 
       {/* Main area */}

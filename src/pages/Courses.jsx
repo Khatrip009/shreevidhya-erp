@@ -21,8 +21,8 @@ import Papa from "papaparse";
 import AdminLayout from "../layouts/AdminLayout";
 import CourseForm from "../components/CourseForm";
 import CourseLevelForm from "../components/CourseLevelForm";
+import { supabase } from "../api/supabase";   // <-- direct Supabase access
 import {
-  getCourses,
   createCourse,
   updateCourse,
   deleteCourse,
@@ -42,7 +42,7 @@ export default function Courses() {
   const [mediumFilter, setMediumFilter] = useState("");
   const filters = { search, medium_id: mediumFilter };
 
-  // Infinite query for courses
+  // Infinite query – fetch courses with medium name
   const {
     data,
     isLoading: coursesLoading,
@@ -51,7 +51,34 @@ export default function Courses() {
     isFetchingNextPage,
   } = useInfiniteQuery({
     queryKey: ["courses", filters],
-    queryFn: ({ pageParam = 0 }) => getCourses({ pageParam, filters }),
+    queryFn: async ({ pageParam = 0 }) => {
+      const from = pageParam * 20;   // adjust page size as needed
+      const to = from + 19;
+
+      let query = supabase
+        .from("courses")
+        .select("*, mediums(name)", { count: "exact" })
+        .order("course_name", { ascending: true })
+        .range(from, to);
+
+      if (search) {
+        query = query.or(`course_name.ilike.%${search}%,description.ilike.%${search}%`);
+      }
+      if (mediumFilter) {
+        query = query.eq("medium_id", mediumFilter);
+      }
+
+      const { data, count, error } = await query;
+      if (error) throw error;
+
+      // Flatten medium name for easy access
+      const courses = (data || []).map((course) => ({
+        ...course,
+        medium_name: course.mediums?.name || "",
+      }));
+
+      return { data: courses, count };
+    },
     getNextPageParam: (lastPage, allPages) => {
       const totalFetched = allPages.reduce((sum, page) => sum + page.data.length, 0);
       if (lastPage.count && totalFetched < lastPage.count) {
@@ -65,14 +92,14 @@ export default function Courses() {
 
   const courses = data?.pages.flatMap((page) => page.data) || [];
 
-  // Fetch mediums for filter dropdown
+  // Mediums for filter (unchanged)
   const { data: mediums = [] } = useQuery({
     queryKey: ["mediumsDropdown"],
     queryFn: getMediumOptions,
     staleTime: 10 * 60 * 1000,
   });
 
-  // Mutations
+  // Mutations (unchanged)
   const createMutation = useMutation({
     mutationFn: createCourse,
     onSuccess: () => {
@@ -102,7 +129,7 @@ export default function Courses() {
     onError: () => toast.error("Delete failed"),
   });
 
-  // CSV Import – now includes medium_id
+  // CSV Import (unchanged)
   async function handleCSVImport(event) {
     const file = event.target.files[0];
     if (!file) return;
@@ -133,7 +160,7 @@ export default function Courses() {
     });
   }
 
-  // CSV Export – now includes medium name
+  // CSV Export (unchanged)
   async function handleCSVExport() {
     try {
       const allData = await getAllCoursesForExport(filters);
@@ -158,7 +185,7 @@ export default function Courses() {
     }
   }
 
-  // Level management state (unchanged)
+  // Level management (unchanged)
   const [expandedCourseId, setExpandedCourseId] = useState(null);
   const [levelForm, setLevelForm] = useState(null);
   const [levelsMap, setLevelsMap] = useState({});
@@ -210,7 +237,7 @@ export default function Courses() {
     onError: () => toast.error("Delete failed"),
   });
 
-  // UI state
+  // UI state (unchanged)
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
   const fileInputRef = useRef(null);
@@ -230,7 +257,7 @@ export default function Courses() {
 
   return (
     <AdminLayout>
-      {/* Header */}
+      {/* Header (unchanged) */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
         <div>
           <h1 className="text-3xl font-righteous text-primary-dark">Courses</h1>
@@ -349,7 +376,7 @@ export default function Courses() {
                         </div>
                       </td>
                     </tr>
-                    {/* Level sub-table – unchanged */}
+                    {/* Level sub-table */}
                     {expandedCourseId === course.id && (
                       <tr className="bg-secondary-bg">
                         <td colSpan={5} className="p-4">
