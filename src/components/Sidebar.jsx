@@ -24,8 +24,19 @@ import {
   Layers,
   TrendingUp,
   Calendar,
-  CalendarCheck,    // ← missing import
-  Palette, 
+  CalendarCheck,    // ✅ now imported
+  Palette,
+  User,
+  AlertCircle,
+  CheckCircle,
+  Monitor,
+  Box,
+  Package,
+  Plus,
+  ClipboardList,
+  ArrowLeftRight,
+  Receipt,
+  PlusCircle,
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { useState } from "react";
@@ -37,7 +48,7 @@ function normaliseRole(rawRole) {
   return (rawRole || "").toLowerCase().replace(/\s+/g, "_");
 }
 
-/* ─── Small Section Header (only visible when expanded) ─── */
+/* ─── Small Section Header ─── */
 function SectionLabel({ children }) {
   return (
     <p className="px-4 pt-4 pb-1 text-[10px] font-montserrat font-semibold uppercase tracking-wider text-secondary-light">
@@ -46,7 +57,7 @@ function SectionLabel({ children }) {
   );
 }
 
-/* ─── Sidebar Link – always shows icon, hides text when collapsed ─── */
+/* ─── Sidebar Link ─── */
 function SidebarLink({ to, icon: Icon, children, end }) {
   return (
     <NavLink
@@ -94,6 +105,8 @@ export default function Sidebar({ onClose, collapsed, onToggleCollapse }) {
   const [admissionOpen, setAdmissionOpen] = useState(false);
   const [academicOpen, setAcademicOpen] = useState(false);
   const [financeOpen, setFinanceOpen] = useState(false);
+  const [inventoryOpen, setInventoryOpen] = useState(false);
+  const [hrOpen, setHrOpen] = useState(false);
   const [commOpen, setCommOpen] = useState(false);
 
   const { data: org } = useQuery({
@@ -224,183 +237,106 @@ export default function Sidebar({ onClose, collapsed, onToggleCollapse }) {
     </>
   );
 
-  // ────────────── Admin Links (re‑organised) ──────────────
-  const adminLinks = (
-    <>
-      <SidebarLink to="/" end icon={LayoutDashboard}>
-        Dashboard
-      </SidebarLink>
+// ────────────── Admin / Super Admin Links ──────────────
+const adminLinks = (
+  <>
+    <SidebarLink to="/" end icon={LayoutDashboard}>
+      Dashboard
+    </SidebarLink>
 
-      {/* Admissions */}
-      <AccordionToggle
-        icon={Users}
-        label="Admissions"
-        open={admissionOpen}
-        onClick={() => setAdmissionOpen(!admissionOpen)}
-        collapsed={collapsed}
-      />
-      {admissionOpen && !collapsed && (
-        <div className="ml-6 space-y-1">
-          <SidebarLink to="/inquiries" icon={Megaphone}>
-            Inquiries
-          </SidebarLink>
-          <SidebarLink to="/students" icon={Users}>
-            Students
-          </SidebarLink>
-          <SidebarLink to="/parents" icon={Users}>
-            Parents
-          </SidebarLink>
-          <SidebarLink to="/student-batches" icon={Layers}>
-            Batch Assign
-          </SidebarLink>
-          <SidebarLink to="/student-documents" icon={FileText}>
-            Documents
-          </SidebarLink>
-        </div>
-      )}
+    {/* ── Admissions Hub ── */}
+    {!collapsed && <SectionLabel>Admissions</SectionLabel>}
+    <SidebarLink to="/admissions-hub" icon={Users}>
+      Admissions Hub
+    </SidebarLink>
 
-      {/* Academics */}
-      <AccordionToggle
-        icon={GraduationCap}
-        label="Academics"
-        open={academicOpen}
-        onClick={() => setAcademicOpen(!academicOpen)}
-        collapsed={collapsed}
-      />
-      {academicOpen && !collapsed && (
-        <div className="ml-6 space-y-1">
-          <SidebarLink to="/courses" icon={BookOpen}>
-            Courses
-          </SidebarLink>
-          <SidebarLink to="/subjects" icon={BookOpen}>
-            Subjects
-          </SidebarLink>
-          <SidebarLink to="/mediums" icon={BookOpen}>
-            Mediums
-          </SidebarLink>
-          <SidebarLink to="/batches" icon={Layers}>
-            Batches
-          </SidebarLink>
-          <SidebarLink to="/attendance" icon={CalendarCheck}>
-            Attendance
-          </SidebarLink>
-          <SidebarLink to="/attendance/reports" icon={BarChart3}>
-            Attendance Reports
-          </SidebarLink>
-          <SidebarLink to="/progress" icon={TrendingUp}>
-            Progress
-          </SidebarLink>
-          <SidebarLink to="/student-progress" icon={TrendingUp}>
-            Progress Report
-          </SidebarLink>
-          <SidebarLink to="/homework" icon={FileText}>
-            Homework
-          </SidebarLink>
-          <SidebarLink to="/exams" icon={ClipboardCheck}>
-            Exams
-          </SidebarLink>
-          <SidebarLink to="/results" icon={BarChart3}>
-            Results
-          </SidebarLink>
-          <SidebarLink to="/timetable" icon={Calendar}>
-            Class Timetable
-          </SidebarLink>
-          <SidebarLink to="/online-classes" icon={Video}>
-            Online Classes
-          </SidebarLink>
-        </div>
-      )}
+    {/* ── Academics Hub ── */}
+    {!collapsed && <SectionLabel>Academics</SectionLabel>}
+    <SidebarLink to="/academics-hub" icon={GraduationCap}>
+      Academics Hub
+    </SidebarLink>
 
-      {/* Finance */}
-      <AccordionToggle
-        icon={IndianRupee}
-        label="Finance"
-        open={financeOpen}
-        onClick={() => setFinanceOpen(!financeOpen)}
-        collapsed={collapsed}
-      />
-      {financeOpen && !collapsed && (
-        <div className="ml-6 space-y-1">
-          <SidebarLink to="/fees/structures" icon={IndianRupee}>
-            Fee Structures
-          </SidebarLink>
-          <SidebarLink to="/fees" icon={IndianRupee}>
-            Fees
-          </SidebarLink>
-          <SidebarLink to="/receipts" icon={FileText}>
-            Receipts
-          </SidebarLink>
-          <SidebarLink to="/income" icon={IndianRupee}>
-            Income
-          </SidebarLink>
-          <SidebarLink to="/expenses" icon={IndianRupee}>
-            Expenses
-          </SidebarLink>
-          <SidebarLink to="/salary-payments" icon={Wallet}>
-            Salary Payments
-          </SidebarLink>
-          <SidebarLink to="/profit-loss" icon={BarChart3}>
-            Profit & Loss
-          </SidebarLink>
-          <SidebarLink to="/learning-resources" icon={BookOpen}>
-            Learning Resources
-          </SidebarLink>
-          <SidebarLink to="/tax-settings" icon={Settings}>
-            Tax Settings
-          </SidebarLink>
-          <SidebarLink to="/tax-report" icon={FileText}>
-            Tax Report
-          </SidebarLink>
-        </div>
-      )}
+    {/* ── Accounting Hub ── */}
+    {!collapsed && <SectionLabel>Finance & Accounting</SectionLabel>}
+    <SidebarLink to="/accounting" icon={IndianRupee}>
+      Accounting Hub
+    </SidebarLink>
 
-      {/* HR & Staff */}
-      {!collapsed && <SectionLabel>HR & Staff</SectionLabel>}
-      <SidebarLink to="/teachers" icon={BookOpen}>
-        Teachers
-      </SidebarLink>
-      <SidebarLink to="/leave-management" icon={CalendarClock}>
-        Leave Management
-      </SidebarLink>
+    {/* ── Inventory (keep as accordion for now) ── */}
+    <AccordionToggle
+      icon={Box}
+      label="Inventory"
+      open={inventoryOpen}
+      onClick={() => setInventoryOpen(!inventoryOpen)}
+      collapsed={collapsed}
+    />
+    {inventoryOpen && !collapsed && (
+      <div className="ml-6 space-y-1">
+        <SidebarLink to="/inventory-items" icon={Box}>
+          Items
+        </SidebarLink>
+        <SidebarLink to="/inventory-transactions" icon={BarChart3}>
+          Transactions
+        </SidebarLink>
+        <SidebarLink to="/inventory-issue" icon={User}>
+          Issue to Student
+        </SidebarLink>
+        <SidebarLink to="/stock-dashboard" icon={Package}>
+          Stock Dashboard
+        </SidebarLink>
+        <SidebarLink to="/add-stock" icon={Plus}>
+          Add Stock
+        </SidebarLink>
+        <SidebarLink to="/purchase-orders" icon={ClipboardList}>
+          Purchase Orders
+        </SidebarLink>
+      </div>
+    )}
 
-      {/* Certificates & Reports */}
-      {!collapsed && <SectionLabel>Documents</SectionLabel>}
-      <SidebarLink to="/certificates" icon={Award}>
-        Certificates
-      </SidebarLink>
-      <SidebarLink to="/reports" icon={FileText}>
-        Reports
-      </SidebarLink>
+    {/* ── HR Hub ── */}
+    {!collapsed && <SectionLabel>HR & Staff</SectionLabel>}
+    <SidebarLink to="/hr-hub" icon={Users}>
+      HR Hub
+    </SidebarLink>
 
-      {/* Communication */}
-      {!collapsed && <SectionLabel>Communication</SectionLabel>}
-      <SidebarLink to="/notifications" icon={Bell}>
-        Notifications
-      </SidebarLink>
+    {/* ── Documents ── */}
+    {!collapsed && <SectionLabel>Documents</SectionLabel>}
+    <SidebarLink to="/certificates" icon={Award}>
+      Certificates
+    </SidebarLink>
+    <SidebarLink to="/reports" icon={FileText}>
+      Reports
+    </SidebarLink>
 
-      {/* System */}
-      {!collapsed && <SectionLabel>System</SectionLabel>}
-      <SidebarLink to="/user-management" icon={Shield}>
-        Users
-      </SidebarLink>
-      <SidebarLink to="/settings" icon={Settings}>
-        Settings
-      </SidebarLink>
-      <SidebarLink to="/organization-settings" icon={Building}>
-        Organization
-      </SidebarLink>
-      <SidebarLink to="/theme-settings" icon={Palette}>
-        Theme Settings
-      </SidebarLink>
-    </>
-  );
+    {/* ── Communication ── */}
+    {!collapsed && <SectionLabel>Communication</SectionLabel>}
+    <SidebarLink to="/notifications" icon={Bell}>
+      Notifications
+    </SidebarLink>
 
+    {/* ── System ── */}
+    {!collapsed && <SectionLabel>System</SectionLabel>}
+    <SidebarLink to="/user-management" icon={Shield}>
+      Users
+    </SidebarLink>
+    <SidebarLink to="/settings" icon={Settings}>
+      Settings
+    </SidebarLink>
+    <SidebarLink to="/organization-settings" icon={Building}>
+      Organization
+    </SidebarLink>
+    <SidebarLink to="/theme-settings" icon={Palette}>
+      Theme Settings
+    </SidebarLink>
+  </>
+);
+  // ────────────── Render ──────────────
   return (
     <aside
       className="bg-primary text-white h-screen border-r border-primary-dark flex flex-col overflow-y-auto sidebar-scroll transition-all duration-300"
       style={{ width: collapsed ? 64 : 288 }}
     >
-      {/* Top bar with collapse toggle and mobile close */}
+      {/* Top bar */}
       <div className="flex items-center justify-between p-2">
         <button
           onClick={onToggleCollapse}

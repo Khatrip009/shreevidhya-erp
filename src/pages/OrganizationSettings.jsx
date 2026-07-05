@@ -1,3 +1,4 @@
+// src/pages/OrganizationSettings.jsx
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
@@ -20,25 +21,24 @@ export default function OrganizationSettings() {
     phone: "",
     email: "",
     website: "",
+    gstin: "",                  // NEW
     vision: "",
     mission: "",
     description: "",
   });
-  const [selectedMediums, setSelectedMediums] = useState([]); // medium ids
+  const [selectedMediums, setSelectedMediums] = useState([]);
   const [logoLightFile, setLogoLightFile] = useState(null);
   const [logoDarkFile, setLogoDarkFile] = useState(null);
   const [logoLightPreview, setLogoLightPreview] = useState(null);
   const [logoDarkPreview, setLogoDarkPreview] = useState(null);
   const [uploading, setUploading] = useState(false);
 
-  // Fetch organization (includes existing mediums)
   const { data: org, isLoading: orgLoading } = useQuery({
     queryKey: ["organization"],
     queryFn: getOrganization,
     staleTime: 10 * 60 * 1000,
   });
 
-  // Fetch all available mediums
   const { data: mediums = [], isLoading: mediumsLoading } = useQuery({
     queryKey: ["mediums"],
     queryFn: async () => {
@@ -60,6 +60,7 @@ export default function OrganizationSettings() {
         phone: org.phone || "",
         email: org.email || "",
         website: org.website || "",
+        gstin: org.gstin || "",      // NEW
         vision: org.vision || "",
         mission: org.mission || "",
         description: org.description || "",
@@ -67,7 +68,6 @@ export default function OrganizationSettings() {
       setLogoLightPreview(org.logo_light_url);
       setLogoDarkPreview(org.logo_dark_url);
 
-      // set selected mediums from org.mediums (array of {id, name})
       const medIds = org.mediums ? org.mediums.map((m) => m.id) : [];
       setSelectedMediums(medIds);
     }
@@ -99,7 +99,6 @@ export default function OrganizationSettings() {
     return publicUrlData.publicUrl;
   }
 
-  // Toggle medium selection
   const toggleMedium = (mediumId) => {
     setSelectedMediums((prev) =>
       prev.includes(mediumId)
@@ -133,7 +132,7 @@ export default function OrganizationSettings() {
       ...form,
       logo_light_url: logoLightUrl,
       logo_dark_url: logoDarkUrl,
-      mediums: selectedMediums, // pass medium ids
+      mediums: selectedMediums,
     };
     updateMutation.mutate(payload);
     setUploading(false);
@@ -166,11 +165,7 @@ export default function OrganizationSettings() {
           <div className="flex items-center gap-4">
             <div className="w-20 h-20 rounded-full bg-gray-100 flex items-center justify-center overflow-hidden border">
               {logoLightPreview ? (
-                <img
-                  src={logoLightPreview}
-                  alt="Light Logo"
-                  className="w-full h-full object-cover"
-                />
+                <img src={logoLightPreview} alt="Light Logo" className="w-full h-full object-cover" />
               ) : (
                 <Upload size={24} className="text-secondary" />
               )}
@@ -197,11 +192,7 @@ export default function OrganizationSettings() {
           <div className="flex items-center gap-4">
             <div className="w-20 h-20 rounded-full bg-gray-100 flex items-center justify-center overflow-hidden border">
               {logoDarkPreview ? (
-                <img
-                  src={logoDarkPreview}
-                  alt="Dark Logo"
-                  className="w-full h-full object-cover"
-                />
+                <img src={logoDarkPreview} alt="Dark Logo" className="w-full h-full object-cover" />
               ) : (
                 <Upload size={24} className="text-secondary" />
               )}
@@ -234,9 +225,7 @@ export default function OrganizationSettings() {
               <input
                 type="text"
                 value={form.company_name}
-                onChange={(e) =>
-                  setForm({ ...form, company_name: e.target.value })
-                }
+                onChange={(e) => setForm({ ...form, company_name: e.target.value })}
                 className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary outline-none"
                 required
               />
@@ -248,9 +237,7 @@ export default function OrganizationSettings() {
               <input
                 type="text"
                 value={form.phone}
-                onChange={(e) =>
-                  setForm({ ...form, phone: e.target.value })
-                }
+                onChange={(e) => setForm({ ...form, phone: e.target.value })}
                 className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary outline-none"
               />
             </div>
@@ -261,9 +248,7 @@ export default function OrganizationSettings() {
               <input
                 type="email"
                 value={form.email}
-                onChange={(e) =>
-                  setForm({ ...form, email: e.target.value })
-                }
+                onChange={(e) => setForm({ ...form, email: e.target.value })}
                 className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary outline-none"
               />
             </div>
@@ -274,9 +259,20 @@ export default function OrganizationSettings() {
               <input
                 type="text"
                 value={form.website}
-                onChange={(e) =>
-                  setForm({ ...form, website: e.target.value })
-                }
+                onChange={(e) => setForm({ ...form, website: e.target.value })}
+                className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary outline-none"
+              />
+            </div>
+            {/* NEW GSTIN field */}
+            <div>
+              <label className="block text-sm font-montserrat text-secondary-dark">
+                GSTIN
+              </label>
+              <input
+                type="text"
+                placeholder="e.g., 24AABCT1234Q1ZV"
+                value={form.gstin}
+                onChange={(e) => setForm({ ...form, gstin: e.target.value })}
                 className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary outline-none"
               />
             </div>
@@ -288,9 +284,7 @@ export default function OrganizationSettings() {
             </label>
             <textarea
               value={form.address}
-              onChange={(e) =>
-                setForm({ ...form, address: e.target.value })
-              }
+              onChange={(e) => setForm({ ...form, address: e.target.value })}
               rows={2}
               className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary outline-none"
             />
@@ -302,9 +296,7 @@ export default function OrganizationSettings() {
             </label>
             <textarea
               value={form.vision}
-              onChange={(e) =>
-                setForm({ ...form, vision: e.target.value })
-              }
+              onChange={(e) => setForm({ ...form, vision: e.target.value })}
               rows={2}
               className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary outline-none"
             />
@@ -316,9 +308,7 @@ export default function OrganizationSettings() {
             </label>
             <textarea
               value={form.mission}
-              onChange={(e) =>
-                setForm({ ...form, mission: e.target.value })
-              }
+              onChange={(e) => setForm({ ...form, mission: e.target.value })}
               rows={2}
               className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary outline-none"
             />
@@ -330,15 +320,13 @@ export default function OrganizationSettings() {
             </label>
             <textarea
               value={form.description}
-              onChange={(e) =>
-                setForm({ ...form, description: e.target.value })
-              }
+              onChange={(e) => setForm({ ...form, description: e.target.value })}
               rows={3}
               className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary outline-none"
             />
           </div>
 
-          {/* Mediums Selection (NEW) */}
+          {/* Mediums Selection */}
           <div>
             <label className="block text-sm font-montserrat text-secondary-dark mb-3">
               Mediums Supported

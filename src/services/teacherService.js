@@ -364,3 +364,63 @@ export async function getSubjectOptions() {
   if (error) throw error;
   return data || [];
 }
+
+// ─── SALARY & ACTIVE TEACHERS ──────────────────────────────
+
+export async function updateTeacherSalary(teacherId, payload) {
+  const { data, error } = await supabase
+    .from('teachers')
+    .update({
+      salary_type: payload.salary_type,
+      monthly_salary: payload.monthly_salary,
+      per_lecture_rate: payload.per_lecture_rate,
+      tds_percentage: payload.tds_percentage,
+    })
+    .eq('id', teacherId)
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function getTeacherWithSalary(id) {
+  const { data, error } = await supabase
+    .from('teachers')
+    .select('*')
+    .eq('id', id)
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function getTeachersForSalary() {
+  const { data, error } = await supabase
+    .from('teachers')
+    .select('id, first_name, last_name, salary_type, monthly_salary, per_lecture_rate, tds_percentage')
+    .eq('status', 'active');
+  if (error) throw error;
+  return data || [];
+}
+
+export async function getActiveTeachers() {
+  const { data, error } = await supabase
+    .from('teachers')
+    .select('id, first_name, last_name, employee_code, salary_type, monthly_salary, per_lecture_rate, tds_percentage')
+    .eq('status', 'active')
+    .order('first_name');
+  if (error) throw error;
+  return data || [];
+}
+
+// ─── HELPER: get current teacher ID from auth ──────────────
+export async function getCurrentTeacherId() {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return null;
+  const { data: teacher, error } = await supabase
+    .from('teachers')
+    .select('id')
+    .eq('user_id', user.id)
+    .maybeSingle(); // use maybeSingle to avoid 406 if no row
+  if (error) throw error;
+  return teacher?.id || null;
+}

@@ -80,7 +80,7 @@ function numberToWords(num) {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Main PDF Generator                                                */
+/*  Main PDF Generator – A5 format                                   */
 /* ------------------------------------------------------------------ */
 export async function generateReceiptPdf(receipt) {
   // ---------- 1. Organisation ----------
@@ -188,91 +188,88 @@ export async function generateReceiptPdf(receipt) {
     totalDisplay = amount;
   }
 
-  // ─── PDF Setup ────────────────────────────────────────────────
-  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
-  const pageWidth = doc.internal.pageSize.getWidth();
-  const pageHeight = doc.internal.pageSize.getHeight();
-  const margin = 14;
-  let y = 20;
+  // ─── PDF Setup (A5) ────────────────────────────────────────────
+  const doc = new jsPDF({ unit: 'mm', format: 'a5' });  // <-- Changed to A5
+  const pageWidth = doc.internal.pageSize.getWidth();   // 148 mm
+  const pageHeight = doc.internal.pageSize.getHeight(); // 210 mm
+  const margin = 10;                                    // reduced margin
+  let y = 16;
 
   // ========== HEADER ==========
   if (logoBase64) {
-    doc.addImage(logoBase64, "PNG", margin, y, 30, 30);
-    doc.setFontSize(24);
+    doc.addImage(logoBase64, "PNG", margin, y, 25, 25);
+    doc.setFontSize(18);
     doc.setTextColor("#0D47A1");
-    doc.text(academyName, margin + 35, y + 12);
-    doc.setFontSize(9);
-    doc.setTextColor("#616161");
-    let lineY = y + 18;
-    if (address) { doc.text(address, margin + 35, lineY); lineY += 5; }
-    if (phone)   { doc.text(`Phone: ${phone}`, margin + 35, lineY); lineY += 5; }
-    if (email)   { doc.text(`Email: ${email}`, margin + 35, lineY); }
-  } else {
-    doc.setFontSize(24);
-    doc.setTextColor("#0D47A1");
-    doc.text(academyName, margin, y + 8);
-    doc.setFontSize(9);
+    doc.text(academyName, margin + 30, y + 8);
+    doc.setFontSize(8);
     doc.setTextColor("#616161");
     let lineY = y + 14;
+    if (address) { doc.text(address, margin + 30, lineY); lineY += 4; }
+    if (phone)   { doc.text(`Phone: ${phone}`, margin + 30, lineY); lineY += 4; }
+    if (email)   { doc.text(`Email: ${email}`, margin + 30, lineY); }
+  } else {
+    doc.setFontSize(20);
+    doc.setTextColor("#0D47A1");
+    doc.text(academyName, margin, y + 6);
+    doc.setFontSize(8);
+    doc.setTextColor("#616161");
+    let lineY = y + 12;
     if (address) doc.text(address, margin, lineY);
-    lineY += 5;
+    lineY += 4;
     if (phone) doc.text(`Phone: ${phone}`, margin, lineY);
-    lineY += 5;
+    lineY += 4;
     if (email) doc.text(`Email: ${email}`, margin, lineY);
   }
-  y += 38;
+  y += 32;
 
   // Title
   doc.setDrawColor("#0D47A1");
-  doc.setLineWidth(0.5);
+  doc.setLineWidth(0.4);
   doc.line(margin, y, pageWidth - margin, y);
-  y += 6;
+  y += 4;
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(16);
+  doc.setFontSize(14);
   doc.setTextColor("#0D47A1");
   doc.text("FEE RECEIPT", pageWidth / 2, y, { align: "center" });
-  y += 12;
+  y += 10;
 
-  // ========== TWO‑COLUMN INFO (Student left, Receipt No/Date right) ==========
+  // ========== TWO‑COLUMN INFO ==========
   const leftColX = margin;
-  const rightColX = pageWidth - margin - 60;
+  const rightColX = pageWidth - margin - 50; // narrower column
   const studentName = `${receipt.students?.first_name || ""} ${receipt.students?.last_name || ""}`.trim();
 
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(11);
+  doc.setFontSize(10);
   doc.setTextColor("#0D47A1");
   doc.text("Student Details", leftColX, y);
   doc.setFont("helvetica", "normal");
-  doc.setFontSize(10);
+  doc.setFontSize(9);
   doc.setTextColor("#333");
-  doc.text(`Student: ${studentName}`, leftColX, y + 6);
-  doc.text(`Admission No: ${receipt.students?.admission_no || "-"}`, leftColX, y + 11);
-  if (courseName) doc.text(`Course: ${courseName}`, leftColX, y + 16);
+  doc.text(`Student: ${studentName}`, leftColX, y + 5);
+  doc.text(`Admission No: ${receipt.students?.admission_no || "-"}`, leftColX, y + 10);
+  if (courseName) doc.text(`Course: ${courseName}`, leftColX, y + 15);
 
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(11);
+  doc.setFontSize(10);
   doc.setTextColor("#0D47A1");
   doc.text("Receipt Details", rightColX, y);
   doc.setFont("helvetica", "normal");
-  doc.setFontSize(10);
+  doc.setFontSize(9);
   doc.setTextColor("#333");
-  doc.text(`Receipt No: ${receipt.receipt_no}`, rightColX, y + 6);
-  doc.text(`Date: ${receipt.receipt_date}`, rightColX, y + 11);
+  doc.text(`Receipt No: ${receipt.receipt_no}`, rightColX, y + 5);
+  doc.text(`Date: ${receipt.receipt_date}`, rightColX, y + 10);
 
   const studentBlockLines = courseName ? 3 : 2;
-  y += 10 + studentBlockLines * 6;
+  y += 8 + studentBlockLines * 5;
 
   // ========== ITEM TABLE ==========
   const itemBody = [];
-  // Main fee payment row
   itemBody.push({ sr: "1", desc: "Fee Payment", amount: amount });
-  // Tax rows if applicable
   if (taxRateValue > 0) {
     itemBody.push({ sr: "", desc: `Base Amount (${taxRateName} ${taxRateValue}%)`, amount: baseAmount });
     itemBody.push({ sr: "", desc: "Tax Amount", amount: taxAmount });
   }
 
-  // Plain strings for autoTable (we'll replace amount cells with rupee symbol via didDrawCell)
   const tableRows = itemBody.map(item => [item.sr, item.desc, item.amount.toLocaleString('en-IN')]);
 
   autoTable(doc, {
@@ -280,103 +277,95 @@ export async function generateReceiptPdf(receipt) {
     head: [["Sr. No.", "Description", "Amount"]],
     body: tableRows,
     theme: "grid",
-    styles: { fontSize: 10, cellPadding: 4 },
+    styles: { fontSize: 9, cellPadding: 3 },
     headStyles: { fillColor: "#0D47A1", textColor: "#FFFFFF" },
     columnStyles: {
-      0: { cellWidth: 15, halign: 'center' },
+      0: { cellWidth: 12, halign: 'center' },
       1: { cellWidth: 'auto' },
-      2: { cellWidth: 40, halign: 'right' }
+      2: { cellWidth: 35, halign: 'right' }
     },
     margin: { left: margin, right: margin },
     didDrawCell: (data) => {
-      // Only for the Amount column (index 2)
       if (data.column.index === 2 && data.cell.raw) {
         const raw = data.cell.raw;
-        // raw might be a string like "4,200" – we need the numeric value
         const num = parseFloat(raw.replace(/,/g, ''));
         if (!isNaN(num)) {
           const cell = data.cell;
-          const x = cell.x + 2; // small offset inside cell
-          const y = cell.y + cell.height / 2 + 1.5; // vertically centered
-          // Clear the text (will be overwritten by our image+text)
-          // We could set the cell text to empty string, but easier to just draw over
+          const x = cell.x + 2;
+          const yPos = cell.y + cell.height / 2 + 1.5;
           doc.setFillColor(255, 255, 255);
           doc.rect(cell.x, cell.y, cell.width, cell.height, 'F');
-          drawCurrency(doc, num, x, y, 9, 'left', '#333');
+          drawCurrency(doc, num, x, yPos, 9, 'left', '#333');
         }
       }
     }
   });
-  y = doc.lastAutoTable.finalY + 8;
+  y = doc.lastAutoTable.finalY + 6;
 
-  // ========== TOTALS & PAYMENT INFO (stacked vertically) ==========
+  // ========== TOTALS & PAYMENT INFO (stacked) ==========
   doc.setFillColor(245, 245, 245);
-  doc.rect(margin, y, pageWidth - 2 * margin, 30, 'F');
+  doc.rect(margin, y, pageWidth - 2 * margin, 26, 'F');
 
-  // Total Amount Paid (left)
   const totalX = margin + 4;
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(13);
+  doc.setFontSize(11);
   doc.setTextColor("#0D47A1");
-  doc.text("Total Amount Paid:", totalX, y + 10);
-  drawCurrency(doc, totalDisplay, totalX + 60, y + 10, 13, 'left', '#0D47A1');
+  doc.text("Total Amount Paid:", totalX, y + 8);
+  drawCurrency(doc, totalDisplay, totalX + 50, y + 8, 11, 'left', '#0D47A1');
 
-  // Amount in words (below total)
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(7);
+  doc.setTextColor("#555");
+  doc.text(`In Words: ${amountWords}`, totalX, y + 16);
+
+  const detailsX = pageWidth - margin - 65;
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8);
-  doc.setTextColor("#555");
-  doc.text(`In Words: ${amountWords}`, totalX, y + 19);
-
-  // Payment details (right side, but below total row to avoid overlap)
-  // We'll stack them in a small column on the right within the same rectangle
-  const detailsX = pageWidth - margin - 75;
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(9);
   doc.setTextColor("#333");
-  let detailY = y + 8;
-  doc.text(`Payment Mode: ${payment?.payment_mode || "N/A"}`, detailsX, detailY);
-  detailY += 5;
-  doc.text(`Transaction No: ${payment?.transaction_no || "-"}`, detailsX, detailY);
+  let detailY = y + 6;
+  doc.text(`Mode: ${payment?.payment_mode || "N/A"}`, detailsX, detailY);
+  detailY += 4;
+  doc.text(`Txn No: ${payment?.transaction_no || "-"}`, detailsX, detailY);
   if (payment?.remarks) {
-    detailY += 5;
+    detailY += 4;
     doc.text(`Remarks: ${payment.remarks}`, detailsX, detailY);
   }
 
-  y += 35;
+  y += 30;
 
   // ========== SIGNATURES & NOTES ==========
-  y += 5;
-  doc.setFontSize(10);
+  y += 3;
+  doc.setFontSize(9);
   doc.setTextColor("#333");
   doc.text("Authorized Signatory", margin, y);
-  doc.line(margin, y + 6, margin + 40, y + 6);
-  doc.text("Parent / Guardian", pageWidth - margin - 40, y);
-  doc.line(pageWidth - margin - 40, y + 6, pageWidth - margin, y + 6);
-  y += 15;
+  doc.line(margin, y + 5, margin + 35, y + 5);
+  doc.text("Parent / Guardian", pageWidth - margin - 35, y);
+  doc.line(pageWidth - margin - 35, y + 5, pageWidth - margin, y + 5);
+  y += 12;
 
-  doc.setFontSize(8);
+  doc.setFontSize(7);
   doc.setTextColor("#777");
   doc.text("* This is a computer-generated receipt.", margin, y);
-  y += 5;
+  y += 4;
   doc.text("* Payment subject to realisation.", margin, y);
 
   // Footer
-  const footerY = pageHeight - 12;
+  const footerY = pageHeight - 10;
   doc.setFont("helvetica", "italic");
-  doc.setFontSize(7);
+  doc.setFontSize(6);
   doc.setTextColor("#999");
   doc.text(`${academyName} – ${address}`, pageWidth / 2, footerY, { align: "center" });
 
   // ========== PAGE 2 – INSTALLMENTS & FEE SUMMARY (if any) ==========
   if (installments.length > 0) {
     doc.addPage();
-    y = 25;
+    y = 18;
 
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(14);
+    doc.setFontSize(12);
     doc.setTextColor("#0D47A1");
     doc.text("Installment Details", margin, y);
-    y += 8;
+    y += 6;
 
     const installmentBody = installments.map((inst, i) => [
       i + 1,
@@ -390,34 +379,33 @@ export async function generateReceiptPdf(receipt) {
       head: [["Sr.", "Due Date", "Amount", "Status"]],
       body: installmentBody,
       theme: "striped",
-      styles: { fontSize: 9, cellPadding: 3 },
+      styles: { fontSize: 8, cellPadding: 2.5 },
       headStyles: { fillColor: "#0D47A1", textColor: "#FFFFFF" },
       columnStyles: {
         0: { cellWidth: 10, halign: 'center' },
-        1: { cellWidth: 35 },
-        2: { cellWidth: 40, halign: 'right' },
-        3: { cellWidth: 30 },
+        1: { cellWidth: 30 },
+        2: { cellWidth: 35, halign: 'right' },
+        3: { cellWidth: 25 },
       },
       margin: { left: margin, right: margin },
       didDrawCell: (data) => {
-        // Amount column (index 2)
         if (data.column.index === 2 && data.cell.raw) {
           const raw = data.cell.raw;
           const num = parseFloat(raw.replace(/,/g, ''));
           if (!isNaN(num)) {
             const cell = data.cell;
-            drawCurrency(doc, num, cell.x + 2, cell.y + cell.height / 2 + 1.5, 9, 'left', '#333');
+            drawCurrency(doc, num, cell.x + 2, cell.y + cell.height / 2 + 1.5, 8, 'left', '#333');
           }
         }
       }
     });
-    y = doc.lastAutoTable.finalY + 12;
+    y = doc.lastAutoTable.finalY + 8;
 
     // Fee Summary
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(13);
+    doc.setFontSize(12);
     doc.text("Fee Summary", margin, y);
-    y += 8;
+    y += 6;
 
     const summaryBody = [
       ["Total Fee", totalFee.toLocaleString('en-IN')],
@@ -430,11 +418,11 @@ export async function generateReceiptPdf(receipt) {
       head: [["Description", "Amount"]],
       body: summaryBody,
       theme: "grid",
-      styles: { fontSize: 10, cellPadding: 4 },
+      styles: { fontSize: 9, cellPadding: 3 },
       headStyles: { fillColor: "#0D47A1", textColor: "#FFFFFF" },
       columnStyles: {
-        0: { cellWidth: 60 },
-        1: { cellWidth: 50, halign: 'right' }
+        0: { cellWidth: 50 },
+        1: { cellWidth: 40, halign: 'right' }
       },
       margin: { left: margin, right: margin },
       didDrawCell: (data) => {
@@ -443,7 +431,7 @@ export async function generateReceiptPdf(receipt) {
           const num = parseFloat(raw.replace(/,/g, ''));
           if (!isNaN(num)) {
             const cell = data.cell;
-            drawCurrency(doc, num, cell.x + 2, cell.y + cell.height / 2 + 1.5, 10, 'left', '#333');
+            drawCurrency(doc, num, cell.x + 2, cell.y + cell.height / 2 + 1.5, 9, 'left', '#333');
           }
         }
       }

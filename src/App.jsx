@@ -80,6 +80,45 @@ import OnlineClassList from "./pages/OnlineClassList";
 import CreateOnlineClass from "./components/CreateOnlineClass";
 import JoinOnlineClass from "./components/JoinOnlineClass";
 import AdminLayout from "./layouts/AdminLayout";
+// Accounting Routes
+import ChartOfAccounts from "./pages/ChartOfAccounts";
+import JournalEntry from "./pages/JournalEntry";
+import Ledger from "./pages/Ledger";
+import TrialBalance from "./pages/TrialBalance";
+import IssueInventory from "./pages/IssueInventory";
+import Vouchers from "./pages/Vouchers";
+import PaymentVoucher from "./pages/PaymentVoucher";
+import ReceiptVoucher from "./pages/ReceiptVoucher";
+import ContraVoucher from "./pages/ContraVoucher";
+import AccountingHub from "./pages/AccountingHub";
+import VoucherDetail from "./pages/VoucherDetail";
+import BalanceSheet from "./pages/BalanceSheet";
+import CashBook from "./pages/CashBook";
+import DayBook from "./pages/DayBook";
+import AgedReceivables from "./pages/AgedReceivables";
+import BankReconciliation from "./pages/BankReconciliation";
+import Budgets from "./pages/Budgets";
+import BudgetVsActual from "./pages/BudgetVsActual";
+import FixedAssets from "./pages/FixedAssets";
+import BillWiseEntries from "./pages/BillWiseEntries";
+import GSTReport from "./pages/GSTReport";
+import InventoryItems from "./pages/InventoryItems";
+import InventoryTransactions from "./pages/InventoryTransactions";
+import AddStock from "./pages/AddStock";
+import StockDashboard from "./pages/StockDashboard";
+import PurchaseOrders from "./pages/PurchaseOrders";
+import POForm from "./pages/POForm";
+import PODetail from "./pages/PODetail";
+
+import AdmissionsHub from "./pages/AdmissionsHub";
+import AcademicsHub from "./pages/AcademicsHub";
+import HRHub from "./pages/HRHub";
+
+import TeacherSalarySettings from './pages/TeacherSalarySettings';
+import GenerateSalaries from './pages/GenerateSalaries';
+import SalarySetup from "./pages/SalarySetup";
+import TeacherAttendance from "./pages/TeacherAttendance";
+import SalaryReport from "./pages/SalaryReport";
 
 // Theme Settings
 import ThemeSettings from "./pages/ThemeSettings";
@@ -162,6 +201,51 @@ function App() {
         <Route path="/mediums" element={<ProtectedRoute><Mediums /></ProtectedRoute>} />
         <Route path="/tax-settings" element={<ProtectedRoute><TaxSettings /></ProtectedRoute>} />
         <Route path="/tax-report" element={<ProtectedRoute><TaxReport /></ProtectedRoute>} />
+
+        {/* Accounting Routes */}
+        <Route path="/chart-of-accounts" element={<ProtectedRoute><ChartOfAccounts /></ProtectedRoute>} />
+        <Route path="/journal-entry" element={<ProtectedRoute><JournalEntry /></ProtectedRoute>} />
+        <Route path="/ledger" element={<ProtectedRoute><Ledger /></ProtectedRoute>} />
+        <Route path="/trial-balance" element={<ProtectedRoute><TrialBalance /></ProtectedRoute>} />
+        <Route path="/inventory-issue" element={<ProtectedRoute><IssueInventory /></ProtectedRoute>} />
+        <Route path="/vouchers" element={<ProtectedRoute><Vouchers /></ProtectedRoute>} />
+        <Route path="/payment-voucher" element={<ProtectedRoute><PaymentVoucher /></ProtectedRoute>} />
+        <Route path="/receipt-voucher" element={<ProtectedRoute><ReceiptVoucher /></ProtectedRoute>} />
+        <Route path="/contra-voucher" element={<ProtectedRoute><ContraVoucher /></ProtectedRoute>} />
+        <Route path="/accounting" element={<ProtectedRoute><AccountingHub /></ProtectedRoute>} />
+        <Route path="/vouchers/:id" element={<ProtectedRoute><VoucherDetail /></ProtectedRoute>} />
+        <Route path="/balance-sheet" element={<ProtectedRoute><BalanceSheet /></ProtectedRoute>} />
+        <Route path="/cash-book" element={<ProtectedRoute><CashBook /></ProtectedRoute>} />
+        <Route path="/day-book" element={<ProtectedRoute><DayBook /></ProtectedRoute>} />
+        <Route path="/aged-receivables" element={<ProtectedRoute><AgedReceivables /></ProtectedRoute>} />
+        <Route path="/bank-reconciliation" element={<ProtectedRoute><BankReconciliation /></ProtectedRoute>} />
+        <Route path="/budgets" element={<ProtectedRoute><Budgets /></ProtectedRoute>} />
+<Route path="/budget-vs-actual" element={<ProtectedRoute><BudgetVsActual /></ProtectedRoute>} />
+<Route path="/fixed-assets" element={<ProtectedRoute><FixedAssets /></ProtectedRoute>} />
+<Route path="/bill-wise" element={<ProtectedRoute><BillWiseEntries /></ProtectedRoute>} />
+<Route path="/gst-report" element={<ProtectedRoute><GSTReport /></ProtectedRoute>} />
+// Inventory Routes (add near other accounting routes)
+<Route path="/inventory-items" element={<ProtectedRoute><InventoryItems /></ProtectedRoute>} />
+<Route path="/inventory-transactions" element={<ProtectedRoute><InventoryTransactions /></ProtectedRoute>} />
+<Route path="/add-stock" element={<ProtectedRoute><AddStock /></ProtectedRoute>} />
+<Route path="/stock-dashboard" element={<ProtectedRoute><StockDashboard /></ProtectedRoute>} />
+<Route path="/purchase-orders" element={<ProtectedRoute><PurchaseOrders /></ProtectedRoute>} />
+<Route path="/purchase-orders/new" element={<ProtectedRoute><POForm /></ProtectedRoute>} />
+<Route path="/purchase-orders/:id/edit" element={<ProtectedRoute><POForm /></ProtectedRoute>} />
+<Route path="/purchase-orders/:id" element={<ProtectedRoute><PODetail /></ProtectedRoute>} />
+
+
+<Route path="/admissions-hub" element={<ProtectedRoute><AdmissionsHub /></ProtectedRoute>} />
+<Route path="/academics-hub" element={<ProtectedRoute><AcademicsHub /></ProtectedRoute>} />
+<Route path="/hr-hub" element={<ProtectedRoute><HRHub /></ProtectedRoute>} />
+
+<Route path="/teachers/:id/salary" element={<ProtectedRoute><TeacherSalarySettings /></ProtectedRoute>} />
+<Route path="/generate-salaries" element={<ProtectedRoute><GenerateSalaries /></ProtectedRoute>} />
+<Route path="/salary-payments" element={<ProtectedRoute><SalaryPayments /></ProtectedRoute>} />
+<Route path="/salary-setup" element={<ProtectedRoute><SalarySetup /></ProtectedRoute>} />
+<Route path="/teacher-attendance" element={<ProtectedRoute><TeacherAttendance /></ProtectedRoute>} />
+<Route path="/salary-report" element={<ProtectedRoute><SalaryReport /></ProtectedRoute>} />
+
 
         {/* Theme Settings (NEW) */}
         <Route path="/theme-settings" element={<ProtectedRoute><ThemeSettings /></ProtectedRoute>} />
