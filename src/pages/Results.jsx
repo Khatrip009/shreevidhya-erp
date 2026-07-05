@@ -1,3 +1,4 @@
+// src/pages/Results.jsx
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
@@ -11,11 +12,9 @@ export default function Results() {
   const { profile } = useAuth();
   const [search, setSearch] = useState("");
 
-  // Normalise role to avoid string mismatch
   const role = (profile?.role || "").toLowerCase().replace(/\s+/g, "_");
   const isAdmin = role === "admin" || role === "super_admin";
 
-  // Fetch exams (now includes medium via batches)
   const {
     data: exams = [],
     isLoading,
@@ -35,7 +34,6 @@ export default function Results() {
     exam.exam_name.toLowerCase().includes(search.toLowerCase())
   );
 
-  // Show an error message if the query failed
   if (isError) {
     return (
       <AdminLayout>
@@ -77,17 +75,19 @@ export default function Results() {
             <thead className="bg-slate-100 border-b border-secondary-light">
               <tr>
                 <th className="p-3 text-left text-sm font-montserrat text-secondary-dark">Exam</th>
-                <th className="text-left text-sm font-montserrat text-secondary-dark">Batch</th>
-                <th className="text-left text-sm font-montserrat text-secondary-dark">Medium</th> {/* NEW */}
-                <th className="text-left text-sm font-montserrat text-secondary-dark">Date</th>
-                <th className="text-left text-sm font-montserrat text-secondary-dark">Total Marks</th>
-                <th className="text-left text-sm font-montserrat text-secondary-dark">Actions</th>
+                <th className="p-3 text-left text-sm font-montserrat text-secondary-dark">Batch</th>
+                <th className="p-3 text-left text-sm font-montserrat text-secondary-dark">Medium</th>
+                <th className="p-3 text-left text-sm font-montserrat text-secondary-dark">Date</th>
+                <th className="p-3 text-left text-sm font-montserrat text-secondary-dark">Total Marks</th>
+                <th className="p-3 text-left text-sm font-montserrat text-secondary-dark">Actions</th>
               </tr>
             </thead>
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan={6} className="p-6 text-center text-secondary">Loading exams…</td>
+                  <td colSpan={6} className="p-6 text-center text-secondary">
+                    Loading exams…
+                  </td>
                 </tr>
               ) : filtered.length === 0 ? (
                 <tr>
@@ -105,11 +105,11 @@ export default function Results() {
                     className="border-b border-secondary-light hover:bg-primary-bg transition"
                   >
                     <td className="p-3 text-sm font-medium">{exam.exam_name}</td>
-                    <td className="text-sm">{exam.batches?.batch_name}</td>
-                    <td className="text-sm">{exam.batches?.mediums?.name || "—"}</td> {/* NEW */}
-                    <td className="text-sm">{exam.exam_date}</td>
-                    <td className="text-sm">{exam.total_marks || "-"}</td>
-                    <td className="text-sm">
+                    <td className="p-3 text-sm">{exam.batches?.batch_name}</td>
+                    <td className="p-3 text-sm">{exam.batches?.mediums?.name || "—"}</td>
+                    <td className="p-3 text-sm">{exam.exam_date}</td>
+                    <td className="p-3 text-sm">{exam.total_marks || "-"}</td>
+                    <td className="p-3 text-sm">
                       <div className="flex gap-2">
                         {isAdmin && (
                           <button
