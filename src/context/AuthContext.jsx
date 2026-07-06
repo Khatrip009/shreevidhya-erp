@@ -3,36 +3,32 @@ import { supabase } from "../api/supabase";
 
 const AuthContext = createContext();
 
+async function fetchProfile(userId) {
+  const { data } = await supabase
+    .from("profiles")
+    .select("*")
+    .eq("id", userId)
+    .maybeSingle();
+  return data || null;
+}
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  async function loadUser() {
-    const { data: { session } } = await supabase.auth.getSession();
-
-    if (!session?.user) {
-      setUser(null);
-      setProfile(null);
-      setLoading(false);
-      return;
-    }
-
-    setUser(session.user);
-
-    // Use maybeSingle – won't throw if profile row is missing
-    const { data } = await supabase
-      .from("profiles")
-      .select("*")
-      .eq("id", session.user.id)
-      .maybeSingle();
-
-    setProfile(data || null);   // explicit null
-    setLoading(false);
-  }
-
   useEffect(() => {
-    loadUser();
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!session?.user) {
+        setLoading(false);
+        return;
+      }
+      setUser(session.user);
+      fetchProfile(session.user.id).then((p) => {
+        setProfile(p);
+        setLoading(false);
+      });
+    });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
@@ -41,16 +37,8 @@ export function AuthProvider({ children }) {
           setProfile(null);
           return;
         }
-
         setUser(session.user);
-
-        const { data } = await supabase
-          .from("profiles")
-          .select("*")
-          .eq("id", session.user.id)
-          .maybeSingle();
-
-        setProfile(data || null);
+        setProfile(await fetchProfile(session.user.id));
       }
     );
 

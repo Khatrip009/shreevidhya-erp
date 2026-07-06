@@ -23,6 +23,8 @@ import { useNavigate } from "react-router-dom";
 import Papa from "papaparse";
 import AdminLayout from "../layouts/AdminLayout";
 import ExamForm from "../components/ExamForm";
+import ConfirmDialog from "../components/ConfirmDialog";
+import BackButton from "../components/BackButton";
 import {
   getExams,
   createExam,
@@ -62,6 +64,7 @@ export default function Exams() {
 
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
+  const [confirmDelete, setConfirmDelete] = useState(null);
   const fileInputRef = useRef(null);
 
   const { data: batches = [] } = useQuery({
@@ -194,12 +197,12 @@ export default function Exams() {
   }
 
   function handleDelete(id) {
-    if (!window.confirm("Delete this exam and all its results?")) return;
-    deleteMutation.mutate(id);
+    setConfirmDelete(id);
   }
 
   return (
     <AdminLayout>
+      <BackButton to="/academics-hub" label="Academics Hub" />
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
         <div>
           <h1 className="text-3xl font-righteous text-primary-dark">Exams</h1>
@@ -430,6 +433,14 @@ export default function Exams() {
             {isFetchingNextPage ? "Loading more…" : "Load More"}
           </button>
         </div>
+      )}
+
+      {confirmDelete && (
+        <ConfirmDialog
+          message="Delete this exam and all its results?"
+          onConfirm={() => { deleteMutation.mutate(confirmDelete); setConfirmDelete(null); }}
+          onCancel={() => setConfirmDelete(null)}
+        />
       )}
 
       {isAdmin && showForm && (

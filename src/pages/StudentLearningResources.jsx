@@ -2,6 +2,8 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "../api/supabase";
 import AdminLayout from "../layouts/AdminLayout";
+import BackButton from "../components/BackButton";
+
 import { useAuth } from "../context/AuthContext";
 import { ExternalLink, BookOpen, Search, Filter } from "lucide-react";
 
@@ -132,6 +134,7 @@ export default function StudentLearningResources() {
 
   return (
     <AdminLayout>
+      <BackButton to="/student" label="My Dashboard" />
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
         <div>
           <h1 className="text-3xl font-righteous text-primary-dark">

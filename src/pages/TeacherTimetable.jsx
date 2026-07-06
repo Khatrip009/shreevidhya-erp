@@ -1,6 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "../api/supabase";
 import AdminLayout from "../layouts/AdminLayout";
+import BackButton from "../components/BackButton";
+
 import { useAuth } from "../context/AuthContext";
 import { Clock } from "lucide-react";
 
@@ -95,6 +97,7 @@ export default function TeacherTimetable() {
   if (idLoading || idsLoading || batchesLoading) {
     return (
       <AdminLayout>
+      <BackButton to="/teacher" label="My Dashboard" />
         <div className="p-8 text-center">Loading your timetable…</div>
       </AdminLayout>
     );

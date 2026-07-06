@@ -19,6 +19,8 @@ import {
 } from "lucide-react";
 import Papa from "papaparse";
 import AdminLayout from "../layouts/AdminLayout";
+import BackButton from "../components/BackButton";
+
 import AssignBatchModal from "../components/AssignBatchModal";
 import { supabase } from "../api/supabase";
 import {
@@ -226,6 +228,7 @@ export default function StudentBatches() {
 
   return (
     <AdminLayout>
+      <BackButton to="/admissions-hub" label="Admissions" />
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
         <div>

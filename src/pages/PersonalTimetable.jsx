@@ -2,6 +2,8 @@ import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "../api/supabase";
 import AdminLayout from "../layouts/AdminLayout";
+import BackButton from "../components/BackButton";
+
 import { useAuth } from "../context/AuthContext";
 import { Clock, AlertCircle } from "lucide-react";
 
@@ -107,6 +109,7 @@ export default function PersonalTimetable() {
   if (allErrors.length > 0) {
     return (
       <AdminLayout>
+      <BackButton to="/student" label="My Dashboard" />
         <div className="p-8 text-red-600">
           <AlertCircle size={32} className="mx-auto mb-2" />
           <p>Something went wrong while loading your timetable.</p>

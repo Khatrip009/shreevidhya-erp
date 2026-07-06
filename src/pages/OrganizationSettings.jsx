@@ -4,6 +4,8 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import { Upload, Save } from "lucide-react";
 import AdminLayout from "../layouts/AdminLayout";
+import BackButton from "../components/BackButton";
+
 import {
   getOrganization,
   updateOrganization,
@@ -141,6 +143,7 @@ export default function OrganizationSettings() {
   if (orgLoading || mediumsLoading) {
     return (
       <AdminLayout>
+      <BackButton to="/settings-hub" label="Settings" />
         <div className="p-8 text-center text-secondary font-montserrat">
           Loading settings…
         </div>

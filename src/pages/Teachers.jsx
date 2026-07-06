@@ -23,6 +23,7 @@ import {
 import Papa from "papaparse";
 import AdminLayout from "../layouts/AdminLayout";
 import TeacherForm from "../components/TeacherForm";
+import BackButton from "../components/BackButton";
 import {
   getTeachers,
   createTeacher,
@@ -238,6 +239,7 @@ export default function Teachers() {
 
   return (
     <AdminLayout>
+      <BackButton to="/hr-hub" label="HR & Staff Hub" />
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
         <div>
           <h1 className="text-3xl font-righteous text-primary-dark">Teachers</h1>

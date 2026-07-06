@@ -2,6 +2,8 @@ import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { getSalaryPayments } from "../services/salaryService";
 import AdminLayout from "../layouts/AdminLayout";
+import BackButton from "../components/BackButton";
+
 import { Search, Download, Filter, X } from "lucide-react";
 import Papa from "papaparse";
 import toast from "react-hot-toast";
@@ -82,6 +84,7 @@ export default function SalaryPayments() {
 
   return (
     <AdminLayout>
+      <BackButton to="/hr-hub" label="HR & Staff" />
       <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6">
         <h1 className="text-3xl font-righteous text-primary-dark">Salary Payments</h1>
         <div className="flex gap-2 mt-2 sm:mt-0">

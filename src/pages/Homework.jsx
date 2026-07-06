@@ -21,6 +21,7 @@ import Papa from "papaparse";
 import AdminLayout from "../layouts/AdminLayout";
 import HomeworkForm from "../components/HomeworkForm";
 import ViewSubmissionsModal from "../components/ViewSubmissionsModal";
+import BackButton from "../components/BackButton";
 import {
   getHomeworks,
   createHomework,
@@ -198,6 +199,7 @@ export default function Homework() {
 
   return (
     <AdminLayout>
+      <BackButton to="/academics-hub" label="Academics Hub" />
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
         <div>

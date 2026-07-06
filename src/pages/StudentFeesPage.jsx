@@ -6,6 +6,8 @@ import {
   CheckCircle, AlertCircle, CreditCard, Send, List,
 } from "lucide-react";
 import AdminLayout from "../layouts/AdminLayout";
+import BackButton from "../components/BackButton";
+
 import { useStudentId } from "../hooks/useStudentId";
 import { supabase } from "../api/supabase";
 import { submitPaymentRequest } from "../services/feeService";
@@ -117,6 +119,7 @@ export default function StudentFeesPage() {
   if (idLoading || isLoading) {
     return (
       <AdminLayout>
+      <BackButton to="/student" label="My Dashboard" />
         <div className="p-8 text-center text-secondary">Loading your fees…</div>
       </AdminLayout>
     );

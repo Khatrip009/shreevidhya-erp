@@ -21,6 +21,8 @@ import {
 } from "lucide-react";
 import Papa from "papaparse";
 import AdminLayout from "../layouts/AdminLayout";
+import BackButton from "../components/BackButton";
+
 import { supabase } from "../api/supabase";
 import { useOrgDarkLogo } from "../hooks/useOrgDarkLogo";
 
@@ -349,6 +351,7 @@ export default function Notifications() {
   // ---------- Render ----------
   return (
     <AdminLayout>
+      <BackButton to="/communication-hub" label="Communication" />
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
         <div>
           <h1 className="text-3xl font-righteous text-primary-dark">Notifications</h1>

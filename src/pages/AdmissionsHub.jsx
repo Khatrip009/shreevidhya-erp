@@ -1,13 +1,39 @@
-import { Link } from "react-router-dom";
 import AdminLayout from "../layouts/AdminLayout";
-import { Users, Megaphone, Layers, FileText, UserPlus } from "lucide-react";
+import HubCard from "../components/HubCard";
+import {
+  Users, Megaphone, Layers, FileText, UserPlus,
+  ClipboardList, BarChart3, Search,
+} from "lucide-react";
 
-const modules = [
-  { to: "/inquiries", icon: Megaphone, label: "Inquiries", desc: "Manage student inquiries" },
-  { to: "/students", icon: Users, label: "Students", desc: "View and manage all students" },
-  { to: "/parents", icon: Users, label: "Parents", desc: "Parent / guardian records" },
-  { to: "/student-batches", icon: Layers, label: "Batch Assign", desc: "Assign students to batches" },
-  { to: "/student-documents", icon: FileText, label: "Documents", desc: "Student documents" },
+const groups = [
+  {
+    label: "Lead Management",
+    items: [
+      { to: "/inquiries", icon: Megaphone, label: "Inquiries", desc: "Track and follow up on student inquiries" },
+      { to: "/reports/inquiry_conversion", icon: BarChart3, label: "Inquiry Conversion", desc: "Conversion rate by source & status" },
+      { to: "/reports/admission_pipeline", icon: ClipboardList, label: "Admission Pipeline", desc: "Full lead pipeline with follow-up dates" },
+    ],
+  },
+  {
+    label: "Student Records",
+    items: [
+      { to: "/students", icon: Users, label: "Students", desc: "View and manage all student profiles" },
+      { to: "/parents", icon: UserPlus, label: "Parents / Guardians", desc: "Parent and guardian records" },
+      { to: "/student-batches", icon: Layers, label: "Batch Assignment", desc: "Assign students to batches" },
+      { to: "/student-documents", icon: FileText, label: "Documents", desc: "Upload and manage student documents" },
+    ],
+  },
+  {
+    label: "Reports",
+    items: [
+      { to: "/reports/student_enrollment", icon: BarChart3, label: "Enrollment Report", desc: "Students enrolled in a date range" },
+      { to: "/reports/student_status_list", icon: Users, label: "Active / Inactive List", desc: "Filter students by status" },
+      { to: "/reports/student_parents", icon: Users, label: "Student-Parent Mapping", desc: "Guardian details per student" },
+      { to: "/reports/student_contact_directory", icon: Search, label: "Contact Directory", desc: "Full contact list with guardian info" },
+      { to: "/reports/student_documents", icon: FileText, label: "Documents Report", desc: "Documents uploaded per student" },
+      { to: "/reports/admission_form", icon: FileText, label: "Admission Form (Print)", desc: "Printable admission form" },
+    ],
+  },
 ];
 
 export default function AdmissionsHub() {
@@ -15,29 +41,17 @@ export default function AdmissionsHub() {
     <AdminLayout>
       <div className="mb-6">
         <h1 className="text-3xl font-righteous text-primary-dark">Admissions Hub</h1>
-        <p className="text-sm text-secondary-dark mt-1">All student admission and enrollment tools</p>
+        <p className="text-sm text-secondary-dark mt-1">Manage inquiries, student records, and admission reports</p>
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-        {modules.map((mod) => {
-          const Icon = mod.icon;
-          return (
-            <Link
-              key={mod.to}
-              to={mod.to}
-              className="bg-white rounded-xl p-5 shadow-sm border border-gray-200 hover:border-primary/30 hover:shadow-lg transition-all group"
-            >
-              <div className="flex items-start justify-between mb-3">
-                <div className="p-2 bg-primary-bg rounded-lg">
-                  <Icon size={20} className="text-primary" />
-                </div>
-              </div>
-              <h3 className="font-righteous text-primary-dark group-hover:text-accent transition-colors">
-                {mod.label}
-              </h3>
-              <p className="text-sm text-secondary-dark mt-1">{mod.desc}</p>
-            </Link>
-          );
-        })}
+      <div className="space-y-8">
+        {groups.map((g) => (
+          <div key={g.label}>
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-secondary-light border-b pb-2 mb-4">{g.label}</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {g.items.map((m) => <HubCard key={m.to} {...m} />)}
+            </div>
+          </div>
+        ))}
       </div>
     </AdminLayout>
   );

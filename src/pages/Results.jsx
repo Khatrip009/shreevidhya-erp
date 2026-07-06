@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Search, Award, Edit3, Eye, AlertCircle } from "lucide-react";
 import AdminLayout from "../layouts/AdminLayout";
+import BackButton from "../components/BackButton";
 import { getAllExams } from "../services/examService";
 import { useAuth } from "../context/AuthContext";
 
@@ -48,6 +49,7 @@ export default function Results() {
 
   return (
     <AdminLayout>
+      <BackButton to="/academics-hub" label="Academics Hub" />
       <div className="mb-6">
         <h1 className="text-3xl font-righteous text-primary-dark">Results</h1>
         <p className="text-sm text-secondary-dark font-montserrat mt-1">

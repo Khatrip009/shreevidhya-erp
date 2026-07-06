@@ -20,6 +20,7 @@ import {
 import Papa from "papaparse";
 import AdminLayout from "../layouts/AdminLayout";
 import CertificateForm from "../components/CertificateForm";
+import BackButton from "../components/BackButton";
 import {
   getCertificates,
   createCertificate,
@@ -196,6 +197,7 @@ export default function Certificates() {
 
   return (
     <AdminLayout>
+      <BackButton to="/academics-hub" label="Academics Hub" />
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
         <div>

@@ -22,6 +22,8 @@ import {
 } from "lucide-react";
 import Papa from "papaparse";
 import AdminLayout from "../layouts/AdminLayout";
+import BackButton from "../components/BackButton";
+
 import {
   getExpenses,
   createExpense,
@@ -200,6 +202,7 @@ export default function Expenses() {
 
   return (
     <AdminLayout>
+      <BackButton to="/accounting" label="Finance & Accounting" />
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
         <div>

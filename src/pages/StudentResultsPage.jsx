@@ -1,6 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { Award } from "lucide-react";
 import AdminLayout from "../layouts/AdminLayout";
+import BackButton from "../components/BackButton";
+
 import { useStudentId } from "../hooks/useStudentId";
 import { supabase } from "../api/supabase";
 
@@ -22,7 +24,8 @@ export default function StudentResultsPage() {
   });
 
   if (idLoading || isLoading) {
-    return <AdminLayout><div className="p-8 text-center">Loading...</div></AdminLayout>;
+    return <AdminLayout>
+      <BackButton to="/student" label="My Dashboard" /><div className="p-8 text-center">Loading...</div></AdminLayout>;
   }
 
   return (

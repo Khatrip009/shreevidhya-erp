@@ -1,6 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { FileText, Download } from "lucide-react";
 import AdminLayout from "../layouts/AdminLayout";
+import BackButton from "../components/BackButton";
+
 import { useStudentId } from "../hooks/useStudentId";
 import { supabase } from "../api/supabase";
 import { generateCertificatePdf } from "../utils/certificatePdf";
@@ -37,7 +39,8 @@ export default function StudentCertificatesPage() {
   }
 
   if (idLoading || isLoading) {
-    return <AdminLayout><div className="p-8 text-center">Loading...</div></AdminLayout>;
+    return <AdminLayout>
+      <BackButton to="/student" label="My Dashboard" /><div className="p-8 text-center">Loading...</div></AdminLayout>;
   }
 
   return (

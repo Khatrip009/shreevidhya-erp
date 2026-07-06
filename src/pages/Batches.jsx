@@ -38,7 +38,7 @@ export default function Batches() {
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState({
     course_id: "",
-    teacher_id: "",   // still used for filtering via batch_teachers
+    teacher_id: "",
     status: "",
     medium_id: "",
   });
@@ -68,10 +68,9 @@ export default function Batches() {
 
   const batches = data?.pages.flatMap((page) => page.data) || [];
 
-  // Extract all batch IDs for the teacher lookup
   const batchIds = useMemo(() => batches.map((b) => b.id), [batches]);
 
-  // Fetch teacher assignments for displayed batches (only when IDs change)
+  // Fetch teacher assignments for displayed batches
   const { data: teacherAssignments = [] } = useQuery({
     queryKey: ["batch-teachers", batchIds],
     queryFn: async () => {
@@ -86,7 +85,6 @@ export default function Batches() {
     staleTime: 5 * 60 * 1000,
   });
 
-  // Build a map: batchId -> teacher names string
   const teacherMap = useMemo(() => {
     const map = {};
     teacherAssignments.forEach((row) => {
@@ -97,7 +95,6 @@ export default function Batches() {
         );
       }
     });
-    // Convert arrays to comma-separated strings
     for (const key in map) {
       map[key] = map[key].join(", ");
     }
@@ -111,7 +108,6 @@ export default function Batches() {
     staleTime: 10 * 60 * 1000,
   });
 
-  // Teacher dropdown – direct query (no service needed)
   const { data: teachers = [] } = useQuery({
     queryKey: ["teachersDropdown"],
     queryFn: async () => {
@@ -130,25 +126,60 @@ export default function Batches() {
     staleTime: 10 * 60 * 1000,
   });
 
-  // Mutations (unchanged)
+  // ── Helper: Sync teacher_batches (for lecture counting) ──
+  const syncTeacherBatches = async (batchId, payload) => {
+    // Extract distinct teacher_ids from teacher_subjects
+    const teacherIds = [
+      ...new Set(
+        (payload.teacher_subjects || [])
+          .map((a) => a.teacher_id)
+          .filter(Boolean)
+      ),
+    ];
+
+    // Delete existing teacher_batches for this batch
+    await supabase.from("teacher_batches").delete().eq("batch_id", batchId);
+
+    // Insert new ones
+    if (teacherIds.length > 0) {
+      const inserts = teacherIds.map((tid) => ({
+        batch_id: batchId,
+        teacher_id: tid,
+      }));
+      const { error } = await supabase.from("teacher_batches").insert(inserts);
+      if (error) throw error;
+    }
+  };
+
+  // ── Mutations ──────────────────────────────────────────────
   const createMutation = useMutation({
-    mutationFn: createBatch,
+    mutationFn: async (payload) => {
+      const result = await createBatch(payload);
+      // After batch creation, sync teacher_batches
+      await syncTeacherBatches(result.id, payload);
+      return result;
+    },
     onSuccess: () => {
       toast.success("Batch created");
       queryClient.invalidateQueries({ queryKey: ["batches"] });
       setShowForm(false);
     },
-    onError: () => toast.error("Failed to create batch"),
+    onError: (err) => toast.error(err.message || "Failed to create batch"),
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, payload }) => updateBatch(id, payload),
+    mutationFn: async ({ id, payload }) => {
+      const result = await updateBatch(id, payload);
+      // After batch update, sync teacher_batches
+      await syncTeacherBatches(id, payload);
+      return result;
+    },
     onSuccess: () => {
       toast.success("Batch updated");
       queryClient.invalidateQueries({ queryKey: ["batches"] });
       setEditing(null);
     },
-    onError: () => toast.error("Failed to update batch"),
+    onError: (err) => toast.error(err.message || "Failed to update batch"),
   });
 
   const deleteMutation = useMutation({
@@ -157,7 +188,7 @@ export default function Batches() {
       toast.success("Batch deleted");
       queryClient.invalidateQueries({ queryKey: ["batches"] });
     },
-    onError: () => toast.error("Delete failed"),
+    onError: (err) => toast.error(err.message || "Delete failed"),
   });
 
   // UI state
@@ -165,7 +196,7 @@ export default function Batches() {
   const [editing, setEditing] = useState(null);
   const fileInputRef = useRef(null);
 
-  // CSV Import (unchanged)
+  // CSV Import
   async function handleCSVImport(event) {
     const file = event.target.files[0];
     if (!file) return;
@@ -186,6 +217,7 @@ export default function Batches() {
               capacity: row.capacity ? Number(row.capacity) : null,
               status: row.status || "active",
               medium_id: row.medium_id ? Number(row.medium_id) : null,
+              teacher_subjects: [], // no assignments in CSV
             };
             await createBatch(payload);
             successCount++;
@@ -200,7 +232,7 @@ export default function Batches() {
     });
   }
 
-  // CSV Export (unchanged)
+  // CSV Export
   async function handleCSVExport() {
     try {
       const allData = await getAllBatchesForExport(allFilters);
@@ -397,10 +429,7 @@ export default function Batches() {
                     <td className="p-3 text-sm font-medium">{batch.batch_name}</td>
                     <td className="text-sm">{batch.courses?.course_name || "-"}</td>
                     <td className="text-sm">{batch.medium_name || "-"}</td>
-                    {/* TEACHER column now uses the map */}
-                    <td className="text-sm">
-                      {teacherMap[batch.id] || "-"}
-                    </td>
+                    <td className="text-sm">{teacherMap[batch.id] || "-"}</td>
                     <td className="text-sm">
                       <div>{batch.start_time} - {batch.end_time}</div>
                       <div className="text-xs text-secondary-light">{batch.start_date} → {batch.end_date}</div>
@@ -425,7 +454,6 @@ export default function Batches() {
         </div>
       </div>
 
-      {/* Load More */}
       {hasNextPage && (
         <div className="flex justify-center mt-6">
           <button onClick={() => fetchNextPage()} disabled={isFetchingNextPage}

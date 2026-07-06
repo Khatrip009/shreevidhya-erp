@@ -1,3 +1,4 @@
+// src/components/BatchForm.jsx
 import { useState, useEffect } from "react";
 import toast from "react-hot-toast";
 import {
@@ -27,7 +28,7 @@ export default function BatchForm({ onSubmit, onClose, initialData = {} }) {
     end_time: initialData.end_time || "",
     capacity: initialData.capacity || "",
     status: initialData.status || "active",
-    medium_id: initialData.medium_id || "",      // NEW
+    medium_id: initialData.medium_id || "",
   });
 
   // ---- Teacher-Subject-Day assignments ----
@@ -48,7 +49,6 @@ export default function BatchForm({ onSubmit, onClose, initialData = {} }) {
     staleTime: 10 * 60 * 1000,
   });
 
-  // Mediums – NEW
   const { data: mediums = [] } = useQuery({
     queryKey: ["mediums-dropdown"],
     queryFn: getMediumOptions,
@@ -135,10 +135,11 @@ export default function BatchForm({ onSubmit, onClose, initialData = {} }) {
       return;
     }
 
+    // Prepare payload with teacher_subjects for the batch_teachers table
     const payload = {
       ...form,
       capacity: form.capacity ? Number(form.capacity) : null,
-      medium_id: form.medium_id || null,    // NEW
+      medium_id: form.medium_id || null,
       teacher_subjects: assignments.map((a) => ({
         teacher_id: a.teacher_id || null,
         subject_id: a.subject_id || null,
@@ -147,9 +148,12 @@ export default function BatchForm({ onSubmit, onClose, initialData = {} }) {
     };
 
     try {
+      // Call the parent onSubmit – it should handle saving the batch and its relationships
       await onSubmit(payload);
+      toast.success("Batch saved successfully");
+      onClose();
     } catch (err) {
-      toast.error(err.message);
+      toast.error(err.message || "Failed to save batch");
     }
   }
 

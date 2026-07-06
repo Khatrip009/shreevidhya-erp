@@ -4,6 +4,7 @@ import { Search, Printer, Download, Filter, X, Layers, BookOpen, GraduationCap, 
 import AdminLayout from "../layouts/AdminLayout";
 import { supabase } from "../api/supabase";
 import { generateReceiptPdf } from "../utils/receiptPdf";
+import BackButton from "../components/BackButton";
 
 export default function Receipts() {
   const [search, setSearch] = useState("");
@@ -212,6 +213,7 @@ export default function Receipts() {
 
   return (
     <AdminLayout>
+      <BackButton to="/accounting" label="Finance & Accounting Hub" />
       <div className="mb-6">
         <h1 className="text-3xl font-righteous text-primary-dark">Receipts</h1>
         <p className="text-sm text-secondary-dark font-montserrat mt-1">

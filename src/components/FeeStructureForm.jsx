@@ -2,38 +2,29 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../api/supabase';
 import toast from 'react-hot-toast';
-import { X } from 'lucide-react';
+import { X, Plus, Trash2 } from 'lucide-react';
 
 export default function FeeStructureForm({ isOpen, onClose, onSuccess, initialData = null }) {
-    const [form, setForm] = useState({
-        course_id: '',
-        fee_amount: '',
-        installment_allowed: false,
-        tax_rate_id: '',
-        tax_inclusive: true,
-    });
+    const [form, setForm] = useState({ course_id: '' });
+    const [components, setComponents] = useState([
+        { component_name: '', amount: '', tax_rate_id: '' }
+    ]);
     const [loading, setLoading] = useState(false);
     const [courses, setCourses] = useState([]);
     const [taxRates, setTaxRates] = useState([]);
 
-    // ✅ Sync initialData into form when it changes
     useEffect(() => {
         if (initialData) {
-            setForm({
-                course_id: initialData.course_id || '',
-                fee_amount: initialData.fee_amount || '',
-                installment_allowed: initialData.installment_allowed || false,
-                tax_rate_id: initialData.tax_rate_id || '',
-                tax_inclusive: initialData.tax_inclusive !== undefined ? initialData.tax_inclusive : true,
-            });
+            setForm({ course_id: initialData.course_id || '' });
+            const comps = (initialData.fee_structure_components || []).map((c) => ({
+                component_name: c.component_name || '',
+                amount: c.amount || '',
+                tax_rate_id: c.tax_rate_id || '',
+            }));
+            setComponents(comps.length ? comps : [{ component_name: '', amount: '', tax_rate_id: '' }]);
         } else {
-            setForm({
-                course_id: '',
-                fee_amount: '',
-                installment_allowed: false,
-                tax_rate_id: '',
-                tax_inclusive: true,
-            });
+            setForm({ course_id: '' });
+            setComponents([{ component_name: '', amount: '', tax_rate_id: '' }]);
         }
     }, [initialData]);
 
@@ -52,53 +43,93 @@ export default function FeeStructureForm({ isOpen, onClose, onSuccess, initialDa
         setTaxRates(taxRes.data || []);
     };
 
-    const handleChange = (e) => {
-        const { name, value, type, checked } = e.target;
-        setForm(prev => ({
-            ...prev,
-            [name]: type === 'checkbox' ? checked : value
-        }));
+    const handleCourseChange = (e) => {
+        setForm({ ...form, course_id: e.target.value });
+    };
+
+    const handleComponentChange = (index, field, value) => {
+        const updated = [...components];
+        updated[index][field] = value;
+        setComponents(updated);
+    };
+
+    const addComponent = () => {
+        setComponents([...components, { component_name: '', amount: '', tax_rate_id: '' }]);
+    };
+
+    const removeComponent = (index) => {
+        if (components.length === 1) {
+            toast.error('At least one component is required');
+            return;
+        }
+        setComponents(components.filter((_, i) => i !== index));
     };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-        if (!form.course_id || !form.fee_amount) {
-            toast.error('Please fill all required fields');
+        if (!form.course_id) {
+            toast.error('Please select a course');
             return;
+        }
+        for (const comp of components) {
+            if (!comp.component_name.trim() || !comp.amount) {
+                toast.error('All components need a name and amount');
+                return;
+            }
+            if (isNaN(parseFloat(comp.amount)) || parseFloat(comp.amount) <= 0) {
+                toast.error(`Invalid amount for "${comp.component_name}"`);
+                return;
+            }
         }
 
         setLoading(true);
         try {
-            const payload = {
+            const totalFee = components.reduce((sum, c) => sum + parseFloat(c.amount), 0);
+
+            const feeStructurePayload = {
                 course_id: form.course_id,
-                fee_amount: parseFloat(form.fee_amount),
-                installment_allowed: form.installment_allowed,
-                tax_rate_id: form.tax_rate_id || null,
-                tax_inclusive: form.tax_inclusive,
+                fee_amount: totalFee,
+                tax_rate_id: null,
+                tax_inclusive: false,
             };
 
-            let result;
+            let feeStructureId;
             if (initialData?.id) {
-                const { data, error } = await supabase
+                const { data: updated, error: updateError } = await supabase
                     .from('fee_structures')
-                    .update(payload)
+                    .update(feeStructurePayload)
                     .eq('id', initialData.id)
                     .select()
                     .single();
-                if (error) throw error;
-                result = data;
-                toast.success('Fee structure updated!');
+                if (updateError) throw updateError;
+                feeStructureId = initialData.id;
+                await supabase
+                    .from('fee_structure_components')
+                    .delete()
+                    .eq('fee_structure_id', initialData.id);
             } else {
-                const { data, error } = await supabase
+                const { data: inserted, error: insertError } = await supabase
                     .from('fee_structures')
-                    .insert([payload])
+                    .insert([feeStructurePayload])
                     .select()
                     .single();
-                if (error) throw error;
-                result = data;
-                toast.success('Fee structure created!');
+                if (insertError) throw insertError;
+                feeStructureId = inserted.id;
             }
 
+            const componentInserts = components.map((comp, idx) => ({
+                fee_structure_id: feeStructureId,
+                component_name: comp.component_name.trim(),
+                amount: parseFloat(comp.amount),
+                tax_rate_id: comp.tax_rate_id || null,
+                sort_order: idx,
+            }));
+            const { error: compError } = await supabase
+                .from('fee_structure_components')
+                .insert(componentInserts);
+            if (compError) throw compError;
+
+            toast.success(initialData?.id ? 'Fee structure updated!' : 'Fee structure created!');
             onSuccess?.();
             onClose();
         } catch (err) {
@@ -126,9 +157,8 @@ export default function FeeStructureForm({ isOpen, onClose, onSuccess, initialDa
                     <div>
                         <label className="block text-sm font-montserrat text-secondary-dark mb-1">Course *</label>
                         <select
-                            name="course_id"
                             value={form.course_id}
-                            onChange={handleChange}
+                            onChange={handleCourseChange}
                             className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
                             required
                         >
@@ -140,48 +170,62 @@ export default function FeeStructureForm({ isOpen, onClose, onSuccess, initialDa
                     </div>
 
                     <div>
-                        <label className="block text-sm font-montserrat text-secondary-dark mb-1">Fee Amount *</label>
-                        <input
-                            type="number"
-                            name="fee_amount"
-                            value={form.fee_amount}
-                            onChange={handleChange}
-                            min="0"
-                            step="0.01"
-                            className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
-                            required
-                        />
-                    </div>
-
-                    <div>
-                        <label className="block text-sm font-montserrat text-secondary-dark mb-1">Tax Rate</label>
-                        <select
-                            name="tax_rate_id"
-                            value={form.tax_rate_id}
-                            onChange={handleChange}
-                            className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
-                        >
-                            <option value="">No Tax</option>
-                            {taxRates.map(t => (
-                                <option key={t.id} value={t.id}>
-                                    {t.name} ({t.rate}%)
-                                </option>
+                        <label className="block text-sm font-montserrat text-secondary-dark mb-2">Fee Components</label>
+                        <div className="space-y-3">
+                            {components.map((comp, idx) => (
+                                <div key={idx} className="grid grid-cols-5 gap-2 items-center border p-2 rounded">
+                                    <input
+                                        type="text"
+                                        placeholder="Name"
+                                        value={comp.component_name}
+                                        onChange={(e) => handleComponentChange(idx, 'component_name', e.target.value)}
+                                        className="col-span-2 border rounded p-2 text-sm"
+                                        required
+                                    />
+                                    <input
+                                        type="number"
+                                        placeholder="Amount"
+                                        value={comp.amount}
+                                        onChange={(e) => handleComponentChange(idx, 'amount', e.target.value)}
+                                        className="col-span-1 border rounded p-2 text-sm"
+                                        required
+                                    />
+                                    <select
+                                        value={comp.tax_rate_id}
+                                        onChange={(e) => handleComponentChange(idx, 'tax_rate_id', e.target.value)}
+                                        className="col-span-1 border rounded p-2 text-sm"
+                                    >
+                                        <option value="">No Tax</option>
+                                        {taxRates.map((t) => (
+                                            <option key={t.id} value={t.id}>
+                                                {t.name} ({t.rate}%)
+                                            </option>
+                                        ))}
+                                    </select>
+                                    <button
+                                        type="button"
+                                        onClick={() => removeComponent(idx)}
+                                        className="text-red-500 justify-self-end"
+                                    >
+                                        <Trash2 size={16} />
+                                    </button>
+                                </div>
                             ))}
-                        </select>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={addComponent}
+                            className="text-primary text-sm mt-2 flex items-center gap-1"
+                        >
+                            <Plus size={16} /> Add Component
+                        </button>
                     </div>
 
-                    <div className="flex items-center gap-3">
-                        <input
-                            type="checkbox"
-                            name="tax_inclusive"
-                            checked={form.tax_inclusive}
-                            onChange={handleChange}
-                            id="tax_inclusive"
-                            className="w-4 h-4 text-primary border-gray-300 rounded focus:ring-primary"
-                        />
-                        <label htmlFor="tax_inclusive" className="text-sm text-gray-700">
-                            Tax inclusive (fee amount includes tax)
-                        </label>
+                    <div className="border-t pt-3 text-right">
+                        <span className="text-sm font-medium text-secondary-dark">Total Fee: </span>
+                        <span className="text-lg font-bold text-primary">
+                            ₹ {components.reduce((sum, c) => sum + (parseFloat(c.amount) || 0), 0).toLocaleString('en-IN')}
+                        </span>
                     </div>
 
                     <div className="flex flex-col sm:flex-row-reverse gap-3 pt-2">

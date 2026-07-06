@@ -21,6 +21,7 @@ import {
 import Papa from "papaparse";
 import AdminLayout from "../layouts/AdminLayout";
 import InquiryForm from "../components/InquiryForm";
+import BackButton from "../components/BackButton";
 import { convertInquiryToStudent } from "../services/admissionService";
 import {
   getInquiries,
@@ -242,6 +243,7 @@ export default function Inquiries() {
 
   return (
     <AdminLayout>
+      <BackButton to="/admissions-hub" label="Admissions Hub" />
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
         <div>

@@ -14,6 +14,8 @@ import {
   Clock,
 } from "lucide-react";
 import AdminLayout from "../layouts/AdminLayout";
+import BackButton from "../components/BackButton";
+
 import { getLeaves, updateLeaveStatus } from "../services/leaveService";
 
 export default function LeaveManagement() {
@@ -51,6 +53,7 @@ export default function LeaveManagement() {
 
   return (
     <AdminLayout>
+      <BackButton to="/hr-hub" label="HR & Staff" />
       <div className="mb-6">
         <h1 className="text-3xl font-righteous text-primary-dark">Leave Management</h1>
         <p className="text-sm text-secondary-dark font-montserrat">Approve or reject teacher leave requests</p>

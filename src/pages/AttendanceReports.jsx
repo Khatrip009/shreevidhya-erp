@@ -10,6 +10,8 @@ import {
 } from "lucide-react";
 import Papa from "papaparse";
 import AdminLayout from "../layouts/AdminLayout";
+import BackButton from "../components/BackButton";
+
 import {
   getAttendanceReport,
   getActiveBatches,
@@ -90,6 +92,7 @@ export default function AttendanceReports() {
 
   return (
     <AdminLayout>
+      <BackButton to="/academics-hub" label="Academics" />
       <div className="mb-6">
         <h1 className="text-3xl font-righteous text-primary-dark">
           Attendance Reports

@@ -14,6 +14,9 @@ import {
   PlusCircle,
   Receipt,
   FileText,
+  Package,
+  AlertTriangle,
+  CheckCircle,
 } from "lucide-react";
 import {
   BarChart,
@@ -30,26 +33,30 @@ import {
   Line,
   Legend,
 } from "recharts";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import AdminLayout from "../layouts/AdminLayout";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../api/supabase";
 
 // ─── Reusable Stat Card ─────────────────────────────────────────────────
-const StatCard = ({ icon: Icon, title, value, subtext, color }) => (
-  <div className="bg-white rounded-xl p-5 shadow-sm border border-secondary-light hover:border-primary transition-all">
-    <div className="flex items-start justify-between">
-      <div>
-        <p className="text-sm font-montserrat text-secondary">{title}</p>
-        <h3 className="text-2xl font-righteous text-primary-dark mt-1">{value}</h3>
-        {subtext && <p className="text-xs text-secondary-light mt-1 font-montserrat">{subtext}</p>}
-      </div>
-      <div className={`p-3 rounded-xl ${color}`}>
-        <Icon size={22} className="text-white" />
+const StatCard = ({ icon: Icon, title, value, subtext, color, linkTo, onClick }) => {
+  const content = (
+    <div className="bg-white rounded-xl p-5 shadow-sm border border-secondary-light hover:border-primary transition-all cursor-pointer">
+      <div className="flex items-start justify-between">
+        <div>
+          <p className="text-sm font-montserrat text-secondary">{title}</p>
+          <h3 className="text-2xl font-righteous text-primary-dark mt-1">{value}</h3>
+          {subtext && <p className="text-xs text-secondary-light mt-1 font-montserrat">{subtext}</p>}
+        </div>
+        <div className={`p-3 rounded-xl ${color}`}>
+          <Icon size={22} className="text-white" />
+        </div>
       </div>
     </div>
-  </div>
-);
+  );
+  if (linkTo) return <Link to={linkTo}>{content}</Link>;
+  return <div onClick={onClick}>{content}</div>;
+};
 
 // ─── Quick Action Button ────────────────────────────────────────────────
 const QuickAction = ({ icon: Icon, label, onClick }) => (
@@ -108,6 +115,7 @@ const COLORS = ["#0D47A1", "#FF1070", "#00C49F", "#FFBB28", "#0088FE", "#FF8042"
 export default function Dashboard() {
   const { profile } = useAuth();
   const navigate = useNavigate();
+  const role = (profile?.role || "").toLowerCase().replace(/\s+/g, "_");
 
   // Single RPC call – returns everything
   const { data: rawStats, isLoading, isError } = useQuery({
@@ -117,11 +125,11 @@ export default function Dashboard() {
       if (error) throw error;
       return data;
     },
-    staleTime: 60 * 1000,        // cache for 1 minute
-    refetchOnWindowFocus: false, // don't refetch on tab switch
+    staleTime: 60 * 1000,
+    refetchOnWindowFocus: false,
   });
 
-  // Ensure all array fields are arrays (RPC may return null)
+  // Ensure all array fields are arrays
   const s = rawStats || {};
   const stats = {
     totalStudents: s.totalStudents ?? 0,
@@ -139,9 +147,14 @@ export default function Dashboard() {
     monthlyFeeData: s.monthlyFeeData || [],
     batchStudentData: s.batchStudentData || [],
     inquiryTrendData: s.inquiryTrendData || [],
-    feeStatusData: s.feeStatusData || [],
+    feeStatusData: s.feeStatusData || { paid: 0, pending: 0 },
     attendanceTrend: s.attendanceTrend || [],
     courseWiseStudents: s.courseWiseStudents || [],
+    // NEW
+    lowStockItems: s.lowStockItems || [],
+    pendingInvoicesCount: s.pendingInvoicesCount ?? 0,
+    pendingInvoicesAmount: s.pendingInvoicesAmount ?? 0,
+    todayIncome: s.todayIncome ?? 0,
   };
 
   if (isLoading) {
@@ -165,6 +178,12 @@ export default function Dashboard() {
     );
   }
 
+  // Prepare fee status data for pie chart
+  const feeStatusPie = [
+    { name: "Paid", value: stats.feeStatusData.paid || 0 },
+    { name: "Pending", value: stats.feeStatusData.pending || 0 },
+  ];
+
   return (
     <AdminLayout>
       {/* Welcome & Quick Actions */}
@@ -179,7 +198,7 @@ export default function Dashboard() {
             </p>
           </div>
           {/* Quick Action Buttons */}
-          <div className="grid grid-cols-3 sm:grid-cols-3 gap-2">
+          <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
             <QuickAction icon={PhoneCall} label="New Inquiry" onClick={() => navigate("/inquiries?new=true")} />
             <QuickAction icon={UserPlus} label="Add Student" onClick={() => navigate("/students?new=true")} />
             <QuickAction icon={Receipt} label="Record Payment" onClick={() => navigate("/fees?action=collect")} />
@@ -196,6 +215,7 @@ export default function Dashboard() {
         <StatCard icon={BookOpen} title="Active Batches" value={stats.activeBatches} subtext="Currently running" color="bg-emerald-500" />
         <StatCard icon={GraduationCap} title="Teachers" value={stats.totalTeachers} color="bg-purple-500" />
         <StatCard icon={Users} title="Parents" value={stats.totalParents} color="bg-cyan-500" />
+
         <StatCard
           icon={CalendarCheck}
           title="Today's Attendance"
@@ -206,24 +226,75 @@ export default function Dashboard() {
         <StatCard icon={IndianRupee} title="Monthly Collection" value={`₹${stats.monthlyFeeCollection.toLocaleString()}`} subtext="This month" color="bg-green-600" />
         <StatCard icon={AlertCircle} title="Pending Fees" value={`₹${stats.pendingFees.toLocaleString()}`} subtext="All time" color="bg-red-500" />
         <StatCard icon={TrendingUp} title="Active Courses" value={stats.activeCourses} color="bg-teal-500" />
+
         <StatCard icon={Clock} title="Upcoming Exams" value={stats.upcomingExams.length} subtext="Next few days" color="bg-indigo-500" />
         <StatCard icon={PhoneCall} title="New Inquiries (Month)" value={stats.newInquiriesThisMonth} subtext="This month" color="bg-pink-500" />
+
+        {/* NEW CARDS */}
+        <StatCard
+          icon={Package}
+          title="Low Stock Items"
+          value={stats.lowStockItems.length}
+          subtext={stats.lowStockItems.length > 0 ? "Need reorder" : "All stocked"}
+          color="bg-yellow-500"
+        />
+        <StatCard
+          icon={Receipt}
+          title="Pending Invoices"
+          value={`₹${stats.pendingInvoicesAmount.toLocaleString()}`}
+          subtext={`${stats.pendingInvoicesCount} invoice${stats.pendingInvoicesCount !== 1 ? 's' : ''} pending`}
+          color="bg-rose-500"
+        />
+        <StatCard
+          icon={CheckCircle}
+          title="Today's Income"
+          value={`₹${stats.todayIncome.toLocaleString()}`}
+          subtext="Collected today"
+          color="bg-emerald-600"
+        />
       </div>
+
+      {/* Low Stock Details (if any) */}
+      {stats.lowStockItems.length > 0 && (
+        <div className="mb-8 p-4 bg-amber-50 border border-amber-200 rounded-xl">
+          <div className="flex items-center gap-2 text-amber-700">
+            <AlertTriangle size={18} />
+            <h3 className="font-semibold">Low Stock Alert</h3>
+          </div>
+          <div className="flex flex-wrap gap-2 mt-2">
+            {stats.lowStockItems.map((item) => (
+              <span key={item.id} className="px-3 py-1 bg-amber-100 text-amber-800 rounded-full text-xs font-medium">
+                {item.item_name}: {item.current_stock} (Min: {item.reorder_level})
+              </span>
+            ))}
+          </div>
+          <button
+            onClick={() => navigate("/inventory-items")}
+            className="mt-2 text-sm text-amber-700 underline"
+          >
+            View all inventory
+          </button>
+        </div>
+      )}
 
       {/* Charts Section */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
         {/* Monthly Fee Collection */}
         <div className="bg-white rounded-xl p-5 shadow-sm border border-secondary-light">
           <h3 className="text-lg font-righteous text-primary-dark mb-4">Monthly Fee Collection (Last 6 Months)</h3>
-          <ResponsiveContainer width="100%" height={250}>
-            <BarChart data={stats.monthlyFeeData}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="month" fontSize={12} />
-              <YAxis fontSize={12} />
-              <Tooltip formatter={(value) => `₹${value.toLocaleString()}`} />
-              <Bar dataKey="collection" fill="#0D47A1" radius={[4, 4, 0, 0]} name="Collection" />
-            </BarChart>
-          </ResponsiveContainer>
+          {stats.monthlyFeeData.length === 0 ? (
+            <p className="text-sm text-secondary text-center py-12">No data available.</p>
+          ) : (
+            <ResponsiveContainer width="100%" height={250}>
+              <BarChart data={stats.monthlyFeeData}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="month" fontSize={12} />
+                <YAxis fontSize={12} />
+                <Tooltip formatter={(value) => `₹${value.toLocaleString()}`} />
+                <Bar dataKey="collection" fill="#0D47A1" radius={[4, 4, 0, 0]} name="Collection" />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
         </div>
 
         {/* Students per Batch Pie */}
@@ -246,7 +317,7 @@ export default function Dashboard() {
           )}
         </div>
 
-        {/* Attendance Trend (Last 7 Days) */}
+        {/* Attendance Trend */}
         <div className="bg-white rounded-xl p-5 shadow-sm border border-secondary-light">
           <h3 className="text-lg font-righteous text-primary-dark mb-4">Attendance Trend (Last 7 Days)</h3>
           {stats.attendanceTrend.length === 0 ? (
@@ -264,15 +335,15 @@ export default function Dashboard() {
           )}
         </div>
 
-        {/* Fee Status (Paid vs Pending) */}
+        {/* Fee Status Pie */}
         <div className="bg-white rounded-xl p-5 shadow-sm border border-secondary-light">
           <h3 className="text-lg font-righteous text-primary-dark mb-4">Fee Status (Overall)</h3>
-          {stats.feeStatusData.reduce((sum, item) => sum + item.value, 0) === 0 ? (
+          {feeStatusPie.reduce((sum, item) => sum + item.value, 0) === 0 ? (
             <p className="text-sm text-secondary text-center py-12">No fee data available.</p>
           ) : (
             <ResponsiveContainer width="100%" height={250}>
               <PieChart>
-                <Pie data={stats.feeStatusData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label={({ name, value }) => `${name}: ₹${value.toLocaleString()}`}>
+                <Pie data={feeStatusPie} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label={({ name, value }) => `${name}: ₹${value.toLocaleString()}`}>
                   <Cell fill="#16a34a" />
                   <Cell fill="#dc2626" />
                 </Pie>
@@ -283,7 +354,7 @@ export default function Dashboard() {
           )}
         </div>
 
-        {/* Course‑wise Students Doughnut */}
+        {/* Course-wise Students */}
         <div className="bg-white rounded-xl p-5 shadow-sm border border-secondary-light">
           <h3 className="text-lg font-righteous text-primary-dark mb-4">Students per Course</h3>
           {stats.courseWiseStudents.length === 0 ? (

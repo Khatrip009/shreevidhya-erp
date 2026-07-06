@@ -8,4 +8,18 @@ export default defineConfig({
     react(),
     tailwindcss(),
   ],
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          vendor: ['react', 'react-dom', 'react-router-dom'],
+          query: ['@tanstack/react-query'],
+          supabase: ['@supabase/supabase-js'],
+          charts: ['recharts'],
+          pdf: ['jspdf', 'jspdf-autotable', 'html2canvas'],
+          ui: ['lucide-react', 'react-hot-toast'],
+        },
+      },
+    },
+  },
 })

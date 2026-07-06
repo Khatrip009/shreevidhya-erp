@@ -92,6 +92,18 @@ export default function ProtectedRoute({ children }) {
     return children;
   }
 
+  // Parent role – no portal yet, show a holding page
+  if (role === "parent") {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-secondary-bg">
+        <div className="text-center p-8">
+          <h1 className="text-2xl font-righteous text-primary-dark mb-2">Parent Portal</h1>
+          <p className="text-sm text-secondary font-montserrat">Coming soon. Please contact the academy for updates.</p>
+        </div>
+      </div>
+    );
+  }
+
   // Fallback
   return <Navigate to="/login" replace />;
 }

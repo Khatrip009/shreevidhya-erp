@@ -15,6 +15,8 @@ import {
   Eye,
 } from "lucide-react";
 import AdminLayout from "../layouts/AdminLayout";
+import BackButton from "../components/BackButton";
+
 import { supabase } from "../api/supabase";
 import {
   getStudentDocuments,
@@ -180,6 +182,7 @@ export default function StudentDocuments() {
 
   return (
     <AdminLayout>
+      <BackButton to="/admissions-hub" label="Admissions" />
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
         <div>

@@ -5,6 +5,8 @@ import {
   Layers, BookOpen, Clock, Calendar, User, Hash, AlertCircle,
 } from "lucide-react";
 import AdminLayout from "../layouts/AdminLayout";
+import BackButton from "../components/BackButton";
+
 
 export default function StudentBatchPage() {
   const { user } = useAuth();
@@ -76,6 +78,7 @@ export default function StudentBatchPage() {
   if (isLoading) {
     return (
       <AdminLayout>
+      <BackButton to="/student" label="My Dashboard" />
         <div className="p-8 text-center text-secondary">Loading your batch…</div>
       </AdminLayout>
     );

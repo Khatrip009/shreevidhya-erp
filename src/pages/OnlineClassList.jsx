@@ -4,6 +4,8 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "../api/supabase";
 import { useAuth } from "../context/AuthContext";
 import AdminLayout from "../layouts/AdminLayout";
+import BackButton from "../components/BackButton";
+
 import toast from "react-hot-toast";
 import {
   Search,
@@ -155,6 +157,7 @@ export default function OnlineClassList() {
   // ---------- Render ----------
   return (
     <AdminLayout>
+      <BackButton to="/communication-hub" label="Communication" />
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
         <div>
           <h1 className="text-3xl font-righteous text-primary-dark">Online Classes</h1>

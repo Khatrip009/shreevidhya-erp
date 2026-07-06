@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { Search, X, User, BookOpen, PhoneCall } from "lucide-react";
 import { supabase } from "../api/supabase";
@@ -9,9 +9,9 @@ export default function GlobalSearch() {
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
   const containerRef = useRef(null);
+  const debounceRef = useRef(null);
   const navigate = useNavigate();
 
-  // Close dropdown on outside click
   useEffect(() => {
     function handleClickOutside(event) {
       if (containerRef.current && !containerRef.current.contains(event.target)) {
@@ -22,46 +22,43 @@ export default function GlobalSearch() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  async function handleSearch(value) {
-    setQuery(value);
-    if (value.length < 2) {
-      setResults({ students: [], inquiries: [], batches: [] });
-      setOpen(false);
-      return;
-    }
-
+  const runSearch = useCallback(async (term) => {
     setLoading(true);
     setOpen(true);
-
-    const term = value.toLowerCase();
-
-    // Search students
-    const { data: students } = await supabase
-      .from("students")
-      .select("id, first_name, last_name, admission_no, photo_url")
-      .or(`first_name.ilike.%${term}%,last_name.ilike.%${term}%,admission_no.ilike.%${term}%`)
-      .limit(3);
-
-    // Search inquiries
-    const { data: inquiries } = await supabase
-      .from("inquiries")
-      .select("id, inquiry_no, student_name, mobile")
-      .or(`student_name.ilike.%${term}%,inquiry_no.ilike.%${term}%,mobile.ilike.%${term}%`)
-      .limit(3);
-
-    // Search batches
-    const { data: batches } = await supabase
-      .from("batches")
-      .select("id, batch_name")
-      .ilike("batch_name", `%${term}%`)
-      .limit(3);
-
+    const [{ data: students }, { data: inquiries }, { data: batches }] = await Promise.all([
+      supabase
+        .from("students")
+        .select("id, first_name, last_name, admission_no, photo_url")
+        .or(`first_name.ilike.%${term}%,last_name.ilike.%${term}%,admission_no.ilike.%${term}%`)
+        .limit(3),
+      supabase
+        .from("inquiries")
+        .select("id, inquiry_no, student_name, mobile")
+        .or(`student_name.ilike.%${term}%,inquiry_no.ilike.%${term}%,mobile.ilike.%${term}%`)
+        .limit(3),
+      supabase
+        .from("batches")
+        .select("id, batch_name")
+        .ilike("batch_name", `%${term}%`)
+        .limit(3),
+    ]);
     setResults({
       students: students || [],
       inquiries: inquiries || [],
       batches: batches || [],
     });
     setLoading(false);
+  }, []);
+
+  function handleSearch(value) {
+    setQuery(value);
+    clearTimeout(debounceRef.current);
+    if (value.length < 2) {
+      setResults({ students: [], inquiries: [], batches: [] });
+      setOpen(false);
+      return;
+    }
+    debounceRef.current = setTimeout(() => runSearch(value.toLowerCase()), 300);
   }
 
   function handleNavigate(path) {

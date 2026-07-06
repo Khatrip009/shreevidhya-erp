@@ -5,6 +5,8 @@ import { supabase } from "../api/supabase";
 
 const ThemeContext = createContext();
 
+const ORG_ID = import.meta.env.VITE_ORG_ID || 1;
+
 export function ThemeProvider({ children }) {
   const { data: theme, isLoading } = useQuery({
     queryKey: ["theme"],
@@ -12,11 +14,11 @@ export function ThemeProvider({ children }) {
       const { data } = await supabase
         .from("themes")
         .select("*")
-        .eq("org_id", 1)
+        .eq("org_id", ORG_ID)
         .single();
       return data;
     },
-    staleTime: Infinity,  // theme rarely changes
+    staleTime: Infinity,
   });
 
   useEffect(() => {

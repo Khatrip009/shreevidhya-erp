@@ -1,6 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "../api/supabase";
 import AdminLayout from "../layouts/AdminLayout";
+import BackButton from "../components/BackButton";
+
 import { useAuth } from "../context/AuthContext";
 import { Award, Calendar, Layers, BookOpen } from "lucide-react";
 
@@ -55,7 +57,8 @@ export default function StudentExamsPage() {
   });
 
   if (idLoading || batchesLoading || examsLoading) {
-    return <AdminLayout><div className="p-8 text-center">Loading exams…</div></AdminLayout>;
+    return <AdminLayout>
+      <BackButton to="/student" label="My Dashboard" /><div className="p-8 text-center">Loading exams…</div></AdminLayout>;
   }
 
   return (

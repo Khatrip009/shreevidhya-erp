@@ -474,11 +474,12 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // ---------- SUGGESTIONS ----------
-    if (lowerMsg.includes("suggest") || lowerMsg.includes("recommend") ||
+    // ---------- SUGGESTIONS (only on explicit request) ----------
+    const isSuggestionRequest = lowerMsg.includes("suggest") || lowerMsg.includes("recommend") ||
         lowerMsg.includes("advise") || lowerMsg.includes("what should i do") ||
         lowerMsg.includes("pending tasks") || lowerMsg.includes("action items") ||
-        lowerMsg.includes("what's next") || lowerMsg.includes("any suggestions")) {
+        lowerMsg.includes("what's next") || lowerMsg.includes("any suggestions");
+    if (isSuggestionRequest) {
       const { suggestions, actions } = await buildSuggestionsAndActions(supabaseClient, userRole, user.id);
       dataContext += "\n\n💡 **Actionable Suggestions:**\n";
       suggestions.forEach((s, idx) => dataContext += `${idx+1}. ${s}\n`);
@@ -1013,7 +1014,12 @@ Deno.serve(async (req: Request) => {
     const groqData = await groqResponse.json();
     const reply = groqData.choices[0]?.message?.content || "";
 
-    const { suggestions, actions } = await buildSuggestionsAndActions(supabaseClient, userRole, user.id);
+    // Only fetch suggestions/actions when explicitly requested to avoid 3-6 extra DB queries per message
+    let suggestions: string[] = [];
+    let actions: { label: string; action: string; params?: any }[] = [];
+    if (isSuggestionRequest) {
+      ({ suggestions, actions } = await buildSuggestionsAndActions(supabaseClient, userRole, user.id));
+    }
 
     // Log usage (optional)
     await supabaseClient.from("ai_usage_logs").insert({

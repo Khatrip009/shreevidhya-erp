@@ -18,14 +18,14 @@ import {
   X,
   Download,
   Upload,
-  List,
-  Receipt,
-  ToggleLeft,
-  ToggleRight,
+  FileText,
+  Loader,
 } from "lucide-react";
 import Papa from "papaparse";
 import AdminLayout from "../layouts/AdminLayout";
 import CollectPaymentModal from "../components/CollectPaymentModal";
+import ConfirmDialog from "../components/ConfirmDialog";
+import BackButton from "../components/BackButton";
 import {
   getStudentFees,
   createStudentFee,
@@ -33,8 +33,12 @@ import {
   deleteStudentFee,
   getPayments,
   getAllStudentFeesForExport,
+  generateInvoiceFromStudentFee,
+  generateInvoicesForInstallments,
 } from "../services/feeService";
 import { supabase } from "../api/supabase";
+
+// ─── Main Component ───────────────────────────────────────────
 
 export default function StudentFees() {
   const queryClient = useQueryClient();
@@ -124,11 +128,39 @@ export default function StudentFees() {
     onError: () => toast.error("Delete failed"),
   });
 
+  // ─── Invoice generation mutation ────────────────────────────
+  const generateInvoiceMutation = useMutation({
+    mutationFn: async ({ feeId, installmentId }) => {
+      if (installmentId) {
+        return await generateInvoiceFromStudentFee(feeId, installmentId);
+      } else {
+        // Check if fee has installments
+        const { data: insts } = await supabase
+          .from("fee_installments")
+          .select("id")
+          .eq("student_fee_id", feeId);
+        if (insts && insts.length > 0) {
+          // Generate invoices for all installments
+          return await generateInvoicesForInstallments(feeId);
+        } else {
+          return await generateInvoiceFromStudentFee(feeId);
+        }
+      }
+    },
+    onSuccess: () => {
+      toast.success("Invoice(s) generated successfully");
+      queryClient.invalidateQueries({ queryKey: ["studentFees"] });
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
   const [showAssignForm, setShowAssignForm] = useState(false);
   const [editingFee, setEditingFee] = useState(null);
   const [collectingFee, setCollectingFee] = useState(null);
   const [viewPayments, setViewPayments] = useState(null);
   const [selectedFeeForPayments, setSelectedFeeForPayments] = useState(null);
+  const [confirmDelete, setConfirmDelete] = useState(null);
+  const [confirmInvoice, setConfirmInvoice] = useState(null);
   const fileInputRef = useRef(null);
 
   const { data: payments = [], isLoading: paymentsLoading } = useQuery({
@@ -215,7 +247,7 @@ export default function StudentFees() {
 
   // ---- useEffect to recalculate tax when relevant fields change ----
   useEffect(() => {
-    if (form.fee_structure_id && form.final_fee) {
+    if (form.fee_structure_id && form.final_fee && feeStructures.length > 0) {
       recalculateTax(
         Number(form.final_fee),
         form.fee_structure_id,
@@ -223,7 +255,8 @@ export default function StudentFees() {
         form.tax_rate_id
       );
     }
-  }, [form.fee_structure_id, form.final_fee, form.tax_inclusive, form.tax_rate_id]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.fee_structure_id, form.final_fee, form.tax_inclusive, form.tax_rate_id, feeStructures]);
 
   // ---- CSV handlers ----
   async function handleCSVImport(event) {
@@ -457,6 +490,7 @@ export default function StudentFees() {
 
   return (
     <AdminLayout>
+      <BackButton to="/accounting" label="Finance & Accounting Hub" />
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
         <div>
           <h1 className="text-3xl font-righteous text-primary-dark">Student Fees</h1>
@@ -538,11 +572,25 @@ export default function StudentFees() {
                       </span>
                     </td>
                     <td className="text-sm">
-                      <div className="flex gap-1">
-                        <button onClick={() => openEdit(f)} className="p-1 text-blue-600 hover:bg-blue-50 rounded"><Edit3 size={15} /></button>
-                        <button onClick={() => setCollectingFee(f)} className="p-1 text-green-600 hover:bg-green-50 rounded"><Wallet size={15} /></button>
-                        <button onClick={() => handleViewPayments(f)} className="p-1 text-purple-600 hover:bg-purple-50 rounded"><Eye size={15} /></button>
-                        <button onClick={() => { if (window.confirm("Delete this fee record?")) deleteMutation.mutate(f.id); }} className="p-1 text-red-600 hover:bg-red-50 rounded"><Trash2 size={15} /></button>
+                      <div className="flex flex-wrap gap-1">
+                        <button onClick={() => openEdit(f)} className="p-1 text-blue-600 hover:bg-blue-50 rounded" title="Edit"><Edit3 size={15} /></button>
+                        <button onClick={() => setCollectingFee(f)} className="p-1 text-green-600 hover:bg-green-50 rounded" title="Collect Payment"><Wallet size={15} /></button>
+                        <button onClick={() => handleViewPayments(f)} className="p-1 text-purple-600 hover:bg-purple-50 rounded" title="View Payments"><Eye size={15} /></button>
+                        <button
+                          onClick={() => setConfirmInvoice(f.id)}
+                          disabled={generateInvoiceMutation.isPending}
+                          className="p-1 text-indigo-600 hover:bg-indigo-50 rounded disabled:opacity-50"
+                          title="Generate Invoice(s)"
+                        >
+                          {generateInvoiceMutation.isPending ? <Loader size={15} className="animate-spin" /> : <FileText size={15} />}
+                        </button>
+                        <button
+                          onClick={() => setConfirmDelete(f.id)}
+                          className="p-1 text-red-600 hover:bg-red-50 rounded"
+                          title="Delete"
+                        >
+                          <Trash2 size={15} />
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -724,6 +772,22 @@ export default function StudentFees() {
             </form>
           </div>
         </div>
+      )}
+
+      {confirmDelete && (
+        <ConfirmDialog
+          message="Delete this fee record?"
+          onConfirm={() => { deleteMutation.mutate(confirmDelete); setConfirmDelete(null); }}
+          onCancel={() => setConfirmDelete(null)}
+        />
+      )}
+
+      {confirmInvoice && (
+        <ConfirmDialog
+          message="Generate invoice(s) for this fee?"
+          onConfirm={() => { generateInvoiceMutation.mutate({ feeId: confirmInvoice }); setConfirmInvoice(null); }}
+          onCancel={() => setConfirmInvoice(null)}
+        />
       )}
 
       {/* Collect Payment Modal */}

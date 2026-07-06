@@ -15,6 +15,8 @@ import {
   FileText,
 } from "lucide-react";
 import AdminLayout from "../layouts/AdminLayout";
+import BackButton from "../components/BackButton";
+
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../api/supabase";
 
@@ -168,6 +170,7 @@ export default function TeacherProfile() {
   if (isLoading) {
     return (
       <AdminLayout>
+      <BackButton to="/teacher" label="My Dashboard" />
         <div className="p-8 text-center text-secondary font-montserrat">Loading profile…</div>
       </AdminLayout>
     );

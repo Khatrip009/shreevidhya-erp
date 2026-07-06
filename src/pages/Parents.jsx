@@ -17,6 +17,7 @@ import {
 import Papa from "papaparse";
 import AdminLayout from "../layouts/AdminLayout";
 import ParentForm from "../components/ParentForm";
+import BackButton from "../components/BackButton";
 import {
   getParents,
   createParent,
@@ -159,6 +160,7 @@ export default function Parents() {
 
   return (
     <AdminLayout>
+      <BackButton to="/admissions-hub" label="Admissions Hub" />
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
         <div>

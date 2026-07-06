@@ -114,7 +114,7 @@ export default function Header({ onMenuClick }) {
 
   async function handleLogout() {
     await supabase.auth.signOut();
-    window.location.href = "/login";
+    navigate("/login", { replace: true });
   }
 
   const today = new Date();

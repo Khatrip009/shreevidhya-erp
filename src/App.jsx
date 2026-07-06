@@ -113,12 +113,29 @@ import PODetail from "./pages/PODetail";
 import AdmissionsHub from "./pages/AdmissionsHub";
 import AcademicsHub from "./pages/AcademicsHub";
 import HRHub from "./pages/HRHub";
+import CommunicationHub from "./pages/CommunicationHub";
+import SettingsHub from "./pages/SettingsHub";
 
 import TeacherSalarySettings from './pages/TeacherSalarySettings';
 import GenerateSalaries from './pages/GenerateSalaries';
 import SalarySetup from "./pages/SalarySetup";
 import TeacherAttendance from "./pages/TeacherAttendance";
 import SalaryReport from "./pages/SalaryReport";
+
+import GSTSettings from "./pages/GSTSettings";
+import Vendors from "./pages/Vendors";
+import Invoices from "./pages/Invoices";
+import InvoiceForm from "./pages/InvoiceForm";
+import InvoiceView from "./pages/InvoiceView";
+
+import GSTR3BSummary from "./pages/GSTR3BSummary";
+import CreditNotes from "./pages/CreditNotes";
+import DebitNotes from "./pages/DebitNotes";
+import PurchaseRegister from "./pages/PurchaseRegister";
+
+import PurchaseInvoices from "./pages/PurchaseInvoices";
+import PurchaseInvoiceForm from "./pages/PurchaseInvoiceForm";
+import PurchaseInvoiceView from "./pages/PurchaseInvoiceView";
 
 // Theme Settings
 import ThemeSettings from "./pages/ThemeSettings";
@@ -192,7 +209,6 @@ function App() {
         <Route path="/notifications" element={<ProtectedRoute><Notifications /></ProtectedRoute>} />
         <Route path="/student-batches" element={<ProtectedRoute><StudentBatches /></ProtectedRoute>} />
         <Route path="/student-documents" element={<ProtectedRoute><StudentDocuments /></ProtectedRoute>} />
-        <Route path="/attendance-reports" element={<ProtectedRoute><AttendanceReports /></ProtectedRoute>} />
         <Route path="/progress" element={<ProtectedRoute><ProgressEvaluations /></ProtectedRoute>} />
         <Route path="/student-progress" element={<ProtectedRoute><StudentProgressReport /></ProtectedRoute>} />
         <Route path="/attendance/reports" element={<ProtectedRoute><AttendanceReports /></ProtectedRoute>} />
@@ -220,31 +236,52 @@ function App() {
         <Route path="/aged-receivables" element={<ProtectedRoute><AgedReceivables /></ProtectedRoute>} />
         <Route path="/bank-reconciliation" element={<ProtectedRoute><BankReconciliation /></ProtectedRoute>} />
         <Route path="/budgets" element={<ProtectedRoute><Budgets /></ProtectedRoute>} />
-<Route path="/budget-vs-actual" element={<ProtectedRoute><BudgetVsActual /></ProtectedRoute>} />
-<Route path="/fixed-assets" element={<ProtectedRoute><FixedAssets /></ProtectedRoute>} />
-<Route path="/bill-wise" element={<ProtectedRoute><BillWiseEntries /></ProtectedRoute>} />
-<Route path="/gst-report" element={<ProtectedRoute><GSTReport /></ProtectedRoute>} />
-// Inventory Routes (add near other accounting routes)
-<Route path="/inventory-items" element={<ProtectedRoute><InventoryItems /></ProtectedRoute>} />
-<Route path="/inventory-transactions" element={<ProtectedRoute><InventoryTransactions /></ProtectedRoute>} />
-<Route path="/add-stock" element={<ProtectedRoute><AddStock /></ProtectedRoute>} />
-<Route path="/stock-dashboard" element={<ProtectedRoute><StockDashboard /></ProtectedRoute>} />
-<Route path="/purchase-orders" element={<ProtectedRoute><PurchaseOrders /></ProtectedRoute>} />
-<Route path="/purchase-orders/new" element={<ProtectedRoute><POForm /></ProtectedRoute>} />
-<Route path="/purchase-orders/:id/edit" element={<ProtectedRoute><POForm /></ProtectedRoute>} />
-<Route path="/purchase-orders/:id" element={<ProtectedRoute><PODetail /></ProtectedRoute>} />
+        <Route path="/budget-vs-actual" element={<ProtectedRoute><BudgetVsActual /></ProtectedRoute>} />
+        <Route path="/fixed-assets" element={<ProtectedRoute><FixedAssets /></ProtectedRoute>} />
+        <Route path="/bill-wise" element={<ProtectedRoute><BillWiseEntries /></ProtectedRoute>} />
+        <Route path="/gst-report" element={<ProtectedRoute><GSTReport /></ProtectedRoute>} />
 
+        {/* Inventory Routes */}
+        <Route path="/inventory-items" element={<ProtectedRoute><InventoryItems /></ProtectedRoute>} />
+        <Route path="/inventory-transactions" element={<ProtectedRoute><InventoryTransactions /></ProtectedRoute>} />
+        <Route path="/add-stock" element={<ProtectedRoute><AddStock /></ProtectedRoute>} />
+        <Route path="/stock-dashboard" element={<ProtectedRoute><StockDashboard /></ProtectedRoute>} />
+        <Route path="/purchase-orders" element={<ProtectedRoute><PurchaseOrders /></ProtectedRoute>} />
+        <Route path="/purchase-orders/new" element={<ProtectedRoute><POForm /></ProtectedRoute>} />
+        <Route path="/purchase-orders/:id/edit" element={<ProtectedRoute><POForm /></ProtectedRoute>} />
+        <Route path="/purchase-orders/:id" element={<ProtectedRoute><PODetail /></ProtectedRoute>} />
 
-<Route path="/admissions-hub" element={<ProtectedRoute><AdmissionsHub /></ProtectedRoute>} />
-<Route path="/academics-hub" element={<ProtectedRoute><AcademicsHub /></ProtectedRoute>} />
-<Route path="/hr-hub" element={<ProtectedRoute><HRHub /></ProtectedRoute>} />
+        {/* Hub Routes */}
+        <Route path="/admissions-hub" element={<ProtectedRoute><AdmissionsHub /></ProtectedRoute>} />
+        <Route path="/academics-hub" element={<ProtectedRoute><AcademicsHub /></ProtectedRoute>} />
+        <Route path="/hr-hub" element={<ProtectedRoute><HRHub /></ProtectedRoute>} />
+        <Route path="/communication-hub" element={<ProtectedRoute><CommunicationHub /></ProtectedRoute>} />
+        <Route path="/settings-hub" element={<ProtectedRoute><SettingsHub /></ProtectedRoute>} />
 
-<Route path="/teachers/:id/salary" element={<ProtectedRoute><TeacherSalarySettings /></ProtectedRoute>} />
-<Route path="/generate-salaries" element={<ProtectedRoute><GenerateSalaries /></ProtectedRoute>} />
-<Route path="/salary-payments" element={<ProtectedRoute><SalaryPayments /></ProtectedRoute>} />
-<Route path="/salary-setup" element={<ProtectedRoute><SalarySetup /></ProtectedRoute>} />
-<Route path="/teacher-attendance" element={<ProtectedRoute><TeacherAttendance /></ProtectedRoute>} />
-<Route path="/salary-report" element={<ProtectedRoute><SalaryReport /></ProtectedRoute>} />
+        {/* HR & Salary Routes */}
+        <Route path="/teachers/:id/salary" element={<ProtectedRoute><TeacherSalarySettings /></ProtectedRoute>} />
+        <Route path="/generate-salaries" element={<ProtectedRoute><GenerateSalaries /></ProtectedRoute>} />
+        <Route path="/salary-payments" element={<ProtectedRoute><SalaryPayments /></ProtectedRoute>} />
+        <Route path="/salary-setup" element={<ProtectedRoute><SalarySetup /></ProtectedRoute>} />
+        <Route path="/teacher-attendance" element={<ProtectedRoute><TeacherAttendance /></ProtectedRoute>} />
+        <Route path="/salary-report" element={<ProtectedRoute><SalaryReport /></ProtectedRoute>} />
+
+        {/* GST & Invoicing Routes */}
+        <Route path="/gst-settings" element={<ProtectedRoute><GSTSettings /></ProtectedRoute>} />
+        <Route path="/vendors" element={<ProtectedRoute><Vendors /></ProtectedRoute>} />
+        <Route path="/invoices" element={<ProtectedRoute><Invoices /></ProtectedRoute>} />
+        <Route path="/invoices/new" element={<ProtectedRoute><InvoiceForm /></ProtectedRoute>} />
+        <Route path="/invoices/:id" element={<ProtectedRoute><InvoiceView /></ProtectedRoute>} />
+        <Route path="/invoices/:id/edit" element={<ProtectedRoute><InvoiceForm /></ProtectedRoute>} />
+        <Route path="/gstr-3b-summary" element={<ProtectedRoute><GSTR3BSummary /></ProtectedRoute>} />
+        <Route path="/credit-notes" element={<ProtectedRoute><CreditNotes /></ProtectedRoute>} />
+        <Route path="/debit-notes" element={<ProtectedRoute><DebitNotes /></ProtectedRoute>} />
+        <Route path="/purchase-register" element={<ProtectedRoute><PurchaseRegister /></ProtectedRoute>} />
+        <Route path="/purchase-invoices" element={<ProtectedRoute><PurchaseInvoices /></ProtectedRoute>} />
+        <Route path="/purchase-invoices/new" element={<ProtectedRoute><PurchaseInvoiceForm /></ProtectedRoute>} />
+        <Route path="/purchase-invoices/:id" element={<ProtectedRoute><PurchaseInvoiceView /></ProtectedRoute>} />
+        <Route path="/purchase-invoices/:id/edit" element={<ProtectedRoute><PurchaseInvoiceForm /></ProtectedRoute>} />
+
 
 
         {/* Theme Settings (NEW) */}
@@ -267,7 +304,6 @@ function App() {
         <Route path="/timetable" element={<ProtectedRoute><AdminTimetable /></ProtectedRoute>} />
 
         {/* Admin-only HR routes */}
-        <Route path="/salary-payments" element={<ProtectedRoute><SalaryPayments /></ProtectedRoute>} />
         <Route path="/leave-management" element={<ProtectedRoute><LeaveManagement /></ProtectedRoute>} />
 
         {/* Online Classes */}

@@ -21,6 +21,8 @@ import {
 import Papa from "papaparse";
 import AdminLayout from "../layouts/AdminLayout";
 import AttendanceSessionForm from "../components/AttendanceSessionForm";
+import ConfirmDialog from "../components/ConfirmDialog";
+import BackButton from "../components/BackButton";
 import {
   getAttendanceSessions,
   createAttendanceSession,
@@ -53,6 +55,7 @@ export default function Attendance() {
 
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
+  const [confirmDelete, setConfirmDelete] = useState(null);
   const fileInputRef = useRef(null);
 
   const { data: batches = [] } = useQuery({
@@ -179,12 +182,12 @@ export default function Attendance() {
   }
 
   function handleDelete(id) {
-    if (!window.confirm("Delete this session and all attendance records?")) return;
-    deleteMutation.mutate(id);
+    setConfirmDelete(id);
   }
 
   return (
     <AdminLayout>
+      <BackButton to="/academics-hub" label="Academics Hub" />
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
         <div>
           <h1 className="text-3xl font-righteous text-primary-dark">Attendance</h1>
@@ -416,6 +419,14 @@ export default function Attendance() {
             {isFetchingNextPage ? "Loading more…" : "Load More"}
           </button>
         </div>
+      )}
+
+      {confirmDelete && (
+        <ConfirmDialog
+          message="Delete this session and all attendance records?"
+          onConfirm={() => { deleteMutation.mutate(confirmDelete); setConfirmDelete(null); }}
+          onCancel={() => setConfirmDelete(null)}
+        />
       )}
 
       {/* Form modal – open for both admins and teachers */}

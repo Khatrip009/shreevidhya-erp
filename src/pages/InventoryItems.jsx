@@ -7,6 +7,8 @@ import {
 } from "lucide-react";
 import Papa from "papaparse";
 import AdminLayout from "../layouts/AdminLayout";
+import BackButton from "../components/BackButton";
+
 import { supabase } from "../api/supabase";
 
 export default function InventoryItems() {
@@ -146,6 +148,7 @@ export default function InventoryItems() {
 
   return (
     <AdminLayout>
+      <BackButton to="/accounting" label="Finance & Accounting" />
       <div className="flex justify-between items-center mb-6">
         <div>
           <h1 className="text-3xl font-righteous text-primary-dark">Inventory Items</h1>

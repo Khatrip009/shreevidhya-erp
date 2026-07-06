@@ -17,6 +17,8 @@ import {
   UserPlus,
 } from "lucide-react";
 import AdminLayout from "../layouts/AdminLayout";
+import BackButton from "../components/BackButton";
+
 import { supabase } from "../api/supabase";
 
 const ALLOWED_ROLES = ["super_admin", "admin", "teacher", "student", "parent"];
@@ -180,6 +182,7 @@ export default function UserManagement() {
 
   return (
     <AdminLayout>
+      <BackButton to="/settings-hub" label="Settings" />
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
         <div>
