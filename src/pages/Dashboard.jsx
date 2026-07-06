@@ -130,8 +130,15 @@ export default function Dashboard() {
   });
 
   // Ensure all array fields are arrays
+   // Ensure all array fields are arrays
   const s = rawStats || {};
-    const stats = {
+
+  // Safe feeStatusData – never an array
+  const safeFeeStatus = Array.isArray(s.feeStatusData)
+    ? { paid: 0, pending: 0 }
+    : s.feeStatusData || { paid: 0, pending: 0 };
+
+  const stats = {
     totalStudents: s.totalStudents ?? 0,
     activeBatches: s.activeBatches ?? 0,
     todayAttendance: s.todayAttendance ?? { present: 0, total: 0 },
@@ -147,7 +154,7 @@ export default function Dashboard() {
     monthlyFeeData: s.monthlyFeeData || [],
     batchStudentData: s.batchStudentData || [],
     inquiryTrendData: s.inquiryTrendData || [],
-    feeStatusData: safeFeeStatus,   // <-- now safe
+    feeStatusData: safeFeeStatus,          // <-- now correctly defined
     attendanceTrend: s.attendanceTrend || [],
     courseWiseStudents: s.courseWiseStudents || [],
     lowStockItems: s.lowStockItems || [],
