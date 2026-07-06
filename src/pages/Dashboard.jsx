@@ -131,7 +131,7 @@ export default function Dashboard() {
 
   // Ensure all array fields are arrays
   const s = rawStats || {};
-  const stats = {
+    const stats = {
     totalStudents: s.totalStudents ?? 0,
     activeBatches: s.activeBatches ?? 0,
     todayAttendance: s.todayAttendance ?? { present: 0, total: 0 },
@@ -147,16 +147,14 @@ export default function Dashboard() {
     monthlyFeeData: s.monthlyFeeData || [],
     batchStudentData: s.batchStudentData || [],
     inquiryTrendData: s.inquiryTrendData || [],
-    feeStatusData: s.feeStatusData || { paid: 0, pending: 0 },
+    feeStatusData: safeFeeStatus,   // <-- now safe
     attendanceTrend: s.attendanceTrend || [],
     courseWiseStudents: s.courseWiseStudents || [],
-    // NEW
     lowStockItems: s.lowStockItems || [],
     pendingInvoicesCount: s.pendingInvoicesCount ?? 0,
     pendingInvoicesAmount: s.pendingInvoicesAmount ?? 0,
     todayIncome: s.todayIncome ?? 0,
   };
-
   if (isLoading) {
     return (
       <AdminLayout>
