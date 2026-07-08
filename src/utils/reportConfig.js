@@ -1725,16 +1725,19 @@ admission_form: {
       if (filters.student_id) q = q.eq('student_id', filters.student_id);
       if (filters.batch_id) q = q.eq('attendance_sessions.batch_id', filters.batch_id);
 
-      return q.order('attendance_sessions!inner.attendance_date', { ascending: false });
+      // No database ordering – sort client‑side in transform
+      return q;
     },
     transform: (data) =>
-      data.map(r => ({
-        date: r.attendance_sessions.attendance_date,
-        student: `${r.students.first_name} ${r.students.last_name}`,
-        admission_no: r.students.admission_no,
-        status: r.status,
-        remarks: r.remarks || '—',
-      })),
+      data
+        .map(r => ({
+          date: r.attendance_sessions.attendance_date,
+          student: `${r.students.first_name} ${r.students.last_name}`,
+          admission_no: r.students.admission_no,
+          status: r.status,
+          remarks: r.remarks || '—',
+        }))
+        .sort((a, b) => b.date.localeCompare(a.date)),  // descending by date
     columns: [
       { header: 'Date', accessor: 'date' },
       { header: 'Student', accessor: 'student' },
