@@ -1,3 +1,4 @@
+// src/components/Sidebar.jsx
 import {
   LayoutDashboard, Users, GraduationCap, IndianRupee, Settings,
   ChevronDown, Bell, X, Wallet, Building, Video, FileText,
@@ -126,11 +127,15 @@ export default function Sidebar({ onClose, collapsed, onToggleCollapse }) {
         <SidebarLink to="/results" icon={BarChart3}>Results</SidebarLink>
         <SidebarLink to="/teacher/resources" icon={BookOpen}>Learning Resources</SidebarLink>
         <SidebarLink to="/online-classes" icon={Video}>Online Classes</SidebarLink>
+        <SidebarLink to="/teacher-attendance" icon={CalendarCheck}>My Attendance</SidebarLink>
+        <SidebarLink to="/teacher-lecture-report" icon={Calendar}>My Lectures</SidebarLink>
+        <SidebarLink to="/teacher-lecture-count" icon={Calendar}>My Lecture Count</SidebarLink>  {/* NEW */}
       </AccordionSection>
       <SidebarLink to="/teacher/salary" icon={Wallet}>My Salary</SidebarLink>
       <SidebarLink to="/teacher/leaves" icon={Calendar}>My Leaves</SidebarLink>
       <SidebarLink to="/teacher/profile" icon={BookOpen}>My Profile</SidebarLink>
       <SidebarLink to="/teacher/timetable" icon={Calendar}>My Timetable</SidebarLink>
+      <SidebarLink to="/teacher-daily-attendance-report" icon={Calendar}>My Attendance Log</SidebarLink>
       <div className="border-t border-primary-dark my-2" />
       <SidebarLink to="/notifications" icon={Bell}>Notifications</SidebarLink>
       <SidebarLink to="/settings" icon={Settings}>Settings</SidebarLink>
@@ -156,6 +161,10 @@ export default function Sidebar({ onClose, collapsed, onToggleCollapse }) {
       <SidebarLink to="/invoices" icon={FileText}>Invoices</SidebarLink>
       <SidebarLink to="/reports" icon={BarChart3}>Reports</SidebarLink>
       <SidebarLink to="/certificates" icon={Award}>Certificates</SidebarLink>
+      <SidebarLink to="/teacher-attendance-report" icon={FileText}>Teacher Attendance Report</SidebarLink>
+      <SidebarLink to="/teacher-daily-attendance-report" icon={Calendar}>Daily Teacher Attendance</SidebarLink>
+      <SidebarLink to="/teacher-lecture-report" icon={Calendar}>Teacher Lecture Report</SidebarLink>
+      <SidebarLink to="/teacher-lecture-count" icon={Calendar}>Teacher Lecture Count</SidebarLink>  {/* NEW */}
 
       {!collapsed && <SectionLabel>System</SectionLabel>}
       <SidebarLink to="/settings-hub" icon={Settings}>Settings</SidebarLink>

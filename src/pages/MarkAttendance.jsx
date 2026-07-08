@@ -97,7 +97,34 @@ export default function MarkAttendance() {
 
     setSaving(true);
     try {
+      // ── 1. Save the attendance records ──
       await saveAttendance(sessionId, records);
+
+      // ── 2. Link the session to the current teacher (for lecture counting) ──
+      // Get the currently logged‑in user (admin or teacher)
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        // Find the teacher row that belongs to this user
+        const { data: teacherData } = await supabase
+          .from("teachers")
+          .select("id")
+          .eq("user_id", user.id)
+          .single();
+
+        if (teacherData?.id) {
+          // Update the session with the teacher's ID (only if not already set)
+          const { error: updateError } = await supabase
+            .from("attendance_sessions")
+            .update({ teacher_id: teacherData.id })
+            .eq("id", sessionId)
+            .is("teacher_id", null);   // only update if currently empty
+
+          if (updateError) {
+            console.error("Failed to set teacher_id on session:", updateError);
+          }
+        }
+      }
+
       toast.success("Attendance saved");
       navigate("/attendance");
     } catch (err) {

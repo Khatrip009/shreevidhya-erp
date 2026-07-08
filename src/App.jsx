@@ -136,6 +136,10 @@ import PurchaseRegister from "./pages/PurchaseRegister";
 import PurchaseInvoices from "./pages/PurchaseInvoices";
 import PurchaseInvoiceForm from "./pages/PurchaseInvoiceForm";
 import PurchaseInvoiceView from "./pages/PurchaseInvoiceView";
+import TeacherAttendanceReport from "./pages/TeacherAttendanceReport";
+import TeacherDailyAttendanceReport from "./pages/TeacherDailyAttendanceReport";
+import TeacherLectureReport from "./pages/TeacherLectureReport";
+import TeacherLectureCountReport from "./pages/TeacherLectureCountReport";
 
 // Theme Settings
 import ThemeSettings from "./pages/ThemeSettings";
@@ -282,7 +286,10 @@ function App() {
         <Route path="/purchase-invoices/:id" element={<ProtectedRoute><PurchaseInvoiceView /></ProtectedRoute>} />
         <Route path="/purchase-invoices/:id/edit" element={<ProtectedRoute><PurchaseInvoiceForm /></ProtectedRoute>} />
 
-
+        <Route path="/teacher-attendance-report" element={<ProtectedRoute><TeacherAttendanceReport /></ProtectedRoute>} />
+        <Route path="/teacher-daily-attendance-report" element={<ProtectedRoute><TeacherDailyAttendanceReport /></ProtectedRoute>} />
+        <Route path="/teacher-lecture-report" element={<ProtectedRoute><TeacherLectureReport /></ProtectedRoute>} />
+        <Route path="/teacher-lecture-count" element={<ProtectedRoute><TeacherLectureCountReport /></ProtectedRoute>} />
 
         {/* Theme Settings (NEW) */}
         <Route path="/theme-settings" element={<ProtectedRoute><ThemeSettings /></ProtectedRoute>} />
