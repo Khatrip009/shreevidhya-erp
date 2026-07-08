@@ -1725,7 +1725,7 @@ admission_form: {
       if (filters.student_id) q = q.eq('student_id', filters.student_id);
       if (filters.batch_id) q = q.eq('attendance_sessions.batch_id', filters.batch_id);
 
-      return q.order('attendance_sessions.attendance_date', { ascending: false });
+      return q.order('attendance_sessions!inner.attendance_date', { ascending: false });
     },
     transform: (data) =>
       data.map(r => ({
