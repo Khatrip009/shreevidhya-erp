@@ -14,7 +14,7 @@ import { submitPaymentRequest } from "../services/feeService";
 
 export default function StudentFeesPage() {
   const { studentId, isLoading: idLoading } = useStudentId();
-  const queryClient = useQueryClient();
+  const queryClient = useQueryClient(); 
   const [expandedFeeId, setExpandedFeeId] = useState(null);
   const [payingFee, setPayingFee] = useState(null);
   const [paymentForm, setPaymentForm] = useState({
