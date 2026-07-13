@@ -1,3 +1,4 @@
+// src/pages/Certificates.jsx
 import React, { useState, useRef } from "react";
 import {
   useInfiniteQuery,
@@ -29,15 +30,24 @@ import {
 } from "../services/certificateService";
 import { generateCertificatePdf } from "../utils/certificatePdf";
 import { supabase } from "../api/supabase";
+import { useOrg } from "../context/OrganizationContext";   // NEW
+
 export default function Certificates() {
   const queryClient = useQueryClient();
+
+  // ── Organisation / Branch / Financial Year context ──
+  const { branch, selectedFinancialYear } = useOrg();
+  const ctx = {
+    branchId: branch?.id,
+    financialYearId: selectedFinancialYear?.id,
+  };
 
   // Search & filters
   const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
   const fileInputRef = useRef(null);
 
-  // Infinite query for certificates
+  // Infinite query for certificates (unchanged)
   const {
     data,
     isLoading,
@@ -47,9 +57,6 @@ export default function Certificates() {
   } = useInfiniteQuery({
     queryKey: ["certificates", { search }],
     queryFn: async ({ pageParam = 0 }) => {
-      // We need a paginated getCertificates function; let's assume we'll add it.
-      // For now, we'll use a simple implementation that returns all and slices.
-      // In a real app, the service should support pagination.
       const limit = 20;
       const from = pageParam * limit;
       const to = from + limit - 1;
@@ -89,9 +96,9 @@ export default function Certificates() {
 
   const certificates = data?.pages.flatMap((page) => page.data) || [];
 
-  // Mutations
+  // Mutations – now accept context
   const createMutation = useMutation({
-    mutationFn: createCertificate,
+    mutationFn: (payload) => createCertificate(payload, ctx),
     onSuccess: () => {
       toast.success("Certificate issued");
       queryClient.invalidateQueries({ queryKey: ["certificates"] });
@@ -101,7 +108,7 @@ export default function Certificates() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: deleteCertificate,
+    mutationFn: (id) => deleteCertificate(id, ctx),
     onSuccess: () => {
       toast.success("Certificate deleted");
       queryClient.invalidateQueries({ queryKey: ["certificates"] });
@@ -109,7 +116,7 @@ export default function Certificates() {
     onError: () => toast.error("Delete failed"),
   });
 
-  // CSV Import
+  // CSV Import – also pass context
   async function handleCSVImport(event) {
     const file = event.target.files[0];
     if (!file) return;
@@ -129,7 +136,7 @@ export default function Certificates() {
               certificate_url: row.certificate_url || null,
               issued_by: 1,
             };
-            await createCertificate(payload);
+            await createCertificate(payload, ctx);
             successCount++;
           } catch (err) {
             console.error(err);
@@ -142,10 +149,9 @@ export default function Certificates() {
     });
   }
 
-  // CSV Export
+  // CSV Export (unchanged)
   async function handleCSVExport() {
     try {
-      // Fetch all data for export (without pagination)
       const { data: allData } = await supabase
         .from("certificates")
         .select(
@@ -353,10 +359,10 @@ export default function Certificates() {
         </div>
       )}
 
-      {/* Certificate Form Modal (already branded) */}
+      {/* Certificate Form Modal – passes context to createMutation */}
       {showForm && (
         <CertificateForm
-          onSubmit={(payload) => createMutation.mutate(payload)}
+          onSubmit={(payload, context) => createMutation.mutate(payload)}
           onClose={() => setShowForm(false)}
         />
       )}

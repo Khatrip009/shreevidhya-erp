@@ -33,11 +33,13 @@ import {
   getAllAttendanceSessionsForExport,
 } from "../services/attendanceService";
 import { useAuth } from "../context/AuthContext";
+import { useOrg } from "../context/OrganizationContext"; // NEW
 
 export default function Attendance() {
   const { profile } = useAuth();
+  const { branch, selectedFinancialYear } = useOrg(); // NEW
+  const financialYearId = selectedFinancialYear?.id; // convenience
 
-  // ── Normalise role to lowercase slug ──
   const role = (profile?.role || "").toLowerCase().replace(/\s+/g, "_");
   const isAdmin = role === "admin" || role === "super_admin";
   const isTeacher = role === "teacher";
@@ -46,7 +48,7 @@ export default function Attendance() {
   const queryClient = useQueryClient();
 
   const [batchFilter, setBatchFilter] = useState("");
-  const [mediumFilter, setMediumFilter] = useState("");   // NEW
+  const [mediumFilter, setMediumFilter] = useState("");
   const [search, setSearch] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
@@ -64,7 +66,6 @@ export default function Attendance() {
     staleTime: 10 * 60 * 1000,
   });
 
-  // Fetch mediums for filter dropdown
   const { data: mediums = [] } = useQuery({
     queryKey: ["mediums-dropdown"],
     queryFn: getMediumOptions,
@@ -92,8 +93,9 @@ export default function Attendance() {
 
   const sessions = data?.pages.flatMap((page) => page.data) || [];
 
+  // Mutations now pass financialYearId where needed
   const createMutation = useMutation({
-    mutationFn: createAttendanceSession,
+    mutationFn: (payload) => createAttendanceSession(payload, financialYearId),
     onSuccess: () => {
       toast.success("Session created");
       queryClient.invalidateQueries({ queryKey: ["attendance-sessions"] });
@@ -103,7 +105,7 @@ export default function Attendance() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, payload }) => updateAttendanceSession(id, payload),
+    mutationFn: ({ id, payload }) => updateAttendanceSession(id, payload, financialYearId),
     onSuccess: () => {
       toast.success("Session updated");
       queryClient.invalidateQueries({ queryKey: ["attendance-sessions"] });
@@ -113,7 +115,7 @@ export default function Attendance() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: deleteAttendanceSession,
+    mutationFn: deleteAttendanceSession, // no FY needed for soft delete (RLS handles)
     onSuccess: () => {
       toast.success("Session deleted");
       queryClient.invalidateQueries({ queryKey: ["attendance-sessions"] });
@@ -136,7 +138,8 @@ export default function Attendance() {
               attendance_date: row.attendance_date,
               topic_covered: row.topic_covered || "",
             };
-            await createAttendanceSession(payload);
+            // Use createAttendanceSession with financialYearId
+            await createAttendanceSession(payload, financialYearId);
             successCount++;
           } catch (err) {
             console.error(err);
@@ -173,11 +176,12 @@ export default function Attendance() {
     }
   }
 
-  function handleCreate(payload) {
+  function handleCreate(payload, context) {
+    // context contains branchId & financialYearId but we already use financialYearId from hook
     createMutation.mutate(payload);
   }
 
-  function handleUpdate(payload) {
+  function handleUpdate(payload, context) {
     updateMutation.mutate({ id: editing.id, payload });
   }
 
@@ -429,14 +433,13 @@ export default function Attendance() {
         />
       )}
 
-      {/* Form modal – open for both admins and teachers */}
+      {/* Form modal */}
       {(isAdmin || isTeacher) && showForm && (
         <AttendanceSessionForm
           onSubmit={handleCreate}
           onClose={() => setShowForm(false)}
         />
       )}
-      {/* Edit modal – only for admins */}
       {isAdmin && editing && (
         <AttendanceSessionForm
           initialData={editing}

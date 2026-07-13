@@ -1,3 +1,4 @@
+// src/services/leaveService.js
 import { supabase } from "../api/supabase";
 
 // Get leaves (admin: all, teacher: own)
@@ -20,20 +21,29 @@ export async function getLeaves({ teacherId = null, pageParam = 0, filters = {} 
   return { data, count };
 }
 
-export async function createLeave(payload) {
+// context: { branchId, financialYearId }
+export async function createLeave(payload, context) {
+  const { branchId, financialYearId } = context;
   const { data, error } = await supabase
     .from("leaves")
-    .insert([payload])
+    .insert([{ ...payload, branch_id: branchId, financial_year_id: financialYearId }])
     .select()
     .single();
   if (error) throw error;
   return data;
 }
 
-export async function updateLeaveStatus(id, status, adminRemarks = "") {
+// context: { branchId, financialYearId }
+export async function updateLeaveStatus(id, status, adminRemarks = "", context) {
+  const { branchId, financialYearId } = context;
   const { data, error } = await supabase
     .from("leaves")
-    .update({ status, admin_remarks: adminRemarks })
+    .update({
+      status,
+      admin_remarks: adminRemarks,
+      branch_id: branchId,
+      financial_year_id: financialYearId,
+    })
     .eq("id", id)
     .select()
     .single();

@@ -8,6 +8,7 @@ import { Calendar, Download, FileText, TrendingUp, IndianRupee, AlertCircle } fr
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import { getOrganization } from "../services/organizationService";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 
 // ─── Helper: Create rupee symbol as image ──────────────
 function createRupeeSymbolImage() {
@@ -53,9 +54,13 @@ export default function SalaryReport() {
   const [year, setYear] = useState(today.getFullYear());
   const tableRef = useRef();
 
+  // ── Get current organization from context ──
+  const { org: currentOrg } = useOrg();   // NEW
+
   const { data: org } = useQuery({
-    queryKey: ["organization"],
-    queryFn: getOrganization,
+    queryKey: ["organization", currentOrg?.id],
+    queryFn: () => getOrganization(currentOrg?.id),
+    enabled: !!currentOrg?.id,
     staleTime: 10 * 60 * 1000,
   });
 
@@ -89,7 +94,7 @@ export default function SalaryReport() {
 
       const paymentIds = salaryData.map((p) => p.id);
       const references = paymentIds.map((id) => `Salary #${id}`);
-      
+
       const { data: journalEntries, error: jErr } = await supabase
         .from("journal_entries")
         .select("id, reference, is_posted, entry_date")
@@ -188,7 +193,6 @@ export default function SalaryReport() {
       doc.setFont("helvetica", "normal");
       doc.text(item.label, x + 3, boxY + 6);
 
-      // Use drawCurrency for amount values, plain text for others
       if (typeof item.value === 'number' && item.label !== 'Teachers' && !item.label.includes('Journal')) {
         drawCurrency(doc, item.value, x + 3, boxY + 15, 11, 'left', item.color);
       } else {
@@ -213,7 +217,6 @@ export default function SalaryReport() {
       p.journal_entry_id ? '✓' : '✗',
     ]);
 
-    // Total row
     const totalGross = payments.reduce((s, p) => s + (p.amount || 0), 0);
     const totalNet = payments.reduce((s, p) => s + (p.net_amount || 0), 0);
     tableRows.push([
@@ -252,12 +255,10 @@ export default function SalaryReport() {
         8: { cellWidth: 12, halign: 'center' },
       },
       didDrawCell: function (data) {
-        // Draw currency for Gross (column 4) and Net (column 6)
         if (data.column.index === 4 || data.column.index === 6) {
           const cell = data.cell;
           const raw = data.cell.raw;
           if (typeof raw === 'number' && raw > 0) {
-            // Clear the cell's text (we'll draw the amount with ₹ image)
             doc.setFillColor(255, 255, 255);
             doc.rect(cell.x, cell.y, cell.width, cell.height, 'F');
             const x = cell.x + 2;
@@ -265,7 +266,6 @@ export default function SalaryReport() {
             drawCurrency(doc, raw, x, yPos, 8, 'left', '#333');
           }
         }
-        // Highlight total row
         if (data.row.index === tableRows.length - 1) {
           data.cell.styles.fillColor = [230, 240, 250];
           data.cell.styles.fontStyle = 'bold';
@@ -276,7 +276,6 @@ export default function SalaryReport() {
 
     y = doc.lastAutoTable.finalY + 10;
 
-    // ── Footer ──
     const footerY = pageHeight - 12;
     doc.setFontSize(7);
     doc.setTextColor("#999");
@@ -321,7 +320,6 @@ export default function SalaryReport() {
 
   return (
     <AdminLayout>
-      {/* ... UI (same as before) ... */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6">
         <h1 className="text-3xl font-righteous text-primary-dark">Monthly Salary Report</h1>
         <div className="flex items-center gap-3 mt-2 sm:mt-0">

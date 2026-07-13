@@ -5,6 +5,7 @@ import { Printer } from "lucide-react";
 import AdminLayout from "../layouts/AdminLayout";
 import { supabase } from "../api/supabase";
 import { getOrganization } from "../services/organizationService";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 
 const GROUP_CONFIG = {
   "Current Assets": { parent: 1000, type: "asset" },
@@ -16,7 +17,14 @@ const GROUP_CONFIG = {
 
 export default function BalanceSheet() {
   const [asOfDate, setAsOfDate] = useState(new Date().toISOString().split("T")[0]);
-  const { data: org } = useQuery({ queryKey: ["organization"], queryFn: getOrganization });
+  const { org: currentOrg } = useOrg();                  // NEW
+
+  // Pass current org id to getOrganization
+  const { data: org } = useQuery({
+    queryKey: ["organization", currentOrg?.id],
+    queryFn: () => getOrganization(currentOrg?.id),
+    enabled: !!currentOrg?.id,
+  });
 
   const { data: accounts = [], isLoading } = useQuery({
     queryKey: ["balance-sheet", asOfDate],
@@ -27,7 +35,7 @@ export default function BalanceSheet() {
     enabled: !!asOfDate,
   });
 
-  // Group accounts by parent
+  // Group accounts by parent (unchanged)
   const groups = useMemo(() => {
     const result = {};
     for (const [name] of Object.entries(GROUP_CONFIG)) {

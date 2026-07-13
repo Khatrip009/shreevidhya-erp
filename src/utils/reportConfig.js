@@ -20,6 +20,7 @@ export const reportTypes = {
     id: 'student_enrollment',
     title: 'Student Enrollment Report',
     description: 'Students enrolled within a date range, with course, batch & medium',
+    useLetterhead: true,
     fields: ['start_date', 'end_date', 'course_id', 'batch_id', 'medium_id'],
     defaultFilters: () => ({
       start_date: new Date(new Date().getFullYear(), 0, 1).toISOString().slice(0, 10),
@@ -77,6 +78,7 @@ export const reportTypes = {
     id: 'student_status_list',
     title: 'Active / Inactive Student List',
     description: 'Filter students by current status (active, inactive, etc.)',
+    useLetterhead: true,
     fields: ['status', 'batch_id', 'course_id'],
     queryBuilder: (filters) => {
       let q = supabase
@@ -113,6 +115,7 @@ export const reportTypes = {
     id: 'batch_capacity',
     title: 'Batch Capacity Utilisation',
     description: 'Shows enrolled / capacity for each batch',
+    useLetterhead: true,
     fields: ['course_id', 'batch_id'],
     queryBuilder: () =>
       supabase
@@ -144,6 +147,7 @@ export const reportTypes = {
     id: 'student_parents',
     title: 'Student‑Parent Mapping',
     description: 'Shows parent details for each student',
+    useLetterhead: true,
     fields: ['student_name'],
     queryBuilder: () =>
       supabase.from('student_parents').select(`
@@ -179,6 +183,7 @@ export const reportTypes = {
     id: 'inquiry_conversion',
     title: 'Inquiry Conversion Report',
     description: 'Inquiries grouped by status or source',
+    useLetterhead: true,
     fields: ['status', 'source', 'start_date', 'end_date'],
     defaultFilters: () => ({
       start_date: new Date(new Date().getFullYear(), 0, 1).toISOString().slice(0, 10),
@@ -214,6 +219,7 @@ export const reportTypes = {
     id: 'student_documents',
     title: 'Student Documents Report',
     description: 'Documents uploaded per student',
+    useLetterhead: true,
     fields: ['document_type'],
     queryBuilder: (filters) => {
       let q = supabase
@@ -253,6 +259,7 @@ export const reportTypes = {
     id: 'attendance_summary',
     title: 'Attendance Summary (Batch)',
     description: 'Total present/absent sessions per batch',
+    useLetterhead: true,
     fields: ['start_date', 'end_date', 'batch_id'],
     defaultFilters: () => ({
       start_date: new Date(new Date().getFullYear(), 0, 1).toISOString().slice(0, 10),
@@ -277,7 +284,7 @@ export const reportTypes = {
         const bid = r.attendance_sessions.batch_id;
         if (!map[bid]) map[bid] = { batch_id: bid, total: 0, present: 0 };
         map[bid].total++;
-                if (r.status === 'Present') map[bid].present++;
+        if (r.status === 'Present') map[bid].present++;
       });
       return Object.values(map).map(b => ({
         batch: `Batch ${b.batch_id}`,
@@ -304,6 +311,7 @@ export const reportTypes = {
     id: 'student_attendance_pct',
     title: 'Student Attendance Percentage',
     description: 'Each student’s attendance % in a batch over a period',
+    useLetterhead: true,
     fields: ['batch_id', 'start_date', 'end_date'],
     defaultFilters: () => ({
       start_date: new Date(new Date().getFullYear(), 0, 1).toISOString().slice(0, 10),
@@ -338,7 +346,7 @@ export const reportTypes = {
           };
         }
         map[sid].total++;
-               if (r.status === 'Present') map[sid].present++;
+        if (r.status === 'Present') map[sid].present++;
       });
       return Object.values(map).map(s => ({
         admission_no: s.admission_no,
@@ -366,6 +374,7 @@ export const reportTypes = {
     id: 'homework_submissions',
     title: 'Homework Submission Report',
     description: 'Submission status per homework / student',
+    useLetterhead: true,
     fields: ['batch_id', 'status', 'start_date', 'end_date'],
     queryBuilder: (filters) => {
       let q = supabase
@@ -411,6 +420,7 @@ export const reportTypes = {
     id: 'exam_results',
     title: 'Exam Results',
     description: 'Marks obtained by each student per exam',
+    useLetterhead: true,
     fields: ['exam_id', 'batch_id'],
     queryBuilder: (filters) => {
       let q = supabase
@@ -451,6 +461,7 @@ export const reportTypes = {
     id: 'student_progress',
     title: 'Student Progress Report',
     description: 'Attendance & performance scores from student_progress table',
+    useLetterhead: true,
     fields: ['batch_id', 'start_date', 'end_date'],
     queryBuilder: (filters) => {
       let q = supabase
@@ -496,6 +507,7 @@ export const reportTypes = {
     id: 'online_class_attendance',
     title: 'Online Class Attendance',
     description: 'Who joined which online class and for how long',
+    useLetterhead: true,
     fields: ['class_id', 'start_date', 'end_date'],
     queryBuilder: (filters) => {
       let q = supabase
@@ -536,12 +548,13 @@ export const reportTypes = {
   },
 
   // ─────────────────────────────────────────
-  // 13. FEE COLLECTION REPORT (FIXED)
+  // 13. FEE COLLECTION REPORT
   // ─────────────────────────────────────────
   fee_collection: {
     id: 'fee_collection',
     title: 'Fee Collection Report',
     description: 'Payments collected in a date range, with course breakdown and tax',
+    useLetterhead: true,
     fields: ['start_date', 'end_date', 'course_id'],
     defaultFilters: () => ({
       start_date: new Date(new Date().getFullYear(), 0, 1).toISOString().slice(0, 10),
@@ -603,6 +616,7 @@ export const reportTypes = {
     id: 'pending_fees',
     title: 'Pending Fees Report',
     description: 'Students with outstanding balance (status != Paid)',
+    useLetterhead: true,
     fields: ['course_id'],
     queryBuilder: (filters) => {
       let q = supabase
@@ -645,6 +659,7 @@ export const reportTypes = {
     id: 'income_statement',
     title: 'Income Statement',
     description: 'Income records with tax breakdown',
+    useLetterhead: true,
     fields: ['start_date', 'end_date', 'category'],
     defaultFilters: () => ({
       start_date: new Date(new Date().getFullYear(), 0, 1).toISOString().slice(0, 10),
@@ -681,6 +696,7 @@ export const reportTypes = {
     id: 'expense_statement',
     title: 'Expense Statement',
     description: 'Expenses filtered by category / date',
+    useLetterhead: true,
     fields: ['start_date', 'end_date', 'category'],
     defaultFilters: () => ({
       start_date: new Date(new Date().getFullYear(), 0, 1).toISOString().slice(0, 10),
@@ -716,6 +732,7 @@ export const reportTypes = {
     id: 'profit_loss_summary',
     title: 'Profit & Loss Summary',
     description: 'Total income vs expenses for a period',
+    useLetterhead: true,
     fields: ['start_date', 'end_date'],
     defaultFilters: () => ({
       start_date: new Date(new Date().getFullYear(), 0, 1).toISOString().slice(0, 10),
@@ -755,13 +772,13 @@ export const reportTypes = {
     id: 'tax_collected',
     title: 'Tax Collected Report',
     description: 'Tax amounts from fee payments and other income for a given period',
+    useLetterhead: true,
     fields: ['start_date', 'end_date'],
     defaultFilters: () => ({
       start_date: new Date(new Date().getFullYear(), 0, 1).toISOString().slice(0, 10),
       end_date: new Date().toISOString().slice(0, 10),
     }),
     queryBuilder: (filters) => {
-      // Single query – sum all tax from tax_collections
       return supabase
         .from('tax_collections')
         .select('amount, category')
@@ -799,6 +816,7 @@ export const reportTypes = {
     id: 'receipts_journal',
     title: 'Receipts Journal',
     description: 'All receipts issued within a date range',
+    useLetterhead: true,
     fields: ['start_date', 'end_date', 'student_id'],
     defaultFilters: () => ({
       start_date: new Date(new Date().getFullYear(), 0, 1).toISOString().slice(0, 10),
@@ -843,6 +861,7 @@ export const reportTypes = {
     id: 'fee_instalments',
     title: 'Fee Instalment Tracking',
     description: 'Status of all fee instalments with due dates',
+    useLetterhead: true,
     fields: ['status', 'due_date_from', 'due_date_to'],
     queryBuilder: (filters) => {
       let q = supabase
@@ -889,6 +908,7 @@ export const reportTypes = {
     id: 'teacher_salary',
     title: 'Teacher Salary Report',
     description: 'Salary payments made to teachers, filtered by month/year',
+    useLetterhead: true,
     fields: ['teacher_id', 'start_date', 'end_date'],
     defaultFilters: () => ({
       start_date: new Date(new Date().getFullYear(), 0, 1).toISOString().slice(0, 10),
@@ -936,6 +956,7 @@ export const reportTypes = {
     id: 'teacher_workload',
     title: 'Teacher Workload Report',
     description: 'How many batches, courses, levels, and subjects each teacher handles',
+    useLetterhead: true,
     fields: [],
     queryBuilder: () =>
       supabase.from('teachers').select(`
@@ -971,6 +992,7 @@ export const reportTypes = {
     id: 'certificates_issued',
     title: 'Certificate Issued Report',
     description: 'All certificates issued with student and course details',
+    useLetterhead: true,
     fields: ['start_date', 'end_date', 'course_id'],
     defaultFilters: () => ({
       start_date: new Date(new Date().getFullYear(), 0, 1).toISOString().slice(0, 10),
@@ -1020,6 +1042,7 @@ export const reportTypes = {
     id: 'student_level_completion',
     title: 'Student Level Completion',
     description: 'Progress through course levels with grades',
+    useLetterhead: true,
     fields: ['course_id', 'level_id'],
     queryBuilder: (filters) => {
       let q = supabase
@@ -1066,6 +1089,7 @@ export const reportTypes = {
     id: 'student_contact_directory',
     title: 'Student Contact Directory',
     description: 'Professional contact list with admission, guardian, medium and status details',
+    useLetterhead: true,
     fields: ['status', 'medium_id'],
     queryBuilder: (filters) => {
       let q = supabase
@@ -1114,6 +1138,7 @@ export const reportTypes = {
     id: 'admission_pipeline',
     title: 'Admission Pipeline',
     description: 'Lead pipeline with follow-up dates, source, status and interested course',
+    useLetterhead: true,
     fields: ['status', 'source', 'start_date', 'end_date'],
     defaultFilters: () => ({
       start_date: new Date(new Date().getFullYear(), 0, 1).toISOString().slice(0, 10),
@@ -1165,6 +1190,7 @@ export const reportTypes = {
     id: 'fee_aging_analysis',
     title: 'Fee Aging Analysis',
     description: 'Outstanding student balances grouped by age since fee creation',
+    useLetterhead: true,
     fields: ['status', 'course_id', 'medium_id'],
     queryBuilder: (filters) => {
       let q = supabase
@@ -1230,6 +1256,7 @@ export const reportTypes = {
     id: 'payment_mode_summary',
     title: 'Payment Mode Summary',
     description: 'Fee collections grouped by cash, UPI, bank transfer, cheque and other modes',
+    useLetterhead: true,
     fields: ['start_date', 'end_date'],
     defaultFilters: () => ({
       start_date: new Date(new Date().getFullYear(), 0, 1).toISOString().slice(0, 10),
@@ -1267,6 +1294,7 @@ export const reportTypes = {
     id: 'daily_cashbook',
     title: 'Daily Cashbook',
     description: 'Daily inflow, outflow and net cash movement from fees, income and expenses',
+    useLetterhead: true,
     fields: ['start_date', 'end_date'],
     defaultFilters: () => ({
       start_date: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10),
@@ -1331,6 +1359,7 @@ export const reportTypes = {
     id: 'expense_category_summary',
     title: 'Expense Category Summary',
     description: 'Expense spend grouped by category with transaction counts',
+    useLetterhead: true,
     fields: ['start_date', 'end_date', 'category'],
     defaultFilters: () => ({
       start_date: new Date(new Date().getFullYear(), 0, 1).toISOString().slice(0, 10),
@@ -1369,6 +1398,7 @@ export const reportTypes = {
     id: 'teacher_leave_summary',
     title: 'Teacher Leave Summary',
     description: 'Teacher leave requests with date range, status and reason',
+    useLetterhead: true,
     fields: ['teacher_id', 'status', 'start_date', 'end_date'],
     defaultFilters: () => ({
       start_date: new Date(new Date().getFullYear(), 0, 1).toISOString().slice(0, 10),
@@ -1421,6 +1451,7 @@ export const reportTypes = {
     id: 'batch_schedule_report',
     title: 'Batch Schedule Report',
     description: 'Batch timings, course, medium and assigned teachers',
+    useLetterhead: true,
     fields: ['course_id', 'medium_id', 'batch_id'],
     queryBuilder: (filters) => {
       let q = supabase
@@ -1465,14 +1496,14 @@ export const reportTypes = {
   },
 
   // ========== DOCUMENT REPORTS ==========
-admission_form: {
+  admission_form: {
     id: 'admission_form',
     title: 'Admission Form',
     description: 'Printable student admission form with full details',
     reportType: 'document',
     documentComponent: AdmissionFormDocument,
     fields: ['course_id', 'batch_id', 'medium_id', 'student_id'],
-    recordQuery: async (filters) => {                          // ← async
+    recordQuery: async (filters) => {
       let q = supabase
         .from('students')
         .select(`
@@ -1485,11 +1516,9 @@ admission_form: {
 
       if (filters.student_id) q = q.eq('id', filters.student_id);
 
-      // Build list of matching student IDs from batch/course/medium
       if (filters.batch_id || filters.course_id || filters.medium_id) {
         let studentIds = null;
 
-        // Filter by batch
         if (filters.batch_id) {
           const { data } = await supabase
             .from('student_batches')
@@ -1499,7 +1528,6 @@ admission_form: {
           studentIds = (data || []).map((r) => r.student_id);
         }
 
-        // Filter by course (via batches)
         if (filters.course_id) {
           const { data: batchRows } = await supabase
             .from('batches')
@@ -1521,7 +1549,6 @@ admission_form: {
           }
         }
 
-        // Filter by medium (via batches)
         if (filters.medium_id) {
           const { data: batchRows } = await supabase
             .from('batches')
@@ -1543,11 +1570,9 @@ admission_form: {
           }
         }
 
-        // Apply the list of student IDs
         if (studentIds && studentIds.length > 0) {
           q = q.in('id', studentIds);
         } else {
-          // No students match these filters – return empty result
           return { data: [], error: null };
         }
       }
@@ -1697,14 +1722,15 @@ admission_form: {
       course_name: row.courses.course_name,
     }),
   },
-  
-    // ─────────────────────────────────────────
+
+  // ─────────────────────────────────────────
   // STUDENT‑WISE ATTENDANCE REPORT
   // ─────────────────────────────────────────
   student_attendance_detail: {
     id: 'student_attendance_detail',
     title: 'Student‑wise Attendance Report',
     description: 'Detailed attendance records per student over a chosen period',
+    useLetterhead: true,
     fields: ['student_id', 'batch_id', 'start_date', 'end_date'],
     defaultFilters: () => ({
       start_date: new Date(new Date().getFullYear(), 0, 1).toISOString().slice(0, 10),
@@ -1725,7 +1751,6 @@ admission_form: {
       if (filters.student_id) q = q.eq('student_id', filters.student_id);
       if (filters.batch_id) q = q.eq('attendance_sessions.batch_id', filters.batch_id);
 
-      // No database ordering – sort client‑side in transform
       return q;
     },
     transform: (data) =>
@@ -1737,7 +1762,7 @@ admission_form: {
           status: r.status,
           remarks: r.remarks || '—',
         }))
-        .sort((a, b) => b.date.localeCompare(a.date)),  // descending by date
+        .sort((a, b) => b.date.localeCompare(a.date)),
     columns: [
       { header: 'Date', accessor: 'date' },
       { header: 'Student', accessor: 'student' },
@@ -1747,7 +1772,6 @@ admission_form: {
     ],
   },
 };
-
 
 export function getReportConfig(id) {
   return reportTypes[id];

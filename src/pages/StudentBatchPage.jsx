@@ -7,9 +7,12 @@ import {
 import AdminLayout from "../layouts/AdminLayout";
 import BackButton from "../components/BackButton";
 
+import { useOrg } from "../context/OrganizationContext";   // NEW
 
 export default function StudentBatchPage() {
   const { user } = useAuth();
+  // Context for multi-tenant readiness (no writes, but good practice)
+  useOrg();
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["my-batch-full", user?.id],
@@ -66,7 +69,7 @@ export default function StudentBatchPage() {
         batch: {
           ...batch,
           enrollment_date: batchAssignment.enrollment_date,
-          medium_name: batch?.mediums?.name || "",    // flattened medium name
+          medium_name: batch?.mediums?.name || "",
         },
         subjects,
         teachers,

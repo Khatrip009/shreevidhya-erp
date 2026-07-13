@@ -12,9 +12,15 @@ import {
   calculateMonthlyDepreciation,
   postDepreciation,
 } from "../services/fixedAssetService";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 
 export default function FixedAssets() {
   const queryClient = useQueryClient();
+
+  // ── Organisation / Branch / Financial Year context ──
+  const { branch, selectedFinancialYear } = useOrg();   // NEW
+  const ctx = { branchId: branch?.id, financialYearId: selectedFinancialYear?.id };
+
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState({
@@ -37,8 +43,9 @@ export default function FixedAssets() {
   const [depPreview, setDepPreview] = useState(null);
   const [posting, setPosting] = useState(false);
 
+  // Mutations – now pass context
   const createMut = useMutation({
-    mutationFn: createFixedAsset,
+    mutationFn: (payload) => createFixedAsset(payload, ctx),
     onSuccess: () => {
       toast.success("Asset added");
       queryClient.invalidateQueries(["fixed-assets"]);
@@ -49,7 +56,7 @@ export default function FixedAssets() {
   });
 
   const updateMut = useMutation({
-    mutationFn: ({ id, payload }) => updateFixedAsset(id, payload),
+    mutationFn: ({ id, payload }) => updateFixedAsset(id, payload, ctx),
     onSuccess: () => {
       toast.success("Asset updated");
       queryClient.invalidateQueries(["fixed-assets"]);
@@ -60,7 +67,7 @@ export default function FixedAssets() {
   });
 
   const deleteMut = useMutation({
-    mutationFn: deleteFixedAsset,
+    mutationFn: deleteFixedAsset,   // no context needed
     onSuccess: () => {
       toast.success("Asset deleted");
       queryClient.invalidateQueries(["fixed-assets"]);
@@ -118,7 +125,8 @@ export default function FixedAssets() {
     if (!depPreview || depPreview.length === 0) return;
     setPosting(true);
     try {
-      await postDepreciation(depPreview);
+      // Pass context to postDepreciation
+      await postDepreciation(depPreview, ctx);
       toast.success("Depreciation posted");
       setDepPreview(null);
       queryClient.invalidateQueries(["fixed-assets"]);

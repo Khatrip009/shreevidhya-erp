@@ -8,6 +8,7 @@ import BackButton from "../components/BackButton";
 
 import { getVoucherTypes, getVouchers } from "../services/voucherService";
 import { getOrganization } from "../services/organizationService";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 
 export default function Vouchers() {
   const [startDate, setStartDate] = useState("");
@@ -15,14 +16,21 @@ export default function Vouchers() {
   const [typeFilter, setTypeFilter] = useState("");
   const [search, setSearch] = useState("");
 
+  // ── Get current organisation from context ──
+  const { org: currentOrg } = useOrg();   // NEW
+
   const { data: types = [] } = useQuery({
     queryKey: ["voucher-types"],
     queryFn: getVoucherTypes,
   });
+
+  // Fetch organization using current org id
   const { data: org } = useQuery({
-    queryKey: ["organization"],
-    queryFn: getOrganization,
+    queryKey: ["organization", currentOrg?.id],
+    queryFn: () => getOrganization(currentOrg?.id),
+    enabled: !!currentOrg?.id,
   });
+
   const { data: vouchers = [], isLoading } = useQuery({
     queryKey: ["vouchers", startDate, endDate, typeFilter, search],
     queryFn: () =>

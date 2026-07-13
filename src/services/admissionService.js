@@ -1,6 +1,7 @@
+// src/services/admissionService.js
 import { supabase } from "../api/supabase";
 
-export async function convertInquiryToStudent(inquiry) {
+export async function convertInquiryToStudent(inquiry, financialYearId) {
   try {
     // 1. Create Parent
     const { data: parent, error: parentError } = await supabase
@@ -10,6 +11,7 @@ export async function convertInquiryToStudent(inquiry) {
           father_name: inquiry.parent_name,
           mobile: inquiry.mobile,
           whatsapp: inquiry.whatsapp,
+          financial_year_id: financialYearId,
         },
       ])
       .select()
@@ -25,6 +27,7 @@ export async function convertInquiryToStudent(inquiry) {
       first_name: inquiry.student_name,
       mobile: inquiry.mobile,
       joining_date: new Date(),
+      financial_year_id: financialYearId,
     };
 
     // NEW – carry over the medium if the inquiry has one
@@ -48,6 +51,7 @@ export async function convertInquiryToStudent(inquiry) {
           student_id: student.id,
           parent_id: parent.id,
           relation: "Father",
+          financial_year_id: financialYearId,
         },
       ]);
 

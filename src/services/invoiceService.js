@@ -53,7 +53,7 @@ export async function getInvoice(id) {
     .eq("invoice_id", id);
   if (itemsError) throw itemsError;
 
-  // 3. Enrich items with tax rates and inventory items (if needed)
+  // 3. Enrich items with tax rates and inventory items
   const enrichedItems = await Promise.all(
     (items || []).map(async (item) => {
       let taxRate = null;
@@ -88,7 +88,8 @@ export async function getInvoice(id) {
   };
 }
 
-export async function createInvoice(payload) {
+// context: { branchId, financialYearId }
+export async function createInvoice(payload, context) {
   const {
     student_id,
     invoice_date,
@@ -101,6 +102,8 @@ export async function createInvoice(payload) {
     student_fee_id,
     fee_installment_id,
   } = payload;
+
+  const { branchId, financialYearId } = context;
 
   // Get org state
   const { data: org } = await supabase.from("organization").select("state_code").eq("id", 1).single();
@@ -172,6 +175,8 @@ export async function createInvoice(payload) {
       status: "Draft",
       student_fee_id: student_fee_id || null,
       fee_installment_id: fee_installment_id || null,
+      branch_id: branchId,
+      financial_year_id: financialYearId,
     })
     .select()
     .single();
@@ -193,6 +198,8 @@ export async function createInvoice(payload) {
     igst_amount: item.igst_amount || 0,
     cess_amount: 0,
     total_amount: item.total_amount,
+    branch_id: branchId,
+    financial_year_id: financialYearId,
   }));
   const { error: insError } = await supabase.from("invoice_items").insert(itemInserts);
   if (insError) throw insError;
@@ -200,11 +207,18 @@ export async function createInvoice(payload) {
   return invoice;
 }
 
-export async function updateInvoice(id, payload) {
+export async function updateInvoice(id, payload, context) {
   const { items, ...headerData } = payload;
+  const { branchId, financialYearId } = context;
+
   const { data: invoice, error } = await supabase
     .from("invoices")
-    .update({ ...headerData, updated_at: new Date() })
+    .update({
+      ...headerData,
+      updated_at: new Date(),
+      branch_id: branchId,
+      financial_year_id: financialYearId,
+    })
     .eq("id", id)
     .select()
     .single();
@@ -227,6 +241,8 @@ export async function updateInvoice(id, payload) {
       igst_amount: item.igst_amount || 0,
       cess_amount: 0,
       total_amount: item.total_amount,
+      branch_id: branchId,
+      financial_year_id: financialYearId,
     }));
     await supabase.from("invoice_items").insert(itemInserts);
   }
@@ -240,10 +256,16 @@ export async function deleteInvoice(id) {
   if (error) throw error;
 }
 
-export async function finalizeInvoice(id) {
+export async function finalizeInvoice(id, context) {
+  const { branchId, financialYearId } = context;
   const { data, error } = await supabase
     .from("invoices")
-    .update({ status: "Final", updated_at: new Date() })
+    .update({
+      status: "Final",
+      updated_at: new Date(),
+      branch_id: branchId,
+      financial_year_id: financialYearId,
+    })
     .eq("id", id)
     .select()
     .single();
@@ -262,7 +284,8 @@ export async function getCreditNotes(filters = {}) {
   return data || [];
 }
 
-export async function createCreditNote(payload) {
+export async function createCreditNote(payload, context) {
+  const { branchId, financialYearId } = context;
   const { data: number } = await supabase.rpc("generate_credit_note_number");
   const { data, error } = await supabase
     .from("credit_notes")
@@ -274,6 +297,8 @@ export async function createCreditNote(payload) {
       amount: payload.amount,
       gst_breakdown: payload.gst_breakdown || {},
       status: "Draft",
+      branch_id: branchId,
+      financial_year_id: financialYearId,
     })
     .select()
     .single();
@@ -281,10 +306,15 @@ export async function createCreditNote(payload) {
   return data;
 }
 
-export async function finalizeCreditNote(id) {
+export async function finalizeCreditNote(id, context) {
+  const { branchId, financialYearId } = context;
   const { data, error } = await supabase
     .from("credit_notes")
-    .update({ status: "Final" })
+    .update({
+      status: "Final",
+      branch_id: branchId,
+      financial_year_id: financialYearId,
+    })
     .eq("id", id)
     .select()
     .single();
@@ -303,7 +333,8 @@ export async function getDebitNotes(filters = {}) {
   return data || [];
 }
 
-export async function createDebitNote(payload) {
+export async function createDebitNote(payload, context) {
+  const { branchId, financialYearId } = context;
   const { data: number } = await supabase.rpc("generate_debit_note_number");
   const { data, error } = await supabase
     .from("debit_notes")
@@ -315,6 +346,8 @@ export async function createDebitNote(payload) {
       amount: payload.amount,
       gst_breakdown: payload.gst_breakdown || {},
       status: "Draft",
+      branch_id: branchId,
+      financial_year_id: financialYearId,
     })
     .select()
     .single();
@@ -322,10 +355,15 @@ export async function createDebitNote(payload) {
   return data;
 }
 
-export async function finalizeDebitNote(id) {
+export async function finalizeDebitNote(id, context) {
+  const { branchId, financialYearId } = context;
   const { data, error } = await supabase
     .from("debit_notes")
-    .update({ status: "Final" })
+    .update({
+      status: "Final",
+      branch_id: branchId,
+      financial_year_id: financialYearId,
+    })
     .eq("id", id)
     .select()
     .single();

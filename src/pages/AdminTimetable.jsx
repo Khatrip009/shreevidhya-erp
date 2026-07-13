@@ -4,6 +4,7 @@ import { supabase } from "../api/supabase";
 import AdminLayout from "../layouts/AdminLayout";
 import BatchForm from "../components/BatchForm";
 import { updateBatch } from "../services/batchService";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 import toast from "react-hot-toast";
 import { Clock, Layers } from "lucide-react";
 
@@ -13,7 +14,10 @@ const TIME_SLOTS = Array.from({ length: 14 }, (_, i) => `${i + 7}:00`); // 7 AM 
 export default function AdminTimetable() {
   const queryClient = useQueryClient();
   const [editingBatch, setEditingBatch] = useState(null);
-  const [selectedMediumId, setSelectedMediumId] = useState("");   // NEW
+  const [selectedMediumId, setSelectedMediumId] = useState("");
+
+  // ── Organization & Financial Year context ──
+  const { branch, selectedFinancialYear } = useOrg();      // NEW
 
   // Fetch mediums for filter dropdown
   const { data: mediums = [] } = useQuery({
@@ -71,7 +75,6 @@ export default function AdminTimetable() {
         return hour >= start && hour < end;
       })
       .map((batch) => {
-        // STRICT: only assignments with day === current day
         const filteredTeachers = (batch.batch_teachers || []).filter(
           (bt) => bt.day === day
         );
@@ -81,7 +84,12 @@ export default function AdminTimetable() {
 
   const handleBatchUpdate = async (payload) => {
     try {
-      await updateBatch(editingBatch.id, payload);
+      // Build context for branch & financial year
+      const context = {
+        branchId: branch?.id,
+        financialYearId: selectedFinancialYear?.id,
+      };
+      await updateBatch(editingBatch.id, payload, context);
       toast.success("Batch updated");
       queryClient.invalidateQueries({ queryKey: ["timetable-batches"] });
       setEditingBatch(null);
@@ -112,7 +120,7 @@ export default function AdminTimetable() {
         </p>
       </div>
 
-      {/* Medium Filter – NEW */}
+      {/* Medium Filter */}
       <div className="flex items-center gap-2 mb-4">
         <Layers size={18} className="text-secondary" />
         <select

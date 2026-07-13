@@ -1,3 +1,4 @@
+// src/services/batchAssignmentService.js
 import { supabase } from "../api/supabase";
 
 // Get paginated assignments with joins and filters
@@ -103,10 +104,17 @@ export async function getAllStudentBatchesForExport(filters = {}) {
 }
 
 // Single assignment
-export async function assignStudentToBatch(payload) {
+// context: { branchId, financialYearId }
+export async function assignStudentToBatch(payload, context) {
+  const { branchId, financialYearId } = context;
+  const enrichedPayload = {
+    ...payload,
+    branch_id: branchId,
+    financial_year_id: financialYearId,
+  };
   const { data, error } = await supabase
     .from("student_batches")
-    .insert([payload])
+    .insert([enrichedPayload])
     .select()
     .single();
   if (error) throw error;
@@ -114,12 +122,16 @@ export async function assignStudentToBatch(payload) {
 }
 
 // Bulk assignment
-export async function bulkAssignStudents(batchId, studentIds, enrollmentDate) {
+// context: { branchId, financialYearId }
+export async function bulkAssignStudents(batchId, studentIds, enrollmentDate, context) {
+  const { branchId, financialYearId } = context;
   const payload = studentIds.map((sid) => ({
     student_id: sid,
     batch_id: batchId,
     enrollment_date: enrollmentDate,
     status: "active",
+    branch_id: branchId,
+    financial_year_id: financialYearId,
   }));
 
   const { error } = await supabase.from("student_batches").insert(payload);
@@ -127,10 +139,17 @@ export async function bulkAssignStudents(batchId, studentIds, enrollmentDate) {
 }
 
 // Update an assignment
-export async function updateStudentBatch(id, payload) {
+// context: { branchId, financialYearId }
+export async function updateStudentBatch(id, payload, context) {
+  const { branchId, financialYearId } = context;
+  const enrichedPayload = {
+    ...payload,
+    branch_id: branchId,
+    financial_year_id: financialYearId,
+  };
   const { data, error } = await supabase
     .from("student_batches")
-    .update(payload)
+    .update(enrichedPayload)
     .eq("id", id)
     .select()
     .single();
@@ -138,7 +157,7 @@ export async function updateStudentBatch(id, payload) {
   return data;
 }
 
-// Delete assignment
+// Delete assignment (RLS will check branch & FY)
 export async function deleteStudentBatch(id) {
   const { error } = await supabase
     .from("student_batches")

@@ -8,6 +8,7 @@ import BackButton from "../components/BackButton";
 import { useStudentId } from "../hooks/useStudentId";
 import { supabase } from "../api/supabase";
 import { submitHomework } from "../services/homeworkService";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 
 const MAX_FILE_SIZE = 1 * 1024 * 1024; // 1 MB
 
@@ -15,9 +16,13 @@ export default function StudentHomeworkPage() {
   const { studentId, isLoading: idLoading } = useStudentId();
   const queryClient = useQueryClient();
 
+  // ── Get branch & financial year for context ──
+  const { branch, selectedFinancialYear } = useOrg();   // NEW
+  const ctx = { branchId: branch?.id, financialYearId: selectedFinancialYear?.id };
+
   const [uploadingFor, setUploadingFor] = useState(null);
   const [selectedFile, setSelectedFile] = useState(null);
-  const [filePreviewUrl, setFilePreviewUrl] = useState(null); // for image preview
+  const [filePreviewUrl, setFilePreviewUrl] = useState(null);
   const [submissionRemarks, setSubmissionRemarks] = useState("");
 
   // Fetch homework assignments – now includes medium via batches
@@ -66,10 +71,10 @@ export default function StudentHomeworkPage() {
     submissionMap[s.homework_id].push(s);
   });
 
-  // Upload mutation
+  // Upload mutation – now passes context to submitHomework
   const uploadMutation = useMutation({
     mutationFn: ({ homeworkId, file, remarks }) =>
-      submitHomework({ homeworkId, studentId, file, remarks }),
+      submitHomework({ homeworkId, studentId, file, remarks }, ctx),
     onSuccess: () => {
       toast.success("Homework submitted successfully!");
       queryClient.invalidateQueries({ queryKey: ["student-submissions"] });

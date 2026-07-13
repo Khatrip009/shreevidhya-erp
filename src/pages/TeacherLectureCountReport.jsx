@@ -1,5 +1,5 @@
 // src/pages/TeacherLectureCountReport.jsx
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "../api/supabase";
 import { useAuth } from "../context/AuthContext";
@@ -7,10 +7,14 @@ import toast from "react-hot-toast";
 import AdminLayout from "../layouts/AdminLayout";
 import { Calendar, Download } from "lucide-react";
 import { generateTeacherLectureCountPDF } from "../utils/teacherLectureCountPdf";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 
 export default function TeacherLectureCountReport() {
   const { profile } = useAuth();
   const isAdmin = profile?.role === "admin" || profile?.role === "super_admin";
+
+  // ── Get current organization from context ──
+  const { org: currentOrg } = useOrg();   // NEW
 
   const today = new Date();
   const [teacherId, setTeacherId] = useState("");
@@ -53,7 +57,7 @@ export default function TeacherLectureCountReport() {
   });
 
   // Auto‑select the teacher when user is a teacher
-  useState(() => {
+  useEffect(() => {
     if (!isAdmin && ownTeacherId) {
       setTeacherId(ownTeacherId);
     }
@@ -97,10 +101,11 @@ export default function TeacherLectureCountReport() {
       toast.error("No data to export");
       return;
     }
+    // Fetch org info using the current org id from context
     const { data: org } = await supabase
       .from("organization")
       .select("*")
-      .eq("id", 1)
+      .eq("id", currentOrg?.id)   // now uses current org
       .single();
 
     const doc = await generateTeacherLectureCountPDF(

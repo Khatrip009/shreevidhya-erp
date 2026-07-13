@@ -8,10 +8,14 @@ import BackButton from "../components/BackButton";
 
 import { supabase } from "../api/supabase";
 import { useTheme } from "../context/ThemeContext";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 
 export default function ThemeSettings() {
   const queryClient = useQueryClient();
   const { theme } = useTheme();
+
+  // ── Get current organization from context ──
+  const { org: currentOrg } = useOrg();   // NEW
 
   const [form, setForm] = useState({
     primary_color: "#0D47A1",
@@ -45,10 +49,11 @@ export default function ThemeSettings() {
 
   const updateMutation = useMutation({
     mutationFn: async (payload) => {
+      // Use current org id instead of hardcoded 1
       const { error } = await supabase
         .from("themes")
         .update({ ...payload, updated_at: new Date() })
-        .eq("org_id", 1);
+        .eq("org_id", currentOrg?.id);   // <-- FIXED
       if (error) throw error;
     },
     onSuccess: () => {

@@ -35,9 +35,12 @@ export async function getPurchaseOrders(filters = {}) {
   }));
 }
 
-export async function createPO(payload) {
+// context: { branchId, financialYearId }
+export async function createPO(payload, context) {
+  const { branchId, financialYearId } = context;
   const { data: poNumber } = await supabase.rpc("generate_po_number");
-  // Insert all vendor fields (including the new ones)
+
+  // Insert all vendor fields plus branch & FY
   const { data: po, error } = await supabase
     .from("purchase_orders")
     .insert({
@@ -53,6 +56,8 @@ export async function createPO(payload) {
       status: payload.status || "Draft",
       notes: payload.notes || null,
       total_amount: payload.total_amount || 0,
+      branch_id: branchId,
+      financial_year_id: financialYearId,
     })
     .select()
     .single();
@@ -64,6 +69,8 @@ export async function createPO(payload) {
     quantity_ordered: item.quantity_ordered,
     unit_price: item.unit_price,
     tax_rate_id: item.tax_rate_id || null,
+    branch_id: branchId,
+    financial_year_id: financialYearId,
   }));
   if (items.length > 0) {
     await supabase.from("purchase_order_items").insert(items);
@@ -71,15 +78,25 @@ export async function createPO(payload) {
   return po;
 }
 
-export async function updatePOStatus(id, status) {
+// context: { branchId, financialYearId }
+export async function updatePOStatus(id, status, context) {
+  const { branchId, financialYearId } = context;
   const { error } = await supabase
     .from("purchase_orders")
-    .update({ status, updated_at: new Date() })
+    .update({
+      status,
+      updated_at: new Date(),
+      branch_id: branchId,
+      financial_year_id: financialYearId,
+    })
     .eq("id", id);
   if (error) throw error;
 }
 
-export async function receivePO(poId) {
+// context: { branchId, financialYearId }
+export async function receivePO(poId, context) {
+  const { branchId, financialYearId } = context;
+
   const { data: po } = await supabase
     .from("purchase_orders")
     .select("*")
@@ -97,6 +114,7 @@ export async function receivePO(poId) {
     const qtyToReceive = item.quantity_ordered - (item.quantity_received || 0);
     if (qtyToReceive <= 0) continue;
 
+    // Insert inventory transaction
     await supabase.from("inventory_transactions").insert({
       item_id: item.item_id,
       transaction_type: "purchase",
@@ -104,11 +122,18 @@ export async function receivePO(poId) {
       unit_price: item.unit_price,
       reference: `PO ${po.po_number}`,
       notes: `Received from ${po.vendor || "vendor"}`,
+      branch_id: branchId,
+      financial_year_id: financialYearId,
     });
 
+    // Update received quantity on PO item
     await supabase
       .from("purchase_order_items")
-      .update({ quantity_received: (item.quantity_received || 0) + qtyToReceive })
+      .update({
+        quantity_received: (item.quantity_received || 0) + qtyToReceive,
+        branch_id: branchId,
+        financial_year_id: financialYearId,
+      })
       .eq("id", item.id);
   }
 
@@ -127,16 +152,19 @@ export async function receivePO(poId) {
     .update({
       status: fullyReceived ? "Received" : "Partially Received",
       updated_at: new Date(),
+      branch_id: branchId,
+      financial_year_id: financialYearId,
     })
     .eq("id", poId);
 }
 
+// Hard delete – RLS protects
 export async function deletePO(id) {
   const { error } = await supabase.from("purchase_orders").delete().eq("id", id);
   if (error) throw error;
 }
 
-// Fetch a single PO with items
+// Fetch a single PO with items (read)
 export async function getPOById(poId) {
   const { data: po } = await supabase
     .from("purchase_orders")
@@ -146,8 +174,10 @@ export async function getPOById(poId) {
   return po;
 }
 
-// Update PO header and items (delete old items, insert new ones)
-export async function updatePO(poId, payload) {
+// Update PO header and items – context required
+export async function updatePO(poId, payload, context) {
+  const { branchId, financialYearId } = context;
+
   // Update header – include all vendor fields
   await supabase
     .from("purchase_orders")
@@ -164,6 +194,8 @@ export async function updatePO(poId, payload) {
       notes: payload.notes,
       total_amount: payload.total_amount || 0,
       updated_at: new Date(),
+      branch_id: branchId,
+      financial_year_id: financialYearId,
     })
     .eq("id", poId);
 
@@ -177,6 +209,8 @@ export async function updatePO(poId, payload) {
     quantity_ordered: item.quantity_ordered,
     unit_price: item.unit_price,
     tax_rate_id: item.tax_rate_id || null,
+    branch_id: branchId,
+    financial_year_id: financialYearId,
   }));
   if (items.length > 0) {
     await supabase.from("purchase_order_items").insert(items);

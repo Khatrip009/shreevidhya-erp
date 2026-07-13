@@ -6,16 +6,19 @@ import BackButton from "../components/BackButton";
 
 import { useAuth } from "../context/AuthContext";
 import { ExternalLink, BookOpen, Search, Filter } from "lucide-react";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 
 export default function StudentLearningResources() {
   const { user } = useAuth();
+  // Context import for consistency (page is read‑only)
+  useOrg();
 
   // Filter states
   const [searchChapter, setSearchChapter] = useState("");
   const [filterSubject, setFilterSubject] = useState("");
   const [filterBoard, setFilterBoard] = useState("");
   const [filterType, setFilterType] = useState("");
-  const [filterMedium, setFilterMedium] = useState(""); // NEW
+  const [filterMedium, setFilterMedium] = useState("");
   const [showFilters, setShowFilters] = useState(false);
 
   // 1. Get student ID
@@ -128,7 +131,7 @@ export default function StudentLearningResources() {
     if (filterSubject && r.subject_id !== parseInt(filterSubject)) return false;
     if (filterBoard && r.board !== filterBoard) return false;
     if (filterType && r.resource_type !== filterType) return false;
-    if (filterMedium && r.medium_id !== parseInt(filterMedium)) return false; // NEW
+    if (filterMedium && r.medium_id !== parseInt(filterMedium)) return false;
     return true;
   });
 

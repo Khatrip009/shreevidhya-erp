@@ -7,9 +7,13 @@ import { Link } from "react-router-dom";
 import AdminLayout from "../layouts/AdminLayout";
 import { getBudgets, createBudget, updateBudget, deleteBudget } from "../services/budgetService";
 import { getChartOfAccounts } from "../services/accountingService";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 
 export default function Budgets() {
   const queryClient = useQueryClient();
+  const { branch, selectedFinancialYear } = useOrg();   // NEW
+  const context = { branchId: branch?.id, financialYearId: selectedFinancialYear?.id };
+
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState({ account_id: "", period_start: "", period_end: "", amount: "" });
@@ -28,8 +32,9 @@ export default function Budgets() {
 
   const expenseAccounts = accounts.filter((a) => a.account_type === "expense");
 
+  // Mutations with context
   const createMut = useMutation({
-    mutationFn: createBudget,
+    mutationFn: (payload) => createBudget(payload, context),
     onSuccess: () => {
       toast.success("Budget created");
       queryClient.invalidateQueries(["budgets"]);
@@ -39,7 +44,7 @@ export default function Budgets() {
   });
 
   const updateMut = useMutation({
-    mutationFn: ({ id, payload }) => updateBudget(id, payload),
+    mutationFn: ({ id, payload }) => updateBudget(id, payload, context),
     onSuccess: () => {
       toast.success("Budget updated");
       queryClient.invalidateQueries(["budgets"]);
@@ -50,7 +55,7 @@ export default function Budgets() {
   });
 
   const deleteMut = useMutation({
-    mutationFn: deleteBudget,
+    mutationFn: deleteBudget,   // hard delete, RLS protects
     onSuccess: () => {
       toast.success("Budget deleted");
       queryClient.invalidateQueries(["budgets"]);

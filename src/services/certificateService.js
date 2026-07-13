@@ -1,3 +1,4 @@
+// src/services/certificateService.js
 import { supabase } from "../api/supabase";
 
 export async function getCertificates() {
@@ -28,20 +29,29 @@ export async function getAllCertificatesForExport() {
   return data || [];
 }
 
-export async function createCertificate(payload) {
+// context: { branchId, financialYearId }
+export async function createCertificate(payload, context) {
+  const { branchId, financialYearId } = context;
   const { data, error } = await supabase
     .from("certificates")
-    .insert([payload])
+    .insert([{ ...payload, branch_id: branchId, financial_year_id: financialYearId }])
     .select()
     .single();
   if (error) throw error;
   return data;
 }
 
-export async function deleteCertificate(id) {
+// Soft delete – still needs context to satisfy RLS (WITH CHECK may need explicit values)
+// context: { branchId, financialYearId }
+export async function deleteCertificate(id, context) {
+  const { branchId, financialYearId } = context;
   const { error } = await supabase
     .from("certificates")
-    .update({ deleted_at: new Date().toISOString() })
+    .update({
+      deleted_at: new Date().toISOString(),
+      branch_id: branchId,
+      financial_year_id: financialYearId,
+    })
     .eq("id", id);
   if (error) throw error;
 }

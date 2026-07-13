@@ -11,11 +11,13 @@ import {
 } from "../services/homeworkService";
 import { useOrgDarkLogo } from "../hooks/useOrgDarkLogo";
 import { useAuth } from "../context/AuthContext";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 import { supabase } from "../api/supabase";
 
 export default function HomeworkForm({ onSubmit, onClose, initialData = {} }) {
   const darkLogo = useOrgDarkLogo();
   const { user, profile } = useAuth();
+  const { branch, selectedFinancialYear } = useOrg();      // NEW
 
   const [batches, setBatches] = useState([]);
   const [mediums, setMediums] = useState([]);
@@ -129,7 +131,11 @@ export default function HomeworkForm({ onSubmit, onClose, initialData = {} }) {
       return;
     }
     try {
-      await onSubmit({ ...form, created_by: form.created_by || null });
+      const context = {
+        branchId: branch?.id,
+        financialYearId: selectedFinancialYear?.id,
+      };
+      await onSubmit({ ...form, created_by: form.created_by || null }, context);
     } catch (err) {
       toast.error(err.message);
     }
@@ -152,7 +158,7 @@ export default function HomeworkForm({ onSubmit, onClose, initialData = {} }) {
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-5">
-          {/* Medium Filter – NEW */}
+          {/* Medium Filter */}
           <div>
             <label className="block text-sm font-montserrat text-secondary-dark mb-1">
               <Filter size={14} className="inline mr-1" />

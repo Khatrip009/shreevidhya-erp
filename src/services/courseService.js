@@ -1,3 +1,4 @@
+// src/services/courseService.js
 import { supabase } from "../api/supabase";
 
 // Paginated fetch with search filter – now includes medium name
@@ -53,20 +54,24 @@ export async function getAllCoursesForExport(filters = {}) {
 }
 
 // CRUD – medium_id is accepted inside payload
-export async function createCourse(payload) {
+// context: { branchId, financialYearId }
+export async function createCourse(payload, context) {
+  const { branchId, financialYearId } = context;
   const { data, error } = await supabase
     .from("courses")
-    .insert([payload])
+    .insert([{ ...payload, branch_id: branchId, financial_year_id: financialYearId }])
     .select()
     .single();
   if (error) throw error;
   return data;
 }
 
-export async function updateCourse(id, payload) {
+// context: { branchId, financialYearId }
+export async function updateCourse(id, payload, context) {
+  const { branchId, financialYearId } = context;
   const { data, error } = await supabase
     .from("courses")
-    .update(payload)
+    .update({ ...payload, branch_id: branchId, financial_year_id: financialYearId })
     .eq("id", id)
     .select()
     .single();
@@ -74,10 +79,17 @@ export async function updateCourse(id, payload) {
   return data;
 }
 
-export async function deleteCourse(id) {
+// Soft delete – context needed for RLS on update
+// context: { branchId, financialYearId }
+export async function deleteCourse(id, context) {
+  const { branchId, financialYearId } = context;
   const { error } = await supabase
     .from("courses")
-    .update({ deleted_at: new Date().toISOString() })
+    .update({
+      deleted_at: new Date().toISOString(),
+      branch_id: branchId,
+      financial_year_id: financialYearId,
+    })
     .eq("id", id);
   if (error) throw error;
 }
@@ -91,7 +103,7 @@ export async function getCourseOptions() {
 }
 
 // ========================
-// COURSE LEVELS (unchanged)
+// COURSE LEVELS
 // ========================
 
 export async function getCourseLevels(courseId) {
@@ -104,20 +116,24 @@ export async function getCourseLevels(courseId) {
   return data;
 }
 
-export async function createCourseLevel(payload) {
+// context: { branchId, financialYearId }
+export async function createCourseLevel(payload, context) {
+  const { branchId, financialYearId } = context;
   const { data, error } = await supabase
     .from("course_levels")
-    .insert([payload])
+    .insert([{ ...payload, branch_id: branchId, financial_year_id: financialYearId }])
     .select()
     .single();
   if (error) throw error;
   return data;
 }
 
-export async function updateCourseLevel(id, payload) {
+// context: { branchId, financialYearId }
+export async function updateCourseLevel(id, payload, context) {
+  const { branchId, financialYearId } = context;
   const { data, error } = await supabase
     .from("course_levels")
-    .update(payload)
+    .update({ ...payload, branch_id: branchId, financial_year_id: financialYearId })
     .eq("id", id)
     .select()
     .single();
@@ -125,6 +141,7 @@ export async function updateCourseLevel(id, payload) {
   return data;
 }
 
+// Hard delete – RLS handles access check, no payload needed
 export async function deleteCourseLevel(id) {
   const { error } = await supabase
     .from("course_levels")

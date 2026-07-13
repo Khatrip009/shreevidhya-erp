@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getPurchaseInvoices, deletePurchaseInvoice, finalizePurchaseInvoice } from "../services/purchaseInvoiceService";
 import { supabase } from "../api/supabase";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 import toast from "react-hot-toast";
 import AdminLayout from "../layouts/AdminLayout";
 import { Search, Plus, Eye, Edit3, Trash2, CheckCircle, Loader } from "lucide-react";
@@ -13,6 +14,10 @@ export default function PurchaseInvoices() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [vendorFilter, setVendorFilter] = useState("");
+
+  // ── Organisation / Branch / Financial Year context ──
+  const { branch, selectedFinancialYear } = useOrg();   // NEW
+  const ctx = { branchId: branch?.id, financialYearId: selectedFinancialYear?.id };
 
   const { data: vendors = [] } = useQuery({
     queryKey: ["vendors-dropdown"],
@@ -30,7 +35,7 @@ export default function PurchaseInvoices() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: deletePurchaseInvoice,
+    mutationFn: deletePurchaseInvoice,   // no context needed
     onSuccess: () => {
       toast.success("Invoice deleted");
       queryClient.invalidateQueries(["purchase-invoices"]);
@@ -39,7 +44,7 @@ export default function PurchaseInvoices() {
   });
 
   const finalizeMutation = useMutation({
-    mutationFn: finalizePurchaseInvoice,
+    mutationFn: (id) => finalizePurchaseInvoice(id, ctx),   // pass context
     onSuccess: () => {
       toast.success("Invoice finalized");
       queryClient.invalidateQueries(["purchase-invoices"]);

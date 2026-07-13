@@ -18,24 +18,22 @@ async function loadImageAsBase64(url) {
 }
 
 // ---------------------------------------------------------------------------
-// Main PDF generation function
+// Main PDF generation – full‑page letterhead background
 // ---------------------------------------------------------------------------
-export async function generateAdmissionPdf(studentId) {
-  // ---------- 1. Organisation details ----------
+export async function generateAdmissionPdf(studentId, options = {}) {
+  const { format = "a4" } = options;   // 'a4' or 'a5'
+
+  // ---------- 1. Organisation (only letterhead needed) ----------
   const { data: org } = await supabase
     .from("organization")
-    .select("logo_dark_url, company_name, address, phone, email, website")
+    .select("company_name, letterhead_url")
     .eq("id", 1)
     .single();
 
-  const logoUrl = org?.logo_dark_url || "/ShreeVidhyaDark.png";
   const academyName = org?.company_name?.toUpperCase() || "SHREEVIDHYA ACADEMY";
-  const address = org?.address || "";
-  const phone = org?.phone || "";
-  const email = org?.email || "";
-  const website = org?.website || "";
+  const letterheadUrl = org?.letterhead_url || null;
 
-  // ---------- 2. Student data (with medium) ----------
+  // ---------- 2. Student data ----------
   const { data: student } = await supabase
     .from("students")
     .select("*, mediums(name)")
@@ -59,10 +57,10 @@ export async function generateAdmissionPdf(studentId) {
     .eq("student_id", studentId)
     .eq("status", "active");
 
-  // ---------- 5. Fee summary (FIXED: added `id`) ----------
+  // ---------- 5. Fee summary ----------
   const { data: fees } = await supabase
     .from("student_fees")
-    .select("id, final_fee, status, fee_structures(fee_amount)")   // <-- id added
+    .select("id, final_fee, status, fee_structures(fee_amount)")
     .eq("student_id", studentId);
 
   let totalFee = 0;
@@ -73,18 +71,20 @@ export async function generateAdmissionPdf(studentId) {
       const { data: payments } = await supabase
         .from("fee_payments")
         .select("amount")
-        .eq("student_fee_id", f.id);   // now f.id is defined
+        .eq("student_fee_id", f.id);
       paidAmount += payments?.reduce((sum, p) => sum + Number(p.amount), 0) || 0;
     }
   }
   const pendingAmount = totalFee - paidAmount;
 
   // ---------- 6. Load images ----------
-  let logoBase64 = null;
-  try {
-    logoBase64 = await loadImageAsBase64(logoUrl);
-  } catch (err) {
-    console.warn("Logo could not be loaded for PDF", err);
+  let letterheadBase64 = null;
+  if (letterheadUrl) {
+    try {
+      letterheadBase64 = await loadImageAsBase64(letterheadUrl);
+    } catch (err) {
+      console.warn("Letterhead could not be loaded for PDF", err);
+    }
   }
 
   let photoBase64 = null;
@@ -96,73 +96,48 @@ export async function generateAdmissionPdf(studentId) {
     }
   }
 
-  // ---------- 7. Build PDF ----------
-  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  // ---------- 7. Page setup & margins ----------
+  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format });
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
-  const margin = 15;
-  let y = 15;
 
-  // ---------- WATERMARK (faint logo) ----------
-  if (logoBase64) {
-    doc.saveGraphicsState();
-    doc.setGState(new doc.GState({ opacity: 0.04 }));
-    const cx = pageWidth / 2;
-    const cy = pageHeight / 2;
-    doc.addImage(logoBase64, "PNG", cx - 55, cy - 55, 110, 110);
-    doc.restoreGraphicsState();
-  }
+  // Margins – top margin leaves space for the letterhead header,
+  // bottom margin leaves space for any pre‑printed footer.
+  const topMargin = format === "a5" ? 38 : 48;
+  const bottomMargin = format === "a5" ? 14 : 20;
+  const sideMargin = format === "a5" ? 12 : 16;
 
-  // ---------- HEADER (light blue background) ----------
-  doc.setFillColor("#E3F2FD");
-  doc.rect(0, 0, pageWidth, 38, "F");
+  // ---------- 8. Helper to add letterhead background ----------
+  const addLetterhead = () => {
+    if (letterheadBase64) {
+      doc.addImage(letterheadBase64, "PNG", 0, 0, pageWidth, pageHeight);
+    }
+  };
+  addLetterhead();   // first page
 
-  if (logoBase64) {
-    doc.addImage(logoBase64, "PNG", margin, 5, 28, 28);
-  }
+  let y = topMargin;
 
+  // ---------- 9. Content ----------
+
+  // --- Form Title ---
   doc.setFont("times", "bold");
-  doc.setFontSize(22);
-  doc.setTextColor("#0D47A1");
-  doc.text(academyName, margin + 33, 16);
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(8);
-  let headerY = 22;
-  if (address) {
-    doc.text(address, margin + 33, headerY);
-    headerY += 3.5;
-  }
-  if (phone) {
-    doc.text(`Ph: ${phone}`, margin + 33, headerY);
-    headerY += 3.5;
-  }
-  if (email || website) {
-    doc.text(`${email ? email + (website ? " | " : "") : ""}${website}`, margin + 33, headerY);
-  }
-
-  y = 45;
-
-  // ---------- FORM TITLE ----------
-  doc.setFont("times", "bold");
-  doc.setFontSize(18);
+  doc.setFontSize(20);
   doc.setTextColor("#0D47A1");
   doc.text("ADMISSION FORM", pageWidth / 2, y, { align: "center" });
-  y += 8;
+  y += 10;
 
   doc.setDrawColor("#0D47A1");
   doc.setLineWidth(0.6);
-  doc.line(margin, y, pageWidth - margin, y);
-  y += 10;
+  doc.line(sideMargin, y, pageWidth - sideMargin, y);
+  y += 8;
 
-  // ---------- STUDENT PHOTO (top right) ----------
+  // --- Student Photo (top right) ---
   if (photoBase64) {
-    doc.addImage(photoBase64, "PNG", pageWidth - margin - 28, y, 28, 28);
-    doc.setDrawColor("#0D47A1");
-    doc.setLineWidth(0.5);
-    doc.rect(pageWidth - margin - 28, y, 28, 28);
+    doc.addImage(photoBase64, "PNG", pageWidth - sideMargin - 25, y, 25, 25);
+    doc.rect(pageWidth - sideMargin - 25, y, 25, 25);
   }
 
-  // ---------- STUDENT INFORMATION (table layout) ----------
+  // --- Student Information ---
   const infoRows = [
     ["Admission No", student.admission_no?.toUpperCase() || "-"],
     ["Name", `${student.first_name?.toUpperCase()} ${student.last_name?.toUpperCase()}`],
@@ -178,13 +153,9 @@ export async function generateAdmissionPdf(studentId) {
     ["Joining Date", student.joining_date || "-"],
     ["Status", student.status?.toUpperCase() || "-"],
   ];
+  if (mediumName) infoRows.push(["Medium", mediumName.toUpperCase()]);
 
-  if (mediumName) {
-    infoRows.push(["Medium", mediumName.toUpperCase()]);
-  }
-
-  const tableMarginLeft = margin;
-  const tableMarginRight = photoBase64 ? pageWidth - margin - 32 : margin;
+  const photoWidth = photoBase64 ? 30 : 0;
 
   autoTable(doc, {
     startY: y,
@@ -194,18 +165,14 @@ export async function generateAdmissionPdf(studentId) {
     ]),
     theme: "plain",
     styles: { fontSize: 9, cellPadding: 2 },
-    columnStyles: {
-      0: { cellWidth: 40 },
-      1: { cellWidth: "auto" },
-    },
-    margin: { left: tableMarginLeft, right: tableMarginRight },
+    columnStyles: { 0: { cellWidth: 38 }, 1: { cellWidth: "auto" } },
+    margin: { left: sideMargin, right: sideMargin + photoWidth },
   });
   y = doc.lastAutoTable.finalY + 10;
 
-  // ---------- PARENT / GUARDIAN DETAILS ----------
+  // --- Parent Details ---
   if (parents.length > 0) {
-    for (let i = 0; i < parents.length; i++) {
-      const p = parents[i];
+    for (const p of parents) {
       const parentRows = [
         ["Father Name", p.father_name?.toUpperCase() || "-"],
         ["Mother Name", p.mother_name?.toUpperCase() || "-"],
@@ -216,6 +183,12 @@ export async function generateAdmissionPdf(studentId) {
         ["Address", p.address?.toUpperCase() || "-"],
       ];
 
+      doc.setFont("times", "bold");
+      doc.setFontSize(14);
+      doc.setTextColor("#0D47A1");
+      doc.text("PARENT / GUARDIAN DETAILS", sideMargin, y);
+      y += 6;
+
       autoTable(doc, {
         startY: y,
         body: parentRows.map(([label, value]) => [
@@ -224,31 +197,25 @@ export async function generateAdmissionPdf(studentId) {
         ]),
         theme: "plain",
         styles: { fontSize: 9, cellPadding: 2 },
-        columnStyles: {
-          0: { cellWidth: 40 },
-          1: { cellWidth: "auto" },
-        },
-        margin: { left: margin, right: margin },
+        columnStyles: { 0: { cellWidth: 38 }, 1: { cellWidth: "auto" } },
+        margin: { left: sideMargin, right: sideMargin },
         showHead: false,
       });
-      doc.setFont("times", "bold");
-      doc.setFontSize(13);
-      doc.setTextColor("#0D47A1");
-      doc.text("PARENT / GUARDIAN DETAILS", margin, y - 6);
       y = doc.lastAutoTable.finalY + 10;
     }
   }
 
-  // ---------- NEW PAGE for batches, fees, rules ----------
+  // --- New page for Batches, Fees, Rules ---
   doc.addPage();
-  y = 20;
+  addLetterhead();   // letterhead on second page
+  y = topMargin;
 
-  // ---------- ENROLLED BATCHES ----------
+  // --- Enrolled Batches ---
   if (batches?.length) {
     doc.setFont("times", "bold");
-    doc.setFontSize(14);
+    doc.setFontSize(15);
     doc.setTextColor("#0D47A1");
-    doc.text("ENROLLED BATCHES", margin, y);
+    doc.text("ENROLLED BATCHES", sideMargin, y);
     y += 7;
 
     const batchBody = batches.map((b) => [
@@ -265,16 +232,16 @@ export async function generateAdmissionPdf(studentId) {
       styles: { fontSize: 9, cellPadding: 3 },
       headStyles: { fillColor: "#0D47A1", textColor: "#FFFFFF", fontStyle: "bold" },
       columnStyles: { 0: { cellWidth: 50 }, 1: { cellWidth: 50 }, 2: { cellWidth: 35 } },
-      margin: { left: margin, right: margin },
+      margin: { left: sideMargin, right: sideMargin },
     });
     y = doc.lastAutoTable.finalY + 10;
   }
 
-  // ---------- FEE SUMMARY ----------
+  // --- Fee Summary ---
   doc.setFont("times", "bold");
-  doc.setFontSize(14);
+  doc.setFontSize(15);
   doc.setTextColor("#0D47A1");
-  doc.text("FEE SUMMARY", margin, y);
+  doc.text("FEE SUMMARY", sideMargin, y);
   y += 7;
 
   autoTable(doc, {
@@ -290,15 +257,15 @@ export async function generateAdmissionPdf(studentId) {
     styles: { fontSize: 9, cellPadding: 3 },
     headStyles: { fillColor: "#0D47A1", textColor: "#FFFFFF", fontStyle: "bold" },
     columnStyles: { 0: { cellWidth: 40 }, 1: { cellWidth: 40 }, 2: { cellWidth: 40 }, 3: { cellWidth: 30 } },
-    margin: { left: margin },
+    margin: { left: sideMargin },
   });
   y = doc.lastAutoTable.finalY + 12;
 
-  // ---------- RULES & REGULATIONS ----------
+  // --- Rules & Regulations ---
   doc.setFont("times", "bold");
-  doc.setFontSize(14);
+  doc.setFontSize(15);
   doc.setTextColor("#0D47A1");
-  doc.text("RULES & REGULATIONS", margin, y);
+  doc.text("RULES & REGULATIONS", sideMargin, y);
   y += 7;
 
   const rules = [
@@ -315,40 +282,26 @@ export async function generateAdmissionPdf(studentId) {
   doc.setFontSize(9);
   doc.setTextColor("#333");
   rules.forEach((rule, idx) => {
-    doc.text(rule, margin, y + idx * 5.5);
+    doc.text(rule, sideMargin, y + idx * 5.5);
   });
   y += rules.length * 5.5 + 10;
 
-  // ---------- SIGNATURE SECTION ----------
+  // --- Signature Section ---
   doc.setFont("times", "bold");
-  doc.setFontSize(14);
+  doc.setFontSize(15);
   doc.setTextColor("#0D47A1");
-  doc.text("SIGNATURES", margin, y);
+  doc.text("SIGNATURES", sideMargin, y);
   y += 12;
 
   doc.setDrawColor("#0D47A1");
-  doc.line(margin, y, margin + 60, y);
+  doc.line(sideMargin, y, sideMargin + 60, y);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(9);
-  doc.setTextColor("#333");
-  doc.text("AUTHORISED SIGNATORY", margin + 30, y + 5, { align: "center" });
+  doc.text("AUTHORISED SIGNATORY", sideMargin + 30, y + 5, { align: "center" });
 
-  doc.line(pageWidth - margin - 60, y, pageWidth - margin, y);
-  doc.text("PARENT / GUARDIAN", pageWidth - margin - 30, y + 5, { align: "center" });
+  doc.line(pageWidth - sideMargin - 60, y, pageWidth - sideMargin, y);
+  doc.text("PARENT / GUARDIAN", pageWidth - sideMargin - 30, y + 5, { align: "center" });
 
-  // ---------- FOOTER ----------
-  const footerY = pageHeight - 10;
-  doc.setFont("helvetica", "italic");
-  doc.setFontSize(7);
-  doc.setTextColor("#999");
-  doc.text(`This is a computer-generated document issued by ${academyName}.`, pageWidth / 2, footerY, { align: "center" });
-
-  const pageCount = doc.getNumberOfPages();
-  for (let i = 1; i <= pageCount; i++) {
-    doc.setPage(i);
-    doc.setFontSize(7);
-    doc.text(`Page ${i} of ${pageCount}`, pageWidth - margin, footerY, { align: "right" });
-  }
-
+  // ---------- 10. Save ----------
   doc.save(`Admission_${student.admission_no || studentId}.pdf`);
 }

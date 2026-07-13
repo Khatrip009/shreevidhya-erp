@@ -1,3 +1,4 @@
+// src/services/subjectService.js
 import { supabase } from "../api/supabase";
 
 // Paginated fetch with search filter – now includes medium name
@@ -18,7 +19,6 @@ export async function getSubjects({ pageParam = 0, filters = {} } = {}) {
     );
   }
   if (filters.medium_id) {
-    // Filter subjects whose course has the specified medium
     const { data: courseIds } = await supabase
       .from("courses")
       .select("id")
@@ -70,21 +70,23 @@ export async function getAllSubjectsForExport(filters = {}) {
   }));
 }
 
-// CRUD (unchanged)
-export async function createSubject(payload) {
+// CRUD – context: { branchId, financialYearId }
+export async function createSubject(payload, context) {
+  const { branchId, financialYearId } = context;
   const { data, error } = await supabase
     .from("subjects")
-    .insert([payload])
+    .insert([{ ...payload, branch_id: branchId, financial_year_id: financialYearId }])
     .select()
     .single();
   if (error) throw error;
   return data;
 }
 
-export async function updateSubject(id, payload) {
+export async function updateSubject(id, payload, context) {
+  const { branchId, financialYearId } = context;
   const { data, error } = await supabase
     .from("subjects")
-    .update(payload)
+    .update({ ...payload, branch_id: branchId, financial_year_id: financialYearId })
     .eq("id", id)
     .select()
     .single();
@@ -92,6 +94,7 @@ export async function updateSubject(id, payload) {
   return data;
 }
 
+// Hard delete – RLS protects, no additional context needed
 export async function deleteSubject(id) {
   const { error } = await supabase
     .from("subjects")

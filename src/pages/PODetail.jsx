@@ -8,6 +8,7 @@ import AdminLayout from "../layouts/AdminLayout";
 import { supabase } from "../api/supabase";
 import { receivePO } from "../services/poService";
 import { getOrganization } from "../services/organizationService";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 
 // Indian English number‑to‑words converter
 function numberToWords(num) {
@@ -30,7 +31,16 @@ function numberToWords(num) {
 export default function PODetail() {
   const { id } = useParams();
   const queryClient = useQueryClient();
-  const { data: org } = useQuery({ queryKey: ["organization"], queryFn: getOrganization });
+
+  // ── Get organisation for print header and context for mutations ──
+  const { org: currentOrg, branch, selectedFinancialYear } = useOrg();
+  const { data: org } = useQuery({
+    queryKey: ["organization", currentOrg?.id],
+    queryFn: () => getOrganization(currentOrg?.id),
+    enabled: !!currentOrg?.id,
+  });
+
+  const context = { branchId: branch?.id, financialYearId: selectedFinancialYear?.id };
 
   const { data: po, isLoading } = useQuery({
     queryKey: ["purchase-order", id],
@@ -52,8 +62,9 @@ export default function PODetail() {
     enabled: !!id,
   });
 
+  // Receive PO mutation with context
   const receiveMut = useMutation({
-    mutationFn: () => receivePO(id),
+    mutationFn: () => receivePO(id, context),
     onSuccess: () => {
       toast.success("PO received – stock updated");
       queryClient.invalidateQueries(["purchase-orders"]);

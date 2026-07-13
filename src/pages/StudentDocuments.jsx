@@ -1,3 +1,4 @@
+// src/pages/StudentDocuments.jsx
 import React, { useState, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
@@ -23,6 +24,7 @@ import {
   uploadStudentDocument,
   deleteStudentDocument,
 } from "../services/documentService";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 
 export default function StudentDocuments() {
   const queryClient = useQueryClient();
@@ -31,13 +33,17 @@ export default function StudentDocuments() {
   const fileInputRef = useRef(null);
   const [docType, setDocType] = useState("ID Proof");
 
+  // ── Organization, Branch & Financial Year context ──
+  const { branch, selectedFinancialYear } = useOrg();
+  const ctx = { branchId: branch?.id, financialYearId: selectedFinancialYear?.id };
+
   // Filters for students
   const [search, setSearch] = useState("");
   const [filterCourse, setFilterCourse] = useState("");
   const [filterBatch, setFilterBatch] = useState("");
-  const [filterMedium, setFilterMedium] = useState(""); // NEW
+  const [filterMedium, setFilterMedium] = useState("");
   const [filterStandard, setFilterStandard] = useState("");
-  const [filterStatus, setFilterStatus] = useState(""); // NEW
+  const [filterStatus, setFilterStatus] = useState("");
   const [showFilters, setShowFilters] = useState(false);
 
   // Fetch courses for filter
@@ -60,7 +66,7 @@ export default function StudentDocuments() {
     staleTime: 10 * 60 * 1000,
   });
 
-  // Fetch mediums for filter (NEW)
+  // Fetch mediums for filter
   const { data: mediums = [] } = useQuery({
     queryKey: ["mediums-dropdown"],
     queryFn: async () => {
@@ -147,7 +153,8 @@ export default function StudentDocuments() {
   // Mutations
   const uploadMutation = useMutation({
     mutationFn: async (file) => {
-      await uploadStudentDocument(selectedStudentId, file, docType);
+      // Pass context as fourth argument to uploadStudentDocument
+      await uploadStudentDocument(selectedStudentId, file, docType, ctx);
     },
     onSuccess: () => {
       toast.success("Document uploaded");

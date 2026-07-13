@@ -17,16 +17,29 @@ export async function getVendor(id) {
   return data;
 }
 
-export async function createVendor(payload) {
-  const { data, error } = await supabase.from("vendors").insert(payload).select().single();
+// context: { branchId, financialYearId }
+export async function createVendor(payload, context) {
+  const { branchId, financialYearId } = context;
+  const { data, error } = await supabase
+    .from("vendors")
+    .insert({ ...payload, branch_id: branchId, financial_year_id: financialYearId })
+    .select()
+    .single();
   if (error) throw error;
   return data;
 }
 
-export async function updateVendor(id, payload) {
+// context: { branchId, financialYearId }
+export async function updateVendor(id, payload, context) {
+  const { branchId, financialYearId } = context;
   const { data, error } = await supabase
     .from("vendors")
-    .update({ ...payload, updated_at: new Date() })
+    .update({
+      ...payload,
+      updated_at: new Date(),
+      branch_id: branchId,
+      financial_year_id: financialYearId,
+    })
     .eq("id", id)
     .select()
     .single();

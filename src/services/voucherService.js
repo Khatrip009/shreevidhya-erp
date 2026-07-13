@@ -1,13 +1,29 @@
+// src/services/voucherService.js
 import { supabase } from "../api/supabase";
 
-// Get voucher types
+// ---------- Helpers ----------
+function cleanPayload(payload) {
+  const cleaned = { ...payload };
+
+  // Remove empty date fields so DB defaults can apply
+  if (cleaned.entry_date === '') delete cleaned.entry_date;
+
+  // Convert empty strings to null for integer fields
+  ['branch_id', 'financial_year_id', 'account_id'].forEach(field => {
+    if (cleaned[field] === '') cleaned[field] = null;
+  });
+
+  return cleaned;
+}
+
+// ---------- Voucher Types ----------
 export async function getVoucherTypes() {
   const { data, error } = await supabase.from("voucher_types").select("*").order("id");
   if (error) throw error;
   return data || [];
 }
 
-// Get vouchers with filters
+// ---------- Get Vouchers ----------
 export async function getVouchers(filters = {}) {
   let query = supabase
     .from("vouchers")
@@ -25,52 +41,79 @@ export async function getVouchers(filters = {}) {
   return data || [];
 }
 
-// Create a manual voucher (for Payment, Receipt, Contra, Journal)
-export async function createVoucher(payload) {
+// ---------- Create Voucher ----------
+// context: { branchId, financialYearId }
+export async function createVoucher(payload, context) {
   const { voucher_type_code, entry_date, reference, description, lines } = payload;
-  // 1. Get voucher type id
-  const { data: vtype } = await supabase.from("voucher_types").select("id, abbreviation").eq("code", voucher_type_code).single();
+  const { branchId, financialYearId } = context;
+
+  // 1. Get voucher type
+  const { data: vtype } = await supabase
+    .from("voucher_types")
+    .select("id, abbreviation")
+    .eq("code", voucher_type_code)
+    .single();
   if (!vtype) throw new Error("Invalid voucher type");
 
   // 2. Generate voucher number
-  const { data: voucherSeq } = await supabase.rpc("generate_voucher_no", { voucher_abbr: vtype.abbreviation });
-  const voucherNo = voucherSeq;
+  const { data: voucherNo, error: rpcError } = await supabase
+    .rpc("generate_voucher_no", {
+      p_voucher_type_id: vtype.id,
+      p_branch_id: branchId,
+      p_financial_year_id: financialYearId,
+    });
+  if (rpcError) throw rpcError;
 
   // 3. Create journal entry
+  const journalHeader = cleanPayload({
+    entry_date,
+    reference,
+    description,
+    is_posted: true,
+    branch_id: branchId,
+    financial_year_id: financialYearId,
+  });
+
   const { data: journal } = await supabase
     .from("journal_entries")
-    .insert({ entry_date, reference, description, is_posted: true })
+    .insert(journalHeader)
     .select()
     .single();
 
   // 4. Insert journal lines
-  const lineInserts = lines.map(line => ({
+  const lineInserts = lines.map(line => cleanPayload({
     journal_entry_id: journal.id,
     account_id: line.account_id,
     debit: line.debit || 0,
     credit: line.credit || 0,
     description: line.description,
+    branch_id: branchId,
+    financial_year_id: financialYearId,
   }));
   await supabase.from("journal_entry_lines").insert(lineInserts);
 
   // 5. Create voucher record
+  const voucherPayload = cleanPayload({
+    voucher_no: voucherNo,
+    voucher_type_id: vtype.id,
+    entry_date,
+    reference,
+    description,
+    journal_entry_id: journal.id,
+    branch_id: branchId,
+    financial_year_id: financialYearId,
+  });
+
   const { data: voucher } = await supabase
     .from("vouchers")
-    .insert({
-      voucher_no: voucherNo,
-      voucher_type_id: vtype.id,
-      entry_date,
-      reference,
-      description,
-      journal_entry_id: journal.id,
-    })
+    .insert(voucherPayload)
     .select()
     .single();
 
   return voucher;
 }
 
-// Get a single voucher with its journal lines
+// ---------- Get Voucher by ID ----------
 export async function getVoucherById(voucherId) {
   const { data: voucher, error } = await supabase
     .from("vouchers")
@@ -79,7 +122,6 @@ export async function getVoucherById(voucherId) {
     .single();
   if (error) throw error;
 
-  // Fetch account names for each line
   if (voucher?.journal_entries?.journal_entry_lines) {
     const accountIds = voucher.journal_entries.journal_entry_lines.map(line => line.account_id);
     const { data: accounts } = await supabase
@@ -87,7 +129,7 @@ export async function getVoucherById(voucherId) {
       .select("id, account_code, account_name")
       .in("id", accountIds);
     const accountMap = {};
-    accounts?.forEach(a => accountMap[a.id] = a);
+    accounts?.forEach(a => (accountMap[a.id] = a));
     voucher.journal_entries.journal_entry_lines = voucher.journal_entries.journal_entry_lines.map(line => ({
       ...line,
       account: accountMap[line.account_id] || null,
@@ -96,41 +138,59 @@ export async function getVoucherById(voucherId) {
   return voucher;
 }
 
-// Update a voucher (header + lines)
-export async function updateVoucher(voucherId, payload) {
+// ---------- Update Voucher ----------
+// context: { branchId, financialYearId }
+export async function updateVoucher(voucherId, payload, context) {
   const { entry_date, reference, description, lines } = payload;
+  const { branchId, financialYearId } = context;
 
-  // 1. Update journal entry header
+  // Get journal_entry_id
   const { data: voucher } = await supabase
     .from("vouchers")
     .select("journal_entry_id")
     .eq("id", voucherId)
     .single();
 
+  // Update journal header
   await supabase
     .from("journal_entries")
-    .update({ entry_date, reference, description })
+    .update(cleanPayload({
+      entry_date,
+      reference,
+      description,
+      branch_id: branchId,
+      financial_year_id: financialYearId,
+    }))
     .eq("id", voucher.journal_entry_id);
 
-  // 2. Delete old lines and insert new ones
+  // Delete old lines
   await supabase
     .from("journal_entry_lines")
     .delete()
     .eq("journal_entry_id", voucher.journal_entry_id);
 
-  const lineInserts = lines.map(line => ({
+  // Insert new lines
+  const lineInserts = lines.map(line => cleanPayload({
     journal_entry_id: voucher.journal_entry_id,
     account_id: line.account_id,
     debit: line.debit || 0,
     credit: line.credit || 0,
     description: line.description,
+    branch_id: branchId,
+    financial_year_id: financialYearId,
   }));
   await supabase.from("journal_entry_lines").insert(lineInserts);
 
-  // 3. Update voucher header (if needed)
+  // Update voucher header
   await supabase
     .from("vouchers")
-    .update({ entry_date, reference, description })
+    .update(cleanPayload({
+      entry_date,
+      reference,
+      description,
+      branch_id: branchId,
+      financial_year_id: financialYearId,
+    }))
     .eq("id", voucherId);
 
   return { success: true };

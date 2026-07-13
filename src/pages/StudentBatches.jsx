@@ -1,3 +1,4 @@
+// src/pages/StudentBatches.jsx
 import React, { useState, useRef, useMemo } from "react";
 import {
   useInfiniteQuery,
@@ -32,9 +33,14 @@ import {
   getActiveBatches,
   getCoursesForFilter,
 } from "../services/batchAssignmentService";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 
 export default function StudentBatches() {
   const queryClient = useQueryClient();
+
+  // ── Organisation / Branch / Financial Year context ──
+  const { branch, selectedFinancialYear } = useOrg();   // NEW
+  const ctx = { branchId: branch?.id, financialYearId: selectedFinancialYear?.id };
 
   // ---- Filters ----
   const [search, setSearch] = useState("");
@@ -75,7 +81,6 @@ export default function StudentBatches() {
   const assignments = data?.pages.flatMap((page) => page.data) || [];
 
   // ---- Dropdowns for filters ----
-  // 1. Batches with medium included
   const { data: batches = [] } = useQuery({
     queryKey: ["activeBatchesWithMedium"],
     queryFn: async () => {
@@ -89,14 +94,12 @@ export default function StudentBatches() {
     staleTime: 10 * 60 * 1000,
   });
 
-  // 2. Courses
   const { data: courses = [] } = useQuery({
     queryKey: ["coursesFilter"],
     queryFn: getCoursesForFilter,
     staleTime: 10 * 60 * 1000,
   });
 
-  // 3. Mediums for the separate filter dropdown
   const { data: mediums = [] } = useQuery({
     queryKey: ["mediums"],
     queryFn: async () => {
@@ -109,7 +112,6 @@ export default function StudentBatches() {
     staleTime: 10 * 60 * 1000,
   });
 
-  // Build a lookup map: batch_id -> medium name
   const mediumMap = useMemo(() => {
     const map = {};
     batches.forEach((b) => {
@@ -119,18 +121,10 @@ export default function StudentBatches() {
   }, [batches]);
 
   // ---- Mutations ----
-  const assignMutation = useMutation({
-    mutationFn: assignStudentToBatch,
-    onSuccess: () => {
-      toast.success("Student assigned to batch");
-      queryClient.invalidateQueries({ queryKey: ["studentBatches"] });
-      setShowModal(false);
-    },
-    onError: () => toast.error("Assignment failed"),
-  });
-
+  // Note: Single assignment via assignMutation is removed because the modal handles bulk assignment.
+  // CSV import uses assignStudentToBatch with context.
   const updateMutation = useMutation({
-    mutationFn: ({ id, payload }) => updateStudentBatch(id, payload),
+    mutationFn: ({ id, payload }) => updateStudentBatch(id, payload, ctx),   // pass context
     onSuccess: () => {
       toast.success("Status updated");
       queryClient.invalidateQueries({ queryKey: ["studentBatches"] });
@@ -140,7 +134,7 @@ export default function StudentBatches() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: deleteStudentBatch,
+    mutationFn: deleteStudentBatch,   // no context needed
     onSuccess: () => {
       toast.success("Assignment removed");
       queryClient.invalidateQueries({ queryKey: ["studentBatches"] });
@@ -154,7 +148,7 @@ export default function StudentBatches() {
   const [editStatus, setEditStatus] = useState("");
   const fileInputRef = useRef(null);
 
-  // ---- CSV Import ----
+  // ---- CSV Import – now passes context ----
   async function handleCSVImport(event) {
     const file = event.target.files[0];
     if (!file) return;
@@ -172,7 +166,7 @@ export default function StudentBatches() {
                 row.enrollment_date || new Date().toISOString().split("T")[0],
               status: row.status || "active",
             };
-            await assignStudentToBatch(payload);
+            await assignStudentToBatch(payload, ctx);   // pass context
             successCount++;
           } catch (err) {
             console.error(err);
@@ -213,10 +207,6 @@ export default function StudentBatches() {
   }
 
   // ---- Handlers ----
-  function handleAssign(payload) {
-    assignMutation.mutate(payload);
-  }
-
   function handleStatusUpdate(id, newStatus) {
     updateMutation.mutate({ id, payload: { status: newStatus } });
   }
@@ -456,7 +446,6 @@ export default function StudentBatches() {
                     <td className="text-sm">
                       {assignment.batches?.batch_name}
                     </td>
-                    {/* Fixed medium column using lookup map */}
                     <td className="text-sm">
                       {mediumMap[assignment.batch_id] || "—"}
                     </td>
@@ -548,10 +537,13 @@ export default function StudentBatches() {
         </div>
       )}
 
-      {/* Assign Batch Modal */}
+      {/* Assign Batch Modal (already context-aware) */}
       {showModal && (
         <AssignBatchModal
-          onSubmit={handleAssign}
+          onSubmit={() => {
+            queryClient.invalidateQueries({ queryKey: ["studentBatches"] });
+            setShowModal(false);
+          }}
           onClose={() => setShowModal(false)}
         />
       )}

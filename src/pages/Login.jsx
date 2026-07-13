@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Navigate } from "react-router-dom";
+import { Navigate, Link } from "react-router-dom";
 import toast from "react-hot-toast";
 import { Mail, Lock, LogIn, ArrowLeft, KeyRound, CheckCircle } from "lucide-react";
 import { supabase } from "../api/supabase";
@@ -19,11 +19,9 @@ export default function Login() {
 
   // -------- Redirect once auth is fully loaded --------
   if (user && profile) {
-    // Navigate to root – ProtectedRoute will handle role‑based routing
     return <Navigate to="/" replace />;
   }
 
-  // Show loading while auth state is being fetched (or profile still loading)
   if (authLoading || (user && !profile)) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-secondary-bg">
@@ -46,7 +44,6 @@ export default function Login() {
         setLoading(false);
         return;
       }
-      // AuthContext will update user & profile → <Navigate> triggers
     } catch (err) {
       console.error(err);
       toast.error("Login failed");
@@ -121,7 +118,6 @@ export default function Login() {
         setLoading(false);
         return;
       }
-      // AuthContext will update user & profile → <Navigate> triggers
     } catch (err) {
       console.error(err);
       toast.error("Verification failed");
@@ -293,7 +289,15 @@ export default function Login() {
           </>
         )}
 
-        <p className="text-xs text-secondary-light text-center mt-6 font-montserrat">
+        {/* ─── SIGN‑UP LINK ─── */}
+        <p className="mt-6 text-center text-sm text-gray-500">
+          Don't have an academy?{" "}
+          <Link to="/signup" className="text-primary hover:underline font-medium">
+            Create one
+          </Link>
+        </p>
+
+        <p className="text-xs text-secondary-light text-center mt-4 font-montserrat">
           © {new Date().getFullYear()} ShreeVidhya Academy. All rights reserved.
         </p>
       </div>

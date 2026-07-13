@@ -27,41 +27,6 @@ function cleanTeacherData(data) {
   return cleaned;
 }
 
-/**
- * Create auth user + update profile role.
- */
-async function createAuthUser(email, password, fullName, role) {
-  if (!email || !password) return null;
-
-  const { data: existing } = await supabase
-    .from("profiles")
-    .select("id")
-    .eq("email", email)
-    .maybeSingle();
-  if (existing) throw new Error("A user with this email already exists.");
-
-  const { data, error } = await supabase.auth.signUp({
-    email,
-    password,
-    options: { data: { full_name: fullName } },
-  });
-  if (error) {
-    if (error.message.includes("already been registered"))
-      throw new Error("This email is already registered.");
-    throw error;
-  }
-
-  const userId = data.user.id;
-
-  const { error: profileError } = await supabase
-    .from("profiles")
-    .update({ role })
-    .eq("id", userId);
-  if (profileError) throw profileError;
-
-  return userId;
-}
-
 // ─── GET TEACHERS (paginated) ────────────────────────────
 export async function getTeachers({ pageParam = 0, filters = {} }) {
   const limit = 10;
@@ -225,10 +190,11 @@ export async function getAllTeachersForExport(filters = {}) {
 }
 
 // ─── CREATE TEACHER ──────────────────────────────────────
-export async function createTeacher(payload) {
+// context: { branchId, financialYearId }
+export async function createTeacher(payload, context) {
   const {
-    email,
-    password,
+    email,           // keep for future mapping
+    password,        // ignored (no auth creation)
     medium_ids,
     course_ids,
     course_level_ids,
@@ -236,18 +202,20 @@ export async function createTeacher(payload) {
     ...teacherData
   } = payload;
 
-  const cleanedTeacher = cleanTeacherData(teacherData);
+  const { branchId, financialYearId } = context;
 
-  const fullName = `${cleanedTeacher.first_name || ""} ${cleanedTeacher.last_name || ""}`.trim();
-  let userId = null;
-  if (email && password) {
-    userId = await createAuthUser(email, password, fullName, "teacher");
-  }
+  // Include email in the cleaned data so it's stored on the record
+  const cleanedTeacher = cleanTeacherData({ ...teacherData, email });
 
-  // Insert teacher – no course_id / medium_id
+  // No auth user creation – user_id stays null
   const { data: teacher, error } = await supabase
     .from("teachers")
-    .insert([{ ...cleanedTeacher, user_id: userId }])
+    .insert([{
+      ...cleanedTeacher,
+      user_id: null,
+      branch_id: branchId,
+      financial_year_id: financialYearId,
+    }])
     .select()
     .single();
   if (error) throw error;
@@ -257,6 +225,8 @@ export async function createTeacher(payload) {
     const rows = ids.map((id) => ({
       teacher_id: teacher.id,
       [idField]: id,
+      branch_id: branchId,
+      financial_year_id: financialYearId,
     }));
     const { error: err } = await supabase.from(table).insert(rows);
     if (err) throw err;
@@ -271,7 +241,7 @@ export async function createTeacher(payload) {
 }
 
 // ─── UPDATE TEACHER ──────────────────────────────────────
-export async function updateTeacher(id, payload) {
+export async function updateTeacher(id, payload, context) {
   const {
     medium_ids,
     course_ids,
@@ -280,12 +250,12 @@ export async function updateTeacher(id, payload) {
     ...teacherData
   } = payload;
 
+  const { branchId, financialYearId } = context;
   const cleanedTeacher = cleanTeacherData(teacherData);
 
-  // Update teacher – no course_id / medium_id
   const { data: teacher, error } = await supabase
     .from("teachers")
-    .update(cleanedTeacher)
+    .update({ ...cleanedTeacher, branch_id: branchId, financial_year_id: financialYearId })
     .eq("id", id)
     .select()
     .single();
@@ -297,6 +267,8 @@ export async function updateTeacher(id, payload) {
       const rows = ids.map((val) => ({
         teacher_id: id,
         [idField]: val,
+        branch_id: branchId,
+        financial_year_id: financialYearId,
       }));
       const { error: err } = await supabase.from(table).insert(rows);
       if (err) throw err;
@@ -312,10 +284,15 @@ export async function updateTeacher(id, payload) {
 }
 
 // ─── DELETE (soft) ────────────────────────────────────────
-export async function deleteTeacher(id) {
+export async function deleteTeacher(id, context) {
+  const { branchId, financialYearId } = context;
   const { error } = await supabase
     .from("teachers")
-    .update({ deleted_at: new Date().toISOString() })
+    .update({
+      deleted_at: new Date().toISOString(),
+      branch_id: branchId,
+      financial_year_id: financialYearId,
+    })
     .eq("id", id);
   if (error) throw error;
 }
@@ -366,8 +343,8 @@ export async function getSubjectOptions() {
 }
 
 // ─── SALARY & ACTIVE TEACHERS ──────────────────────────────
-
-export async function updateTeacherSalary(teacherId, payload) {
+export async function updateTeacherSalary(teacherId, payload, context) {
+  const { branchId, financialYearId } = context;
   const { data, error } = await supabase
     .from('teachers')
     .update({
@@ -375,6 +352,8 @@ export async function updateTeacherSalary(teacherId, payload) {
       monthly_salary: payload.monthly_salary,
       per_lecture_rate: payload.per_lecture_rate,
       tds_percentage: payload.tds_percentage,
+      branch_id: branchId,
+      financial_year_id: financialYearId,
     })
     .eq('id', teacherId)
     .select()
@@ -420,7 +399,7 @@ export async function getCurrentTeacherId() {
     .from('teachers')
     .select('id')
     .eq('user_id', user.id)
-    .maybeSingle(); // use maybeSingle to avoid 406 if no row
+    .maybeSingle();
   if (error) throw error;
   return teacher?.id || null;
 }

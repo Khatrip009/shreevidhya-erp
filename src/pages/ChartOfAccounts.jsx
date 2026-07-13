@@ -10,9 +10,13 @@ import {
   updateAccount,
   deleteAccount,
 } from "../services/accountingService";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 
 export default function ChartOfAccounts() {
   const queryClient = useQueryClient();
+  const { selectedFinancialYear } = useOrg();   // NEW
+  const financialYearId = selectedFinancialYear?.id;
+
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState({
@@ -29,7 +33,7 @@ export default function ChartOfAccounts() {
   });
 
   const createMutation = useMutation({
-    mutationFn: createAccount,
+    mutationFn: (payload) => createAccount(payload, financialYearId),   // pass FY
     onSuccess: () => {
       toast.success("Account created");
       queryClient.invalidateQueries(["chart-of-accounts"]);
@@ -40,7 +44,7 @@ export default function ChartOfAccounts() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, payload }) => updateAccount(id, payload),
+    mutationFn: ({ id, payload }) => updateAccount(id, payload, financialYearId),   // pass FY
     onSuccess: () => {
       toast.success("Account updated");
       queryClient.invalidateQueries(["chart-of-accounts"]);
@@ -52,7 +56,7 @@ export default function ChartOfAccounts() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: deleteAccount,
+    mutationFn: deleteAccount,   // delete doesn't need FY (RLS protects)
     onSuccess: () => {
       toast.success("Account deleted");
       queryClient.invalidateQueries(["chart-of-accounts"]);

@@ -1,3 +1,4 @@
+// src/services/billWiseService.js
 import { supabase } from "../api/supabase";
 
 // Fetch all bill‑wise entries with optional filters
@@ -22,10 +23,17 @@ export async function getBillWiseEntries(filters = {}) {
 }
 
 // Create a new bill‑wise entry
-export async function createBillWiseEntry(payload) {
+// context: { branchId, financialYearId }
+export async function createBillWiseEntry(payload, context) {
+  const { branchId, financialYearId } = context;
   const { data, error } = await supabase
     .from("bill_wise_entries")
-    .insert({ ...payload, outstanding_amount: payload.original_amount })
+    .insert({
+      ...payload,
+      outstanding_amount: payload.original_amount,
+      branch_id: branchId,
+      financial_year_id: financialYearId,
+    })
     .select()
     .single();
   if (error) throw error;
@@ -33,10 +41,17 @@ export async function createBillWiseEntry(payload) {
 }
 
 // Update an entry (e.g., when a payment is made)
-export async function updateBillWiseEntry(id, payload) {
+// context: { branchId, financialYearId }
+export async function updateBillWiseEntry(id, payload, context) {
+  const { branchId, financialYearId } = context;
   const { data, error } = await supabase
     .from("bill_wise_entries")
-    .update({ ...payload, updated_at: new Date() })
+    .update({
+      ...payload,
+      updated_at: new Date(),
+      branch_id: branchId,
+      financial_year_id: financialYearId,
+    })
     .eq("id", id)
     .select()
     .single();
@@ -44,15 +59,18 @@ export async function updateBillWiseEntry(id, payload) {
   return data;
 }
 
-// Delete an entry
+// Delete an entry (RLS protects)
 export async function deleteBillWiseEntry(id) {
   const { error } = await supabase.from("bill_wise_entries").delete().eq("id", id);
   if (error) throw error;
 }
 
 // Record a payment against a bill (reduce outstanding_amount, update status)
-export async function recordBillPayment(entryId, paymentAmount) {
-  // 1. Fetch current entry
+// context: { branchId, financialYearId }
+export async function recordBillPayment(entryId, paymentAmount, context) {
+  const { branchId, financialYearId } = context;
+
+  // 1. Fetch current entry (RLS will only return if the user has access)
   const { data: entry } = await supabase
     .from("bill_wise_entries")
     .select("outstanding_amount, original_amount, reference")
@@ -64,14 +82,19 @@ export async function recordBillPayment(entryId, paymentAmount) {
   let newStatus = "Partially Paid";
   if (newOutstanding <= 0) newStatus = "Paid";
 
-  // 2. Update entry
+  // 2. Update entry – include branch & FY to satisfy RLS policy
   const { error } = await supabase
     .from("bill_wise_entries")
-    .update({ outstanding_amount: newOutstanding, status: newStatus, updated_at: new Date() })
+    .update({
+      outstanding_amount: newOutstanding,
+      status: newStatus,
+      updated_at: new Date(),
+      branch_id: branchId,
+      financial_year_id: financialYearId,
+    })
     .eq("id", entryId);
   if (error) throw error;
 
-  // 3. Optional: link to a journal entry line if provided (this can be done from voucher creation)
   return { success: true, new_outstanding: newOutstanding, status: newStatus };
 }
 

@@ -1,3 +1,4 @@
+// src/utils/teacherResumePdf.js
 import { jsPDF } from "jspdf";
 import { supabase } from "../api/supabase";
 
@@ -44,20 +45,28 @@ export async function generateTeacherResumePdf(teacherId) {
     .eq("teacher_id", teacherId);
   const subjects = subjectLinks?.map(l => l.subjects?.subject_name).filter(Boolean) || [];
 
-  // 5. Organisation
+  // 5. Organisation (including letterhead)
   const { data: org } = await supabase
     .from("organization")
-    .select("logo_dark_url, company_name, address, phone, email")
+    .select("company_name, letterhead_url, address, phone, email")
     .eq("id", 1)
     .single();
 
-  const logoUrl = org?.logo_dark_url || "/ShreeVidhyaDark.png";
   const academyName = org?.company_name || "ShreeVidhya Academy";
+  const letterheadUrl = org?.letterhead_url || null;
   const orgAddress = org?.address || "";
   const orgPhone = org?.phone || "";
   const orgEmail = org?.email || "";
 
-  const logoBase64 = await loadImageAsBase64(logoUrl).catch(() => null);
+  // Load letterhead as base64
+  let letterheadBase64 = null;
+  if (letterheadUrl) {
+    try {
+      letterheadBase64 = await loadImageAsBase64(letterheadUrl);
+    } catch (e) {
+      console.warn("Letterhead could not be loaded for resume PDF", e);
+    }
+  }
 
   // 6. Batches (active assignments)
   const { data: batchAssignments } = await supabase
@@ -69,7 +78,6 @@ export async function generateTeacherResumePdf(teacherId) {
     `)
     .eq("teacher_id", teacherId);
 
-  // Group by batch
   const batchMap = new Map();
   (batchAssignments || []).forEach(b => {
     const bid = b.batch_id;
@@ -91,34 +99,26 @@ export async function generateTeacherResumePdf(teacherId) {
   const pageWidth = doc.internal.pageSize.getWidth();   // 210mm
   const pageHeight = doc.internal.pageSize.getHeight(); // 297mm
 
-  // Margins
-  const leftColWidth = 52;    // sidebar width
+  // Margins & layout constants
+  const leftColWidth = 52;
   const marginLeft = 6;
   const marginRight = 6;
-  const mainLeft = leftColWidth + 4; // where main content starts
+  const mainLeft = leftColWidth + 4;
   const mainWidth = pageWidth - mainLeft - marginRight;
+  const topMargin = 85;   // space for letterhead header in right content area
 
-  // Helper to add text in main area with consistent font
-  const mainText = (text, x, y, size = 9, color = "#333", font = "helvetica", style = "normal") => {
-    doc.setFont(font, style);
-    doc.setFontSize(size);
-    doc.setTextColor(color);
-    doc.text(text, x, y);
-  };
+  // Draw full-page letterhead background (behind everything)
+  if (letterheadBase64) {
+    doc.addImage(letterheadBase64, "PNG", 0, 0, pageWidth, pageHeight);
+  }
 
-  // ── LEFT SIDEBAR BACKGROUND ────────────────────────────────────────────────
+  // ── LEFT SIDEBAR (solid dark blue, hides letterhead in that area) ──────────
   doc.setFillColor("#0D47A1");
   doc.rect(0, 0, leftColWidth, pageHeight, "F");
 
   let yLeft = 20;
 
-  // Logo / Academy Name in sidebar (top)
-  if (logoBase64) {
-    doc.addImage(logoBase64, "PNG", marginLeft, yLeft, 24, 24);
-    yLeft += 30;
-  }
-
-  // Teacher Name
+  // Teacher Name (still in sidebar, no logo)
   doc.setFont("times", "bold");
   doc.setFontSize(14);
   doc.setTextColor("#FFFFFF");
@@ -214,8 +214,8 @@ export async function generateTeacherResumePdf(teacherId) {
     yLeft += 5;
   }
 
-  // ── MAIN CONTENT (Right side) ──────────────────────────────────────────────
-  let yMain = 28;
+  // ── MAIN CONTENT (Right side, starts below letterhead header) ──────────────
+  let yMain = topMargin + 10;  // 95mm
 
   // Professional Summary
   doc.setFont("times", "bold");
@@ -257,21 +257,18 @@ export async function generateTeacherResumePdf(teacherId) {
     yMain += 8;
   } else {
     batchList.forEach(batch => {
-      // Batch name as heading
       doc.setFont("helvetica", "bold");
       doc.setFontSize(11);
       doc.setTextColor("#0D47A1");
       doc.text(`${batch.name}  (${batch.course})`, mainLeft, yMain);
       yMain += 6;
 
-      // Schedule
       doc.setFont("helvetica", "normal");
       doc.setFontSize(9);
       doc.setTextColor("#666");
       doc.text(`Schedule: ${batch.schedule}`, mainLeft + 6, yMain);
       yMain += 5;
 
-      // Subjects
       if (batch.subjects.length) {
         doc.text(`Subjects: ${batch.subjects.join(", ")}`, mainLeft + 6, yMain);
         yMain += 5;
@@ -280,7 +277,7 @@ export async function generateTeacherResumePdf(teacherId) {
     });
   }
 
-  // Additional details (Qualification, Joining Date, Salary)
+  // Additional Details
   yMain += 6;
   doc.setFont("times", "bold");
   doc.setFontSize(16);
@@ -311,17 +308,15 @@ export async function generateTeacherResumePdf(teacherId) {
     yMain += 6;
   });
 
-  // Footer (discreet)
-  const footerY = pageHeight - 10;
-  doc.setFont("helvetica", "italic");
-  doc.setFontSize(7);
-  doc.setTextColor("#999");
-  doc.text(
-    `${academyName} – ${orgAddress}  |  Generated on ${new Date().toLocaleDateString()}`,
-    pageWidth / 2,
-    footerY,
-    { align: "center" }
-  );
+  // ── Page numbers (discreet) ──
+  const totalPages = doc.getNumberOfPages();
+  for (let i = 1; i <= totalPages; i++) {
+    doc.setPage(i);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7);
+    doc.setTextColor("#aaa");
+    doc.text(`Page ${i} of ${totalPages}`, pageWidth - 10, pageHeight - 8, { align: "right" });
+  }
 
   doc.save(`Resume_${teacher.employee_code || teacherId}.pdf`);
 }

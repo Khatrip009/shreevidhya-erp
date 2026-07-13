@@ -1,4 +1,4 @@
-// src/pages/Teachers.jsx
+// src/pages/Employees.jsx
 import React, { useState, useRef } from "react";
 import {
   useInfiniteQuery,
@@ -18,14 +18,14 @@ import {
   Unlink,
   Filter,
   X,
-  CreditCard,   // <-- added for ID Card button
+  CreditCard,
 } from "lucide-react";
 import Papa from "papaparse";
 import AdminLayout from "../layouts/AdminLayout";
-import TeacherForm from "../components/TeacherForm";
+import TeacherForm from "../components/TeacherForm"; // still reusing the same form (now accepts employee fields)
 import BackButton from "../components/BackButton";
 import {
-  getTeachers,
+  getTeachers,               // still works – the table now has employee columns
   createTeacher,
   updateTeacher,
   deleteTeacher,
@@ -36,11 +36,13 @@ import {
   getSubjectOptions,
 } from "../services/teacherService";
 import { generateTeacherResumePdf } from "../utils/teacherResumePdf";
-import { generateIdCard } from "../utils/idCardPdf";   // <-- imported
+import { generateIdCard } from "../utils/idCardPdf";
+import { useOrg } from "../context/OrganizationContext";
 
-export default function Teachers() {
+export default function Employees() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
+  const [staffTypeFilter, setStaffTypeFilter] = useState("");   // NEW filter
   const [mediumFilter, setMediumFilter] = useState("");
   const [courseFilter, setCourseFilter] = useState("");
   const [courseLevelFilter, setCourseLevelFilter] = useState("");
@@ -50,6 +52,9 @@ export default function Teachers() {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
   const fileInputRef = useRef(null);
+
+  const { branch, selectedFinancialYear } = useOrg();
+  const ctx = { branchId: branch?.id, financialYearId: selectedFinancialYear?.id };
 
   // Dropdown data for filters
   const { data: mediums = [] } = useQuery({
@@ -75,6 +80,7 @@ export default function Teachers() {
 
   const filters = {
     search,
+    staff_type: staffTypeFilter,       // NEW filter key
     medium_id: mediumFilter,
     course_id: courseFilter,
     course_level_id: courseLevelFilter,
@@ -88,7 +94,7 @@ export default function Teachers() {
     hasNextPage,
     isFetchingNextPage,
   } = useInfiniteQuery({
-    queryKey: ["teachers", filters],
+    queryKey: ["employees", filters],  // renamed to "employees"
     queryFn: ({ pageParam = 0 }) => getTeachers({ pageParam, filters }),
     getNextPageParam: (lastPage, allPages) => {
       const totalFetched = allPages.reduce(
@@ -104,38 +110,40 @@ export default function Teachers() {
     staleTime: 5 * 60 * 1000,
   });
 
-  const teachers = data?.pages.flatMap((page) => page.data) || [];
+  const employees = data?.pages.flatMap((page) => page.data) || [];
 
+  // Mutations
   const createMutation = useMutation({
-    mutationFn: createTeacher,
+    mutationFn: (payload) => createTeacher(payload, ctx),
     onSuccess: () => {
-      toast.success("Teacher created");
-      queryClient.invalidateQueries({ queryKey: ["teachers"] });
+      toast.success("Employee created");
+      queryClient.invalidateQueries({ queryKey: ["employees"] });
       setShowForm(false);
     },
-    onError: () => toast.error("Failed to create teacher"),
+    onError: () => toast.error("Failed to create employee"),
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, payload }) => updateTeacher(id, payload),
+    mutationFn: ({ id, payload }) => updateTeacher(id, payload, ctx),
     onSuccess: () => {
-      toast.success("Teacher updated");
-      queryClient.invalidateQueries({ queryKey: ["teachers"] });
+      toast.success("Employee updated");
+      queryClient.invalidateQueries({ queryKey: ["employees"] });
       setEditing(null);
     },
-    onError: () => toast.error("Failed to update teacher"),
+    onError: () => toast.error("Failed to update employee"),
   });
 
   const deleteMutation = useMutation({
-    mutationFn: deleteTeacher,
+    mutationFn: (id) => deleteTeacher(id, ctx),
     onSuccess: () => {
-      toast.success("Teacher deleted");
-      queryClient.invalidateQueries({ queryKey: ["teachers"] });
+      toast.success("Employee deleted");
+      queryClient.invalidateQueries({ queryKey: ["employees"] });
     },
     onError: () =>
-      toast.error("Deletion failed. The teacher may be assigned to a batch."),
+      toast.error("Deletion failed. The employee may be assigned to a batch."),
   });
 
+  // CSV import – updated to include new fields
   async function handleCSVImport(event) {
     const file = event.target.files[0];
     if (!file) return;
@@ -156,17 +164,24 @@ export default function Teachers() {
               joining_date: row.joining_date || null,
               salary: row.salary ? Number(row.salary) : null,
               status: row.status || "active",
+              staff_type: row.staff_type || "teacher",
+              department: row.department || "",
+              designation: row.designation || "",
+              date_of_birth: row.date_of_birth || null,
+              gender: row.gender || "",
+              emergency_contact: row.emergency_contact || "",
+              bank_account_details: row.bank_account_details || null,
               medium_ids: row.medium_id ? [Number(row.medium_id)] : [],
               course_ids: row.course_id ? [Number(row.course_id)] : [],
             };
-            await createTeacher(payload);
+            await createTeacher(payload, ctx);
             successCount++;
           } catch (err) {
             console.error(err);
           }
         }
-        toast.success(`${successCount} teachers imported`);
-        queryClient.invalidateQueries({ queryKey: ["teachers"] });
+        toast.success(`${successCount} employees imported`);
+        queryClient.invalidateQueries({ queryKey: ["employees"] });
       },
       error: () => toast.error("CSV parsing error"),
     });
@@ -186,6 +201,13 @@ export default function Teachers() {
           joining_date: t.joining_date,
           salary: t.salary,
           status: t.status,
+          staff_type: t.staff_type,
+          department: t.department,
+          designation: t.designation,
+          date_of_birth: t.date_of_birth,
+          gender: t.gender,
+          emergency_contact: t.emergency_contact,
+          bank_account_details: typeof t.bank_account_details === 'object' ? JSON.stringify(t.bank_account_details) : t.bank_account_details,
           mediums: (t.mediums || []).join(", "),
           courses: (t.courses || []).join(", "),
           course_levels: (t.course_levels || []).join(", "),
@@ -196,7 +218,7 @@ export default function Teachers() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = "teachers.csv";
+      a.download = "employees.csv";
       a.click();
       URL.revokeObjectURL(url);
     } catch (err) {
@@ -212,7 +234,6 @@ export default function Teachers() {
     }
   }
 
-  // ID Card handler
   async function handlePrintIdCard(teacherId) {
     try {
       await generateIdCard({ type: "teacher", id: teacherId });
@@ -230,21 +251,34 @@ export default function Teachers() {
   }
 
   function handleDelete(id) {
-    if (!window.confirm("Delete this teacher?")) return;
+    if (!window.confirm("Delete this employee?")) return;
     deleteMutation.mutate(id);
   }
 
   const truncateId = (uuid) =>
     uuid ? `${uuid.substring(0, 8)}...${uuid.substring(uuid.length - 4)}` : null;
 
+  // Helper to format staff_type for display
+  const formatStaffType = (type) => {
+    const types = {
+      teacher: "Teacher",
+      admin: "Administrator",
+      accountant: "Accountant",
+      librarian: "Librarian",
+      support: "Support Staff",
+      other: "Other",
+    };
+    return types[type] || type || "—";
+  };
+
   return (
     <AdminLayout>
       <BackButton to="/hr-hub" label="HR & Staff Hub" />
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
         <div>
-          <h1 className="text-3xl font-righteous text-primary-dark">Teachers</h1>
+          <h1 className="text-3xl font-righteous text-primary-dark">Employees</h1>
           <p className="text-sm text-secondary-dark font-montserrat mt-1">
-            Manage your teaching staff
+            Manage all staff members
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -252,7 +286,7 @@ export default function Teachers() {
             onClick={() => setShowForm(true)}
             className="bg-primary hover:bg-primary-light text-white px-5 py-2.5 rounded-lg transition font-montserrat text-sm flex items-center gap-2"
           >
-            <UserRoundPlus size={18} /> Add Teacher
+            <UserRoundPlus size={18} /> Add Employee
           </button>
           <button
             onClick={handleCSVExport}
@@ -303,6 +337,23 @@ export default function Teachers() {
       {/* Filter Panel */}
       {showFilters && (
         <div className="bg-white rounded-xl p-4 shadow-sm mb-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 border border-secondary-light">
+          {/* Staff Type filter (NEW) */}
+          <div>
+            <label className="text-xs font-montserrat text-secondary-dark">Staff Type</label>
+            <select
+              value={staffTypeFilter}
+              onChange={(e) => setStaffTypeFilter(e.target.value)}
+              className="w-full border border-secondary-light rounded p-2 text-sm mt-1 focus:ring-1 focus:ring-primary"
+            >
+              <option value="">All Types</option>
+              <option value="teacher">Teacher</option>
+              <option value="admin">Administrator</option>
+              <option value="accountant">Accountant</option>
+              <option value="librarian">Librarian</option>
+              <option value="support">Support Staff</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
           <div>
             <label className="text-xs font-montserrat text-secondary-dark">Medium</label>
             <select
@@ -359,6 +410,7 @@ export default function Teachers() {
             <button
               onClick={() => {
                 setSearch("");
+                setStaffTypeFilter("");
                 setMediumFilter("");
                 setCourseFilter("");
                 setCourseLevelFilter("");
@@ -375,11 +427,14 @@ export default function Teachers() {
       {/* Table */}
       <div className="bg-white rounded-xl shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1300px]">
+          <table className="w-full min-w-[1500px]">
             <thead className="bg-slate-100 border-b border-secondary-light">
               <tr>
                 <th className="p-3 text-left text-sm font-montserrat text-secondary-dark">Code</th>
                 <th className="text-left text-sm font-montserrat text-secondary-dark">Name</th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">Type</th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">Dept.</th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">Designation</th>
                 <th className="text-left text-sm font-montserrat text-secondary-dark">Mobile</th>
                 <th className="text-left text-sm font-montserrat text-secondary-dark">Email</th>
                 <th className="text-left text-sm font-montserrat text-secondary-dark">Linked Account</th>
@@ -395,43 +450,46 @@ export default function Teachers() {
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan={12} className="p-6 text-center text-secondary">Loading teachers…</td>
+                  <td colSpan={15} className="p-6 text-center text-secondary">Loading employees…</td>
                 </tr>
-              ) : teachers.length === 0 ? (
+              ) : employees.length === 0 ? (
                 <tr>
-                  <td colSpan={12} className="p-6 text-center text-secondary">
+                  <td colSpan={15} className="p-6 text-center text-secondary">
                     <div className="flex flex-col items-center gap-2">
                       <Search size={32} className="text-secondary-light" />
-                      <span>No teachers found</span>
+                      <span>No employees found</span>
                       <span className="text-xs text-secondary-light">
-                        {search || mediumFilter || courseFilter || courseLevelFilter || subjectFilter
+                        {search || staffTypeFilter || mediumFilter || courseFilter || courseLevelFilter || subjectFilter
                           ? "Try adjusting your filters"
-                          : "Add a new teacher to get started"}
+                          : "Add a new employee to get started"}
                       </span>
                     </div>
                   </td>
                 </tr>
               ) : (
-                teachers.map((teacher) => (
+                employees.map((emp) => (
                   <tr
-                    key={teacher.id}
+                    key={emp.id}
                     className="border-b border-secondary-light hover:bg-primary-bg transition"
                   >
-                    <td className="p-3 text-sm">{teacher.employee_code || "-"}</td>
+                    <td className="p-3 text-sm">{emp.employee_code || "-"}</td>
                     <td className="text-sm font-medium">
-                      {teacher.first_name} {teacher.last_name}
+                      {emp.first_name} {emp.last_name}
                     </td>
-                    <td className="text-sm">{teacher.mobile}</td>
-                    <td className="text-sm">{teacher.email || "-"}</td>
+                    <td className="text-sm">{formatStaffType(emp.staff_type)}</td>
+                    <td className="text-sm">{emp.department || "—"}</td>
+                    <td className="text-sm">{emp.designation || "—"}</td>
+                    <td className="text-sm">{emp.mobile || "—"}</td>
+                    <td className="text-sm">{emp.email || "—"}</td>
                     <td className="text-sm">
-                      {teacher.user_id ? (
+                      {emp.user_id ? (
                         <div className="flex items-center gap-1">
                           <LinkIcon size={14} className="text-green-600" />
                           <span
                             className="text-green-700 cursor-help"
-                            title={teacher.user_id}
+                            title={emp.user_id}
                           >
-                            {teacher.email || truncateId(teacher.user_id)}
+                            {emp.email || truncateId(emp.user_id)}
                           </span>
                         </div>
                       ) : (
@@ -441,55 +499,54 @@ export default function Teachers() {
                         </div>
                       )}
                     </td>
-                    <td className="text-sm">{teacher.qualification || "-"}</td>
+                    <td className="text-sm">{emp.qualification || "—"}</td>
                     <td className="text-sm">
-                      {teacher.mediums?.length > 0
-                        ? teacher.mediums.map((m) => m.name).join(", ")
+                      {emp.mediums?.length > 0
+                        ? emp.mediums.map((m) => m.name).join(", ")
                         : "—"}
                     </td>
                     <td className="text-sm">
-                      {teacher.courses?.length > 0
-                        ? teacher.courses.map((c) => c.name).join(", ")
+                      {emp.courses?.length > 0
+                        ? emp.courses.map((c) => c.name).join(", ")
                         : "—"}
                     </td>
                     <td className="text-sm">
-                      {teacher.course_levels?.length > 0
-                        ? teacher.course_levels.map((cl) => cl.name).join(", ")
+                      {emp.course_levels?.length > 0
+                        ? emp.course_levels.map((cl) => cl.name).join(", ")
                         : "—"}
                     </td>
                     <td className="text-sm">
-                      {teacher.subjects?.length > 0
-                        ? teacher.subjects.map((s) => s.name).join(", ")
+                      {emp.subjects?.length > 0
+                        ? emp.subjects.map((s) => s.name).join(", ")
                         : "—"}
                     </td>
                     <td className="text-sm">
-                      {teacher.salary
-                        ? `₹${Number(teacher.salary).toLocaleString()}`
-                        : "-"}
+                      {emp.salary
+                        ? `₹${Number(emp.salary).toLocaleString()}`
+                        : "—"}
                     </td>
                     <td className="text-sm">
                       <div className="flex gap-2 flex-wrap">
                         <button
-                          onClick={() => setEditing(teacher)}
+                          onClick={() => setEditing(emp)}
                           className="text-blue-600 hover:underline"
                         >
                           Edit
                         </button>
                         <button
-                          onClick={() => handleDelete(teacher.id)}
+                          onClick={() => handleDelete(emp.id)}
                           className="text-red-600 hover:underline"
                         >
                           Delete
                         </button>
                         <button
-                          onClick={() => handlePrintResume(teacher.id)}
+                          onClick={() => handlePrintResume(emp.id)}
                           className="text-green-600 hover:underline flex items-center gap-1"
                         >
                           <Printer size={14} /> Resume
                         </button>
-                        {/* ID Card Button */}
                         <button
-                          onClick={() => handlePrintIdCard(teacher.id)}
+                          onClick={() => handlePrintIdCard(emp.id)}
                           className="text-indigo-600 hover:underline flex items-center gap-1"
                         >
                           <CreditCard size={14} /> ID Card

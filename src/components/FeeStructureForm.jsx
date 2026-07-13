@@ -1,13 +1,16 @@
 // src/components/FeeStructureForm.jsx
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../api/supabase';
+import { useOrg } from '../context/OrganizationContext';   // NEW
 import toast from 'react-hot-toast';
 import { X, Plus, Trash2 } from 'lucide-react';
 
 export default function FeeStructureForm({ isOpen, onClose, onSuccess, initialData = null }) {
+  const { branch, selectedFinancialYear } = useOrg();      // NEW
+
   const [form, setForm] = useState({ 
     course_id: '',
-    installment_allowed: false   // NEW
+    installment_allowed: false
   });
 
   const [components, setComponents] = useState([
@@ -21,7 +24,7 @@ export default function FeeStructureForm({ isOpen, onClose, onSuccess, initialDa
     if (initialData) {
       setForm({
         course_id: initialData.course_id || '',
-        installment_allowed: initialData.installment_allowed || false   // NEW
+        installment_allowed: initialData.installment_allowed || false
       });
       const comps = (initialData.fee_structure_components || []).map((c) => ({
         component_name: c.component_name || '',
@@ -30,7 +33,7 @@ export default function FeeStructureForm({ isOpen, onClose, onSuccess, initialDa
       }));
       setComponents(comps.length ? comps : [{ component_name: '', amount: '', tax_rate_id: '' }]);
     } else {
-      setForm({ course_id: '', installment_allowed: false });   // NEW
+      setForm({ course_id: '', installment_allowed: false });
       setComponents([{ component_name: '', amount: '', tax_rate_id: '' }]);
     }
   }, [initialData]);
@@ -54,7 +57,6 @@ export default function FeeStructureForm({ isOpen, onClose, onSuccess, initialDa
     setForm({ ...form, course_id: e.target.value });
   };
 
-  // NEW handler for checkbox
   const handleInstallmentChange = (e) => {
     setForm({ ...form, installment_allowed: e.target.checked });
   };
@@ -97,13 +99,17 @@ export default function FeeStructureForm({ isOpen, onClose, onSuccess, initialDa
     setLoading(true);
     try {
       const totalFee = components.reduce((sum, c) => sum + parseFloat(c.amount), 0);
+      const branchId = branch?.id;
+      const financialYearId = selectedFinancialYear?.id;
 
       const feeStructurePayload = {
         course_id: form.course_id,
         fee_amount: totalFee,
-        installment_allowed: form.installment_allowed,   // NEW
+        installment_allowed: form.installment_allowed,
         tax_rate_id: null,
         tax_inclusive: false,
+        branch_id: branchId,                // NEW
+        financial_year_id: financialYearId, // NEW
       };
 
       let feeStructureId;
@@ -116,6 +122,7 @@ export default function FeeStructureForm({ isOpen, onClose, onSuccess, initialDa
           .single();
         if (updateError) throw updateError;
         feeStructureId = initialData.id;
+        // Delete old components (hard delete, RLS ensures only those belonging to user are deleted)
         await supabase
           .from('fee_structure_components')
           .delete()
@@ -130,12 +137,15 @@ export default function FeeStructureForm({ isOpen, onClose, onSuccess, initialDa
         feeStructureId = inserted.id;
       }
 
+      // Insert new components with branch and FY
       const componentInserts = components.map((comp, idx) => ({
         fee_structure_id: feeStructureId,
         component_name: comp.component_name.trim(),
         amount: parseFloat(comp.amount),
         tax_rate_id: comp.tax_rate_id || null,
         sort_order: idx,
+        branch_id: branchId,                // NEW
+        financial_year_id: financialYearId, // NEW
       }));
       const { error: compError } = await supabase
         .from('fee_structure_components')
@@ -182,7 +192,6 @@ export default function FeeStructureForm({ isOpen, onClose, onSuccess, initialDa
             </select>
           </div>
 
-          {/* NEW: Installments toggle */}
           <div className="flex items-center gap-2">
             <input
               type="checkbox"

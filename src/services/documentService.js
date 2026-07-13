@@ -1,3 +1,4 @@
+// src/services/documentService.js
 import { supabase } from "../api/supabase";
 
 // Get all documents for a student
@@ -13,7 +14,10 @@ export async function getStudentDocuments(studentId) {
 }
 
 // Upload a document file + create database record
-export async function uploadStudentDocument(studentId, file, documentType) {
+// context: { branchId, financialYearId }
+export async function uploadStudentDocument(studentId, file, documentType, context) {
+  const { branchId, financialYearId } = context;
+
   // 1. Upload file to storage
   const filePath = `${studentId}/${Date.now()}_${file.name}`;
   const { error: uploadError } = await supabase.storage
@@ -32,7 +36,7 @@ export async function uploadStudentDocument(studentId, file, documentType) {
 
   const publicUrl = urlData.publicUrl;
 
-  // 3. Insert record into student_documents
+  // 3. Insert record into student_documents (with branch & FY)
   const { data, error: dbError } = await supabase
     .from("student_documents")
     .insert([
@@ -41,6 +45,8 @@ export async function uploadStudentDocument(studentId, file, documentType) {
         document_type: documentType,
         file_name: file.name,
         file_path: publicUrl,
+        branch_id: branchId,
+        financial_year_id: financialYearId,
       },
     ])
     .select()
@@ -50,7 +56,7 @@ export async function uploadStudentDocument(studentId, file, documentType) {
   return data;
 }
 
-// Delete document (file + record)
+// Delete document (file + record) – RLS handles access
 export async function deleteStudentDocument(documentId, filePath) {
   // 1. Delete from storage
   const { error: storageError } = await supabase.storage

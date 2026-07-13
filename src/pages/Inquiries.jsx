@@ -8,7 +8,6 @@ import {
 import toast from "react-hot-toast";
 import {
   Search,
-  Plus,
   Edit3,
   Trash2,
   UserPlus,
@@ -32,9 +31,12 @@ import {
   getCourseOptions,
   getMediumOptions,
 } from "../services/inquiryService";
+import { useOrg } from "../context/OrganizationContext";
 
 export default function Inquiries() {
   const queryClient = useQueryClient();
+  const { branch, selectedFinancialYear } = useOrg();
+  const isBranchReady = !!branch?.id;
 
   // Filters
   const [search, setSearch] = useState("");
@@ -66,7 +68,10 @@ export default function Inquiries() {
     queryFn: ({ pageParam = 0 }) =>
       getInquiries({ pageParam, filters: allFilters }),
     getNextPageParam: (lastPage, allPages) => {
-      const totalFetched = allPages.reduce((sum, page) => sum + page.data.length, 0);
+      const totalFetched = allPages.reduce(
+        (sum, page) => sum + page.data.length,
+        0
+      );
       if (lastPage.count && totalFetched < lastPage.count) {
         return allPages.length;
       }
@@ -91,37 +96,62 @@ export default function Inquiries() {
     staleTime: 10 * 60 * 1000,
   });
 
-  // Mutations
+  // ── Helpers ──
+  // Convert empty strings to null (for date, integer, foreign key fields)
+  const cleanNullable = (value) => (value === "" ? null : value);
+  const cleanPayload = (payload) => ({
+    ...payload,
+    inquiry_no: payload.inquiry_no || "INQ-" + Date.now(),
+    followup_date: cleanNullable(payload.followup_date),
+    interested_course_id: cleanNullable(payload.interested_course_id),
+    medium_id: cleanNullable(payload.medium_id),
+  });
+
+  // ────────── Mutations ──────────
   const createMutation = useMutation({
     mutationFn: async (payload) => {
-      payload.inquiry_no = "INQ-" + Date.now();
-      return createInquiry(payload);
+      const clean = cleanPayload(payload);
+      return createInquiry(clean, {
+        branchId: branch?.id,
+        financialYearId: selectedFinancialYear?.id,
+      });
     },
     onSuccess: () => {
       toast.success("Inquiry created");
       queryClient.invalidateQueries({ queryKey: ["inquiries"] });
       setShowForm(false);
     },
-    onError: () => toast.error("Failed to create inquiry"),
+    onError: (err) => {
+      console.error("Create inquiry error:", err);
+      toast.error("Failed to create inquiry: " + err.message);
+    },
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, payload }) => updateInquiry(id, payload),
+    mutationFn: ({ id, payload }) =>
+      updateInquiry(id, cleanPayload(payload), {
+        branchId: branch?.id,
+        financialYearId: selectedFinancialYear?.id,
+      }),
     onSuccess: () => {
       toast.success("Inquiry updated");
       queryClient.invalidateQueries({ queryKey: ["inquiries"] });
       setEditing(null);
     },
-    onError: () => toast.error("Failed to update inquiry"),
+    onError: (err) => toast.error("Failed to update inquiry: " + err.message),
   });
 
   const deleteMutation = useMutation({
-    mutationFn: deleteInquiry,
+    mutationFn: (id) =>
+      deleteInquiry(id, {
+        branchId: branch?.id,
+        financialYearId: selectedFinancialYear?.id,
+      }),
     onSuccess: () => {
       toast.success("Inquiry deleted");
       queryClient.invalidateQueries({ queryKey: ["inquiries"] });
     },
-    onError: () => toast.error("Failed to delete inquiry"),
+    onError: (err) => toast.error("Failed to delete inquiry: " + err.message),
   });
 
   const convertMutation = useMutation({
@@ -135,10 +165,10 @@ export default function Inquiries() {
         toast.error("Conversion failed");
       }
     },
-    onError: () => toast.error("Conversion error"),
+    onError: (err) => toast.error("Conversion error: " + err.message),
   });
 
-  // CSV Import
+  // CSV Import (with context and cleaning)
   async function handleCSVImport(event) {
     const file = event.target.files[0];
     if (!file) return;
@@ -149,25 +179,26 @@ export default function Inquiries() {
         let successCount = 0;
         for (const row of results.data) {
           try {
-            const payload = {
-              inquiry_no:
-                "INQ-" + Date.now() + Math.random().toString(36).substr(2, 5),
+            const payload = cleanPayload({
               student_name: row.student_name,
               parent_name: row.parent_name,
               mobile: row.mobile,
               whatsapp: row.whatsapp,
               email: row.email,
-              interested_course_id: row.interested_course_id || null,
-              medium_id: row.medium_id || null, // NEW – accept medium_id from CSV
+              interested_course_id: row.interested_course_id || "",
+              medium_id: row.medium_id || "",
               source: row.source || "",
               remarks: row.remarks || "",
-              followup_date: row.followup_date || null,
+              followup_date: row.followup_date || "",
               status: row.status || "New",
-            };
-            await createInquiry(payload);
+            });
+            await createInquiry(payload, {
+              branchId: branch?.id,
+              financialYearId: selectedFinancialYear?.id,
+            });
             successCount++;
           } catch (err) {
-            console.error(err);
+            console.error("CSV import error:", err);
           }
         }
         toast.success(`${successCount} inquiries imported`);
@@ -192,7 +223,7 @@ export default function Inquiries() {
           interested_course: courses.find(
             (c) => c.id === inq.interested_course_id
           )?.course_name,
-          medium: inq.medium_name || "", // NEW – export medium name
+          medium: inq.medium_name || "",
           source: inq.source,
           status: inq.status,
           followup_date: inq.followup_date,
@@ -235,7 +266,6 @@ export default function Inquiries() {
     convertMutation.mutate(inquiry);
   }
 
-  // Helper to get course name
   function getCourseName(courseId) {
     const course = courses.find((c) => c.id === courseId);
     return course ? course.course_name : "—";
@@ -257,7 +287,9 @@ export default function Inquiries() {
         <div className="flex flex-wrap gap-2">
           <button
             onClick={() => setShowForm(true)}
-            className="bg-primary hover:bg-primary-light text-white px-5 py-2.5 rounded-lg transition font-montserrat text-sm flex items-center gap-2"
+            disabled={!isBranchReady}
+            className="bg-primary hover:bg-primary-light text-white px-5 py-2.5 rounded-lg transition font-montserrat text-sm flex items-center gap-2 disabled:opacity-50"
+            title={!isBranchReady ? "Loading branch data…" : ""}
           >
             <PhoneCall size={18} /> New Inquiry
           </button>
@@ -354,7 +386,6 @@ export default function Inquiries() {
             </select>
           </div>
 
-          {/* NEW – Medium filter */}
           <div>
             <label className="text-xs font-montserrat text-secondary-dark">
               Medium

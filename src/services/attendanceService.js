@@ -1,3 +1,4 @@
+// src/services/attendanceService.js
 import { supabase } from "../api/supabase";
 
 // ============================
@@ -122,25 +123,25 @@ export async function getAllAttendanceSessionsForExport(filters = {}) {
 }
 
 // ============================
-// CRUD (unchanged)
+// CRUD (with financial_year_id)
 // ============================
 
-export async function createAttendanceSession(payload) {
+export async function createAttendanceSession(payload, financialYearId) {
   const { created_by, ...rest } = payload;
 
   const { data, error } = await supabase
     .from("attendance_sessions")
-    .insert([{ ...rest, created_by: created_by || null }])
+    .insert([{ ...rest, created_by: created_by || null, financial_year_id: financialYearId }])
     .select()
     .single();
   if (error) throw error;
   return data;
 }
 
-export async function updateAttendanceSession(id, payload) {
+export async function updateAttendanceSession(id, payload, financialYearId) {
   const { data, error } = await supabase
     .from("attendance_sessions")
-    .update(payload)
+    .update({ ...payload, financial_year_id: financialYearId })
     .eq("id", id)
     .select()
     .single();
@@ -157,7 +158,7 @@ export async function deleteAttendanceSession(id) {
 }
 
 // ============================
-// MARKING ATTENDANCE HELPERS (unchanged)
+// MARKING ATTENDANCE HELPERS
 // ============================
 
 export async function getStudentsByBatch(batchId) {
@@ -188,7 +189,8 @@ export async function getMarkedAttendance(sessionId) {
   return data;
 }
 
-export async function saveAttendance(sessionId, records) {
+export async function saveAttendance(sessionId, records, financialYearId) {
+  // First delete existing records (soft delete already done by service? Actually we use hard delete below)
   const { error: deleteError } = await supabase
     .from("student_attendance")
     .delete()
@@ -197,11 +199,13 @@ export async function saveAttendance(sessionId, records) {
 
   if (records.length === 0) return;
 
+  // Attach financial_year_id to each record
   const payload = records.map((r) => ({
     session_id: sessionId,
     student_id: r.student_id,
     status: r.status,
     remarks: r.remarks || "",
+    financial_year_id: financialYearId,
   }));
 
   const { error: insertError } = await supabase

@@ -6,12 +6,16 @@ import AdminLayout from "../layouts/AdminLayout";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../api/supabase";
 import BackButton from "../components/BackButton";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 
 export default function MyLeaves() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ start_date: "", end_date: "", reason: "" });
+
+  // ── Organisation / Branch / Financial Year context ──
+  const { branch, selectedFinancialYear } = useOrg();   // NEW
 
   const { data: teacherId } = useQuery({
     queryKey: ["teacher-id", user?.id],
@@ -28,12 +32,10 @@ export default function MyLeaves() {
     enabled: !!user?.id,
   });
 
-  // Try both table names gracefully
   const { data: leaves = [], isLoading } = useQuery({
     queryKey: ["my-leaves", teacherId],
     queryFn: async () => {
       if (!teacherId) return [];
-      // Try teacher_leaves first, fall back to leaves
       const { data: d1, error: e1 } = await supabase
         .from("teacher_leaves")
         .select("*")
@@ -53,14 +55,21 @@ export default function MyLeaves() {
 
   const createMutation = useMutation({
     mutationFn: async (payload) => {
+      const enriched = {
+        ...payload,
+        teacher_id: teacherId,
+        status: "Pending",
+        branch_id: branch?.id,                         // NEW
+        financial_year_id: selectedFinancialYear?.id,  // NEW
+      };
       // Try teacher_leaves first, fall back to leaves
       const { error: e1 } = await supabase
         .from("teacher_leaves")
-        .insert({ ...payload, teacher_id: teacherId, status: "Pending" });
+        .insert(enriched);
       if (!e1) return;
       const { error: e2 } = await supabase
         .from("leaves")
-        .insert({ ...payload, teacher_id: teacherId, status: "Pending" });
+        .insert(enriched);
       if (e2) throw e2;
     },
     onSuccess: () => {

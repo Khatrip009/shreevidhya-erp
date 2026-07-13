@@ -1,13 +1,12 @@
-import { jsPDF, GState } from "jspdf";
+// src/utils/profitLossPdf.js
+import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
-import { getOrganization } from "../services/organizationService";
 import { supabase } from "../api/supabase";
 
 // ─── HELPERS ────────────────────────────────────────────────────────────────
 
 const formatCurrency = (amount) => `Rs.${amount.toLocaleString("en-IN")}`;
 
-// Number to Indian words (unchanged)
 function numberToWords(num) {
   if (num === 0) return "Zero";
   const a = [
@@ -32,7 +31,6 @@ function numberToWords(num) {
   return word + " Only";
 }
 
-// Fetch detailed rows (unchanged)
 async function fetchDetailedIncomes(startDate, endDate) {
   const { data, error } = await supabase
     .from("income")
@@ -55,7 +53,6 @@ async function fetchDetailedExpenses(startDate, endDate) {
   return data || [];
 }
 
-// Group data by month (unchanged)
 function groupByMonth(data, dateField, amountField) {
   const months = {};
   data.forEach(row => {
@@ -67,17 +64,18 @@ function groupByMonth(data, dateField, amountField) {
   return Object.entries(months).sort().map(([label, total]) => ({ label, total }));
 }
 
-// ─── DRAW MONTHLY TREND CHART ──────────────────────────────────────────────
+// ─── CHART FUNCTIONS (scaled for A4 portrait) ─────────────────────────────
+
 function drawMonthlyChart(doc, startY, incomes, expenses) {
   const pageWidth = doc.internal.pageSize.getWidth();
   const margin = 20;
   const chartWidth = pageWidth - 2 * margin;
-  const chartHeight = 80;
+  const chartHeight = 70;
   const x = margin;
   const y = startY;
   const maxMonths = Math.max(incomes.length, expenses.length, 1);
   const colWidth = Math.min((chartWidth / maxMonths) - 4, 22);
-  if (colWidth < 5) return startY + 10;
+  if (colWidth < 6) return startY + 10;
 
   const allMonths = [...new Set([...incomes.map(i => i.label), ...expenses.map(e => e.label)])].sort();
   const maxVal = Math.max(
@@ -89,12 +87,11 @@ function drawMonthlyChart(doc, startY, incomes, expenses) {
     1
   );
 
-  // axis
   doc.setDrawColor(200);
   doc.line(x, y + chartHeight, x + chartWidth, y + chartHeight);
   doc.line(x, y, x, y + chartHeight);
 
-  let colX = x + 5;
+  let colX = x + 4;
   allMonths.forEach(month => {
     const inc = incomes.find(i => i.label === month)?.total || 0;
     const exp = expenses.find(e => e.label === month)?.total || 0;
@@ -125,7 +122,6 @@ function drawMonthlyChart(doc, startY, incomes, expenses) {
   return y + chartHeight + 18;
 }
 
-// ─── DRAW PIE CHART ─────────────────────────────────────────────────────────
 function drawPieChart(doc, cx, cy, radius, data, colors) {
   const total = data.reduce((sum, d) => sum + d.value, 0);
   if (total === 0) return;
@@ -150,130 +146,119 @@ function drawPieChart(doc, cx, cy, radius, data, colors) {
   });
 }
 
-// ─── MAIN FUNCTION ───────────────────────────────────────────────────────────
+// ─── MAIN FUNCTION (A4 PORTRAIT) ─────────────────────────────────────────
 
 export async function generateProfitLossPdf(summary, startDate, endDate, periodLabel) {
-  const org = await getOrganization();
+  // Fetch organisation (for letterhead)
+  const { data: org } = await supabase
+    .from("organization")
+    .select("company_name, letterhead_url")
+    .eq("id", 1)
+    .single();
+
+  const orgName = org?.company_name || "ShreeVidhya Academy";
+  const letterheadUrl = org?.letterhead_url || null;
+
+  // Load letterhead as base64
+  let letterheadBase64 = null;
+  if (letterheadUrl) {
+    try {
+      const response = await fetch(letterheadUrl);
+      const blob = await response.blob();
+      letterheadBase64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+    } catch (e) { /* ignore */ }
+  }
+
   const incomes = await fetchDetailedIncomes(startDate, endDate);
   const expenses = await fetchDetailedExpenses(startDate, endDate);
 
-  const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
-  const pageWidth = doc.internal.pageSize.getWidth();
-  const pageHeight = doc.internal.pageSize.getHeight();
+  // A4 Portrait
+  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  const pageWidth = doc.internal.pageSize.getWidth();   // 210 mm
+  const pageHeight = doc.internal.pageSize.getHeight(); // 297 mm
 
-  // ── Watermark ──
-  if (org?.logo_dark_url) {
-    try {
-      const imgData = await fetch(org.logo_dark_url)
-        .then(r => r.blob())
-        .then(blob => new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onloadend = () => resolve(reader.result);
-          reader.onerror = reject;
-          reader.readAsDataURL(blob);
-        }));
-      doc.setGState(new GState({ opacity: 0.04 }));
-      doc.addImage(imgData, "PNG", (pageWidth - 120) / 2, (pageHeight - 120) / 2, 120, 120);
-      doc.setGState(new GState({ opacity: 1 }));
-    } catch (e) {}
-  }
+  // Full‑page letterhead on every page
+  const addLetterhead = () => {
+    if (letterheadBase64) {
+      doc.addImage(letterheadBase64, "PNG", 0, 0, pageWidth, pageHeight);
+    }
+  };
+  addLetterhead();
 
-  // ── Header ──
-  let headerY = 12;
-  if (org?.logo_dark_url) {
-    try {
-      const logoImg = await fetch(org.logo_dark_url)
-        .then(r => r.blob())
-        .then(blob => new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onloadend = () => resolve(reader.result);
-          reader.onerror = reject;
-          reader.readAsDataURL(blob);
-        }));
-      doc.addImage(logoImg, "PNG", 14, 8, 30, 30);
-      headerY = 22;
-    } catch (e) {}
-  }
+  const topMargin = 85;   // consistent with other A4 reports
+  let y = topMargin;
+
+  // ── Title ──
   doc.setFont("times", "bold");
   doc.setFontSize(24);
   doc.setTextColor("#0D47A1");
-  doc.text(org?.name || "ShreeVidhya Academy", 50, 22);
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(9);
-  doc.setTextColor("#4B5563");
-  doc.text(org?.address || "", 50, 30);
-  if (org?.phone) doc.text(`Phone: ${org.phone}`, 50, 37);
-  if (org?.email) doc.text(`Email: ${org.email}`, 50, 44);
-
-  const titleY = 55;
-  doc.setFont("times", "bold");
-  doc.setFontSize(26);
-  doc.setTextColor("#0D47A1");
-  doc.text("Profit & Loss Statement", pageWidth / 2, titleY, { align: "center" });
+  doc.text("Profit & Loss Statement", pageWidth / 2, y, { align: "center" });
+  y += 8;
   doc.setFont("helvetica", "normal");
   doc.setFontSize(12);
   doc.setTextColor("#4B5563");
-  doc.text(`Period: ${periodLabel}`, pageWidth / 2, titleY + 8, { align: "center" });
+  doc.text(`Period: ${periodLabel}`, pageWidth / 2, y, { align: "center" });
+  y += 14;
 
-  // ── KPI Cards (FIXED: adjust width and gap to fit) ──
-  const cardY = titleY + 18;
-  const cardW = 63; // reduced from 70
-  const gap = 6;
-  const startX = 14;
-  const kpiColor = "#0D47A1";
-  const kpiBg = "#F0F7FF";
+  // ── KPI Cards (two rows of two, fitting portrait width) ──
+  const cardWidth = 88;
+  const cardHeight = 26;
+  const cardGap = 10;
+  const cardsX1 = (pageWidth - 2 * cardWidth - cardGap) / 2;
+  const cardsX2 = cardsX1 + cardWidth + cardGap;
+  const cardY1 = y;
 
-  // Helper to draw one card
-  function drawCard(x, label, value, valueColor = kpiColor, isNegative = false) {
-    doc.setFillColor(kpiBg);
-    doc.rect(x, cardY, cardW, 22, "F");
+  function drawKpiCard(x, y, label, value, valueColor = "#0D47A1") {
+    doc.setFillColor("#F0F7FF");
+    doc.roundedRect(x, y, cardWidth, cardHeight, 3, 3, "F");
     doc.setFont("helvetica", "normal");
-    doc.setFontSize(8); // smaller label
+    doc.setFontSize(9);
     doc.setTextColor("#4B5563");
-    doc.text(label, x + 3, cardY + 7);
+    doc.text(label, x + 4, y + 10);
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(12); // smaller value
+    doc.setFontSize(14);
     doc.setTextColor(valueColor);
-    doc.text(value, x + 3, cardY + 18);
+    doc.text(value, x + 4, y + 22);
   }
 
-  // Total Income
-  drawCard(startX, "Total Income", formatCurrency(summary.totalIncome), kpiColor);
+  drawKpiCard(cardsX1, cardY1, "Total Income", formatCurrency(summary.totalIncome));
+  drawKpiCard(cardsX2, cardY1, "Total Expenses", formatCurrency(summary.totalExpense));
 
-  // Total Expenses
-  drawCard(startX + cardW + gap, "Total Expenses", formatCurrency(summary.totalExpense), kpiColor);
-
-  // Net Profit/Loss
   const netText = summary.profit >= 0 ? formatCurrency(summary.profit) : `- ${formatCurrency(Math.abs(summary.profit))}`;
   const netColor = summary.profit >= 0 ? "#16a34a" : "#dc2626";
-  drawCard(startX + 2 * (cardW + gap), "Net P&L", netText, netColor);
+  drawKpiCard(cardsX1, cardY1 + cardHeight + 6, "Net P&L", netText, netColor);
 
-  // Profit Margin
   const marginPercent = summary.totalIncome > 0 ? ((summary.profit / summary.totalIncome) * 100).toFixed(1) : "0.0";
-  drawCard(startX + 3 * (cardW + gap), "Margin %", `${marginPercent}%`, kpiColor);
+  drawKpiCard(cardsX2, cardY1 + cardHeight + 6, "Margin %", `${marginPercent}%`);
 
-  // Net in Words (right-aligned)
+  y = cardY1 + 2 * cardHeight + 18;
+
+  // Net in words
   const netWords = numberToWords(Math.abs(summary.profit));
   const wordLabel = summary.profit >= 0
     ? `Net Profit in words: ${netWords}`
     : `Net Loss in words: ${netWords}`;
   doc.setFont("helvetica", "italic");
-  doc.setFontSize(9);
+  doc.setFontSize(10);
   doc.setTextColor("#4B5563");
-  doc.text(wordLabel, pageWidth - 14, cardY + 12, { align: "right" });
+  doc.text(wordLabel, pageWidth / 2, y, { align: "center" });
+  y += 14;
 
-  // ── Tables (side by side) ──
-  const tableStartY = cardY + 35;
-  const columnWidth = (pageWidth - 14 - 14 - 12) / 2;
-
-  // Expense Table (left)
+  // ── Expenses Table (stacked, full width) ──
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(12);
+  doc.setFontSize(14);
   doc.setTextColor("#0D47A1");
-  doc.text("Expenses Breakdown", 14, tableStartY);
+  doc.text("Expenses Breakdown", 14, y);
+  y += 6;
+
   autoTable(doc, {
-    startY: tableStartY + 5,
-    margin: { left: 14, right: pageWidth - 14 - columnWidth },
+    startY: y,
+    margin: { left: 14, right: 14 },
     head: [["Date", "Category", "Bill No", "Mode", "Amount"]],
     body: expenses.map(row => [
       row.expense_date,
@@ -284,21 +269,38 @@ export async function generateProfitLossPdf(summary, startDate, endDate, periodL
     ]),
     theme: "grid",
     headStyles: { fillColor: "#dc2626", textColor: "#FFFFFF", fontStyle: "bold", fontSize: 8 },
-    bodyStyles: { fontSize: 8, textColor: "#1F2937" },
+    bodyStyles: { fontSize: 9, textColor: "#1F2937" },
     alternateRowStyles: { fillColor: "#FEF2F2" },
-    tableWidth: columnWidth - 2,
-    pageBreak: "avoid",
+    didDrawPage: addLetterhead,   // letterhead on any overflow page
   });
 
-  // Income Table (right)
-  const rightStartX = 14 + columnWidth + 12;
+  y = doc.lastAutoTable.finalY + 8;
+
+  // Expenses total
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(12);
+  doc.setFontSize(10);
   doc.setTextColor("#0D47A1");
-  doc.text("Income Breakdown", rightStartX, tableStartY);
+  doc.text("Total Expenses:", 14, y);
+  doc.text(formatCurrency(summary.totalExpense), 50, y);
+  y += 12;
+
+  // ── Income Table (stacked) ──
+  // Check if enough space; if not, new page
+  if (y > pageHeight - 60) {
+    doc.addPage();
+    addLetterhead();
+    y = topMargin;
+  }
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(14);
+  doc.setTextColor("#0D47A1");
+  doc.text("Income Breakdown", 14, y);
+  y += 6;
+
   autoTable(doc, {
-    startY: tableStartY + 5,
-    margin: { left: rightStartX, right: 14 },
+    startY: y,
+    margin: { left: 14, right: 14 },
     head: [["Date", "Category", "Mode", "Amount"]],
     body: incomes.map(row => [
       row.income_date,
@@ -308,41 +310,37 @@ export async function generateProfitLossPdf(summary, startDate, endDate, periodL
     ]),
     theme: "grid",
     headStyles: { fillColor: "#16a34a", textColor: "#FFFFFF", fontStyle: "bold", fontSize: 8 },
-    bodyStyles: { fontSize: 8, textColor: "#1F2937" },
+    bodyStyles: { fontSize: 9, textColor: "#1F2937" },
     alternateRowStyles: { fillColor: "#F0FDF4" },
-    tableWidth: columnWidth - 2,
-    pageBreak: "avoid",
+    didDrawPage: addLetterhead,
   });
 
-  const finalTableY = Math.max(
-    doc.lastAutoTable.finalY,
-    doc.previousAutoTable?.finalY || tableStartY
-  ) + 8;
+  y = doc.lastAutoTable.finalY + 8;
 
-  // Totals under tables
+  // Income total
   doc.setFont("helvetica", "bold");
   doc.setFontSize(10);
   doc.setTextColor("#0D47A1");
-  doc.text("Total Expenses:", 14, finalTableY);
-  doc.text(formatCurrency(summary.totalExpense), 45, finalTableY);
-  doc.text("Total Income:", rightStartX, finalTableY);
-  doc.text(formatCurrency(summary.totalIncome), rightStartX + 30, finalTableY);
+  doc.text("Total Income:", 14, y);
+  doc.text(formatCurrency(summary.totalIncome), 50, y);
+  y += 15;
 
-  // ── PAGE 2: Charts ──
+  // ── CHARTS (page 2) ──
   doc.addPage();
+  addLetterhead();
+  let chartY = topMargin;
 
-  // Monthly trend chart
+  // Monthly trend
   const monthlyIncomes = groupByMonth(incomes, 'income_date', 'amount');
   const monthlyExpenses = groupByMonth(expenses, 'expense_date', 'amount');
-  let chartY = 25;
   doc.setFont("times", "bold");
-  doc.setFontSize(18);
+  doc.setFontSize(16);
   doc.setTextColor("#0D47A1");
   doc.text("Monthly Income vs Expenses", pageWidth / 2, chartY, { align: "center" });
   chartY += 8;
   chartY = drawMonthlyChart(doc, chartY + 5, monthlyIncomes, monthlyExpenses);
 
-  // ── Category pies ──
+  // Category pies (if space, else new page)
   const incomeCategoryTotals = {};
   incomes.forEach(r => {
     const cat = r.category || "Uncategorized";
@@ -356,31 +354,34 @@ export async function generateProfitLossPdf(summary, startDate, endDate, periodL
 
   const incData = Object.entries(incomeCategoryTotals).map(([label, value]) => ({ label, value }));
   const expData = Object.entries(expenseCategoryTotals).map(([label, value]) => ({ label, value }));
-
   const pieColors = ["#0D47A1", "#1565C0", "#1976D2", "#1E88E5", "#42A5F5", "#64B5F6", "#90CAF9", "#BBDEFB"];
 
   if (incData.length > 0 || expData.length > 0) {
-    chartY += 8;
+    if (chartY + 80 > pageHeight) {
+      doc.addPage();
+      addLetterhead();
+      chartY = topMargin;
+    }
     doc.setFont("times", "bold");
-    doc.setFontSize(16);
+    doc.setFontSize(15);
     doc.setTextColor("#0D47A1");
     doc.text("Category Distribution", pageWidth / 2, chartY, { align: "center" });
+    chartY += 10;
 
-    const pieCY = chartY + 15;
-    const pieRadius = 28;
+    const pieRadius = 24;
+    const pieCY = chartY + 10;
 
     // Income pie (left)
     if (incData.length > 0) {
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(11);
+      doc.setFontSize(10);
       doc.setTextColor("#16a34a");
-      doc.text("Income Categories", 40, pieCY - 4);
-      drawPieChart(doc, 60, pieCY + 15, pieRadius, incData, pieColors);
-      // Legend
-      let legendX = 98;
-      let legendY = pieCY - 6;
+      doc.text("Income Categories", 20, pieCY - 4);
+      drawPieChart(doc, 55, pieCY + 15, pieRadius, incData, pieColors);
+      let legendX = 90;
+      let legendY = pieCY;
       incData.forEach((item, i) => {
-        if (legendY > pageHeight - 25) return;
+        if (legendY > pageHeight - 20) return;
         doc.setFillColor(pieColors[i % pieColors.length]);
         doc.rect(legendX, legendY, 6, 6, "F");
         doc.setFont("helvetica", "normal");
@@ -393,16 +394,16 @@ export async function generateProfitLossPdf(summary, startDate, endDate, periodL
 
     // Expense pie (right)
     if (expData.length > 0) {
-      const expPieX = pageWidth - 70;
+      const expCX = pageWidth - 55;
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(11);
+      doc.setFontSize(10);
       doc.setTextColor("#dc2626");
-      doc.text("Expense Categories", pageWidth - 40 - 50, pieCY - 4);
-      drawPieChart(doc, pageWidth - 60, pieCY + 15, pieRadius, expData, pieColors);
-      let legendX = pageWidth - 50;
-      let legendY = pieCY - 6;
+      doc.text("Expense Categories", pageWidth - 40 - 60, pieCY - 4);
+      drawPieChart(doc, expCX, pieCY + 15, pieRadius, expData, pieColors);
+      let legendX = pageWidth - 45;
+      let legendY = pieCY;
       expData.forEach((item, i) => {
-        if (legendY > pageHeight - 25) return;
+        if (legendY > pageHeight - 20) return;
         doc.setFillColor(pieColors[i % pieColors.length]);
         doc.rect(legendX, legendY, 6, 6, "F");
         doc.setFont("helvetica", "normal");
@@ -413,29 +414,20 @@ export async function generateProfitLossPdf(summary, startDate, endDate, periodL
       });
     }
 
-    // Determine if audit notes can fit on this page
-    const maxLegendHeight = Math.max(
-      (incData.length ? 10 + incData.length * 8 : 0),
-      (expData.length ? 10 + expData.length * 8 : 0)
+    chartY = pieCY + 40 + Math.max(
+      incData.length * 8,
+      expData.length * 8
     );
-    const pieBottom = pieCY + 40 + maxLegendHeight;
-    if (pieBottom > pageHeight - 50) {
-      doc.addPage();
-      chartY = 20;
-    } else {
-      chartY = pieBottom + 10;
-    }
-  } else {
-    chartY += 20;
   }
 
-  // ── Audit Notes (on same page if space, else new page) ──
-  if (chartY > pageHeight - 80) {
+  // ── Audit Notes ──
+  if (chartY > pageHeight - 70) {
     doc.addPage();
-    chartY = 20;
+    addLetterhead();
+    chartY = topMargin;
   }
 
-  const auditY = Math.min(chartY + 5, pageHeight - 75);
+  const auditY = chartY + 8;
   doc.setFont("helvetica", "bold");
   doc.setFontSize(12);
   doc.setTextColor("#0D47A1");
@@ -453,30 +445,24 @@ export async function generateProfitLossPdf(summary, startDate, endDate, periodL
   doc.setFontSize(9);
   doc.setTextColor("#4B5563");
   let noteY = auditY + 12;
-  notes.forEach((note, idx) => {
+  notes.forEach((note) => {
     if (noteY > pageHeight - 15) {
       doc.addPage();
-      noteY = 20;
+      addLetterhead();
+      noteY = topMargin;
     }
     doc.text(note, 20, noteY);
     noteY += 7;
   });
 
-  // ── Footer ──
+  // ── Page numbers ──
   const totalPages = doc.getNumberOfPages();
   for (let i = 1; i <= totalPages; i++) {
     doc.setPage(i);
-    const footerY = pageHeight - 12;
     doc.setFont("helvetica", "normal");
-    doc.setFontSize(8);
-    doc.setTextColor("#9CA3AF");
-    doc.text(
-      `Generated on ${new Date().toLocaleString("en-IN")} | ${org?.name || "ShreeVidhya Academy"}`,
-      pageWidth / 2,
-      footerY,
-      { align: "center" }
-    );
-    doc.text(`Page ${i} of ${totalPages}`, pageWidth - 20, footerY, { align: "right" });
+    doc.setFontSize(7);
+    doc.setTextColor("#aaa");
+    doc.text(`Page ${i} of ${totalPages}`, pageWidth - 15, pageHeight - 8, { align: "right" });
   }
 
   doc.save(`Profit_Loss_${periodLabel.replace(/\s+/g, "_")}.pdf`);

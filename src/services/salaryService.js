@@ -30,8 +30,24 @@ export async function getExistingSalaryPayments(month, year) {
   return data || [];
 }
 
+// ─── GET TOTAL LECTURES FOR A TEACHER IN A MONTH ──────────
+async function getTeacherLectureCount(teacherId, startDate, endDate) {
+  const { data } = await supabase
+    .from('attendance_sessions')
+    .select('teacher_id')
+    .gte('attendance_date', startDate)
+    .lte('attendance_date', endDate)
+    .eq('teacher_id', teacherId);
+  return (data || []).length;
+}
+
 // ─── GENERATE SALARY FOR A SINGLE TEACHER ─────────────────
-export async function generateTeacherSalary(teacherId, month, year) {
+// If grossAmount is provided (from the frontend), use it directly.
+// Otherwise calculate it from the teacher's settings and actual lecture count.
+// context: { branchId, financialYearId }
+export async function generateTeacherSalary(teacherId, month, year, grossAmount = null, context) {
+  const { branchId, financialYearId } = context;
+
   // 1. Get teacher details
   const { data: teacher, error: tErr } = await supabase
     .from('teachers')
@@ -43,27 +59,27 @@ export async function generateTeacherSalary(teacherId, month, year) {
   const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
   const endDate = new Date(year, month, 0).toISOString().split('T')[0]; // last day
 
-  let grossAmount = 0;
+  let finalGross = grossAmount;
   let totalLectures = 0;
 
-  if (teacher.salary_type === 'fixed') {
-    grossAmount = teacher.monthly_salary || 0;
-  } else if (teacher.salary_type === 'lecture_based') {
-    // Count lectures via RPC
-    const { data: lectureCount, error: lErr } = await supabase
-      .rpc('count_teacher_lectures', {
-        p_teacher_id: teacherId,
-        p_start: startDate,
-        p_end: endDate,
-      });
-    if (lErr) throw lErr;
-    totalLectures = lectureCount || 0;
-    grossAmount = totalLectures * (teacher.per_lecture_rate || 0);
+  // If no gross amount passed (e.g. from bulk generation), compute it
+  if (finalGross === null) {
+    if (teacher.salary_type === 'fixed') {
+      finalGross = teacher.monthly_salary || 0;
+    } else if (teacher.salary_type === 'lecture_based') {
+      totalLectures = await getTeacherLectureCount(teacherId, startDate, endDate);
+      finalGross = totalLectures * (teacher.per_lecture_rate || 0);
+    }
+  } else {
+    // grossAmount was passed – still we might want to show lecture count for record
+    if (teacher.salary_type === 'lecture_based') {
+      totalLectures = await getTeacherLectureCount(teacherId, startDate, endDate);
+    }
   }
 
   const tdsPercent = teacher.tds_percentage || 10;
-  const tdsAmount = (grossAmount * tdsPercent) / 100;
-  const netAmount = grossAmount - tdsAmount;
+  const tdsAmount = (finalGross * tdsPercent) / 100;
+  const netAmount = finalGross - tdsAmount;
 
   // 2. Insert salary payment
   const { data: payment, error: pErr } = await supabase
@@ -71,7 +87,7 @@ export async function generateTeacherSalary(teacherId, month, year) {
     .insert({
       teacher_id: teacherId,
       payment_date: `${year}-${String(month).padStart(2, '0')}-15`,
-      amount: grossAmount,
+      amount: finalGross,
       tds_percentage: tdsPercent,
       tds_amount: tdsAmount,
       net_amount: netAmount,
@@ -79,6 +95,8 @@ export async function generateTeacherSalary(teacherId, month, year) {
       payment_type: teacher.salary_type,
       payment_mode: 'Bank Transfer',
       remarks: `Salary for ${month}/${year}`,
+      branch_id: branchId,
+      financial_year_id: financialYearId,
     })
     .select()
     .single();
@@ -87,7 +105,8 @@ export async function generateTeacherSalary(teacherId, month, year) {
 }
 
 // ─── BULK GENERATE SALARIES FOR ALL ACTIVE TEACHERS ──────
-export async function generateAllSalaries(month, year) {
+// context: { branchId, financialYearId }
+export async function generateAllSalaries(month, year, context) {
   const { data: teachers, error } = await supabase
     .from('teachers')
     .select('id')
@@ -97,7 +116,7 @@ export async function generateAllSalaries(month, year) {
   const results = [];
   for (const t of teachers) {
     try {
-      const result = await generateTeacherSalary(t.id, month, year);
+      const result = await generateTeacherSalary(t.id, month, year, null, context);
       results.push({ ...result, error: null });
     } catch (err) {
       results.push({ teacher_id: t.id, error: err.message });
@@ -123,7 +142,9 @@ export async function getActiveTeachers() {
 }
 
 // ─── UPDATE TEACHER SALARY SETTINGS (used in SalarySetup) ──
-export async function updateTeacherSalary(teacherId, payload) {
+// context: { branchId, financialYearId }
+export async function updateTeacherSalary(teacherId, payload, context) {
+  const { branchId, financialYearId } = context;
   const { data, error } = await supabase
     .from('teachers')
     .update({
@@ -131,6 +152,8 @@ export async function updateTeacherSalary(teacherId, payload) {
       monthly_salary: payload.monthly_salary,
       per_lecture_rate: payload.per_lecture_rate,
       tds_percentage: payload.tds_percentage,
+      branch_id: branchId,
+      financial_year_id: financialYearId,
     })
     .eq('id', teacherId)
     .select()

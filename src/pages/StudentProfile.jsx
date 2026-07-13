@@ -1,3 +1,4 @@
+// src/pages/StudentProfile.jsx
 import { useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -22,6 +23,7 @@ import AdminLayout from "../layouts/AdminLayout";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../api/supabase";
 import StudentForm from "../components/StudentForm";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 
 const formatCurrency = (amount) => `₹${Number(amount).toLocaleString("en-IN")}`;
 
@@ -29,6 +31,9 @@ export default function StudentProfile() {
   const { id } = useParams();
   const { user } = useAuth();
   const queryClient = useQueryClient();
+
+  // Context for multi-tenant readiness (page is read-only; StudentForm handles writes)
+  useOrg();   // included for consistency
 
   // Local state for editing modal
   const [editingStudent, setEditingStudent] = useState(null);
@@ -50,8 +55,7 @@ export default function StudentProfile() {
   });
 
   const targetId = resolvedStudentId;
-
-  // 1. Basic student info
+ // 1. Basic student info
   const {
     data: student,
     isLoading: studentLoading,

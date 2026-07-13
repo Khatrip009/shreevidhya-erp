@@ -1,3 +1,4 @@
+// src/services/progressService.js
 import { supabase } from "../api/supabase";
 
 // Paginated fetch with filters – now includes medium info
@@ -19,7 +20,6 @@ export async function getProgressEvaluations({ pageParam = 0, filters = {} } = {
 
   if (filters.batchId) query = query.eq("batch_id", filters.batchId);
   if (filters.medium_id) {
-    // Filter evaluations whose batch has the specified medium
     const { data: mediumBatches } = await supabase
       .from("batches")
       .select("id")
@@ -39,7 +39,7 @@ export async function getProgressEvaluations({ pageParam = 0, filters = {} } = {
   const { data, error, count } = await query;
   if (error) throw error;
 
-  // Flatten medium name (FIXED: renamed 'eval' to 'item')
+  // Flatten medium name
   const enriched = (data || []).map((item) => ({
     ...item,
     medium_name: item.batches?.mediums?.name || "",
@@ -48,7 +48,7 @@ export async function getProgressEvaluations({ pageParam = 0, filters = {} } = {
   return { data: enriched, count };
 }
 
-// Export all evaluations matching filters (for CSV) – now includes medium name
+// Export all evaluations matching filters (for CSV)
 export async function getAllProgressEvaluationsForExport(filters = {}) {
   let query = supabase
     .from("student_progress")
@@ -79,28 +79,29 @@ export async function getAllProgressEvaluationsForExport(filters = {}) {
 
   const { data, error } = await query;
   if (error) throw error;
-  // FIXED: renamed 'eval' to 'item'
   return (data || []).map((item) => ({
     ...item,
     medium_name: item.batches?.mediums?.name || "",
   }));
 }
 
-// CRUD (unchanged)
-export async function createProgressEvaluation(payload) {
+// CRUD – context: { branchId, financialYearId }
+export async function createProgressEvaluation(payload, context) {
+  const { branchId, financialYearId } = context;
   const { data, error } = await supabase
     .from("student_progress")
-    .insert([payload])
+    .insert([{ ...payload, branch_id: branchId, financial_year_id: financialYearId }])
     .select()
     .single();
   if (error) throw error;
   return data;
 }
 
-export async function updateProgressEvaluation(id, payload) {
+export async function updateProgressEvaluation(id, payload, context) {
+  const { branchId, financialYearId } = context;
   const { data, error } = await supabase
     .from("student_progress")
-    .update(payload)
+    .update({ ...payload, branch_id: branchId, financial_year_id: financialYearId })
     .eq("id", id)
     .select()
     .single();
@@ -108,6 +109,7 @@ export async function updateProgressEvaluation(id, payload) {
   return data;
 }
 
+// Hard delete – RLS protects, no extra parameters needed
 export async function deleteProgressEvaluation(id) {
   const { error } = await supabase
     .from("student_progress")

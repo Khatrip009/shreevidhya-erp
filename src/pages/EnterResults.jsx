@@ -1,3 +1,4 @@
+// src/pages/EnterResults.jsx
 import { useEffect, useState, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
@@ -21,10 +22,15 @@ import {
   getResultsByExam,
   saveResults,
 } from "../services/examService";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 
 export default function EnterResults() {
   const { examId } = useParams();
   const navigate = useNavigate();
+
+  // ── Organisation / Branch / Financial Year context ──
+  const { branch, selectedFinancialYear } = useOrg();   // NEW
+  const ctx = { branchId: branch?.id, financialYearId: selectedFinancialYear?.id };
 
   useEffect(() => {
     if (!examId || examId === "undefined") {
@@ -41,7 +47,7 @@ export default function EnterResults() {
   const fileInputRef = useRef(null);
 
   const courseName = exam?.batches?.courses?.course_name || "—";
-  const mediumName = exam?.batches?.mediums?.name || "";   // NEW
+  const mediumName = exam?.batches?.mediums?.name || "";
 
   useEffect(() => {
     if (examId && examId !== "undefined") {
@@ -93,7 +99,7 @@ export default function EnterResults() {
       first_name: s.first_name,
       last_name: s.last_name,
       course: courseName,
-      medium: mediumName,                  // NEW
+      medium: mediumName,
       marks_obtained: marks[s.id] ?? "",
       remarks: remarks[s.id] ?? "",
     }));
@@ -175,7 +181,8 @@ export default function EnterResults() {
 
     setSaving(true);
     try {
-      await saveResults(examId, resultsPayload);
+      // Pass context as third argument (branch & financial year)
+      await saveResults(examId, resultsPayload, ctx);
       toast.success("Results saved");
       navigate("/results");
     } catch (err) {

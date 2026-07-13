@@ -1,62 +1,66 @@
+// src/services/organizationService.js
 import { supabase } from "../api/supabase";
 
-export async function getOrganization() {
-  // 1. Fetch basic org details
+const ORG_FIELDS = `
+  id, company_name, phone, email, website, gstin, address, vision, mission,
+  description, organization_key, is_active, domain, logo_light_url, logo_dark_url,
+  letterhead_url
+`;
+
+/**
+ * Fetch organization details + linked mediums for a given orgId.
+ */
+export async function getOrganization(orgId) {
+  // Fetch organisation
   const { data: org, error } = await supabase
     .from("organization")
-    .select("*")
-    .eq("id", 1)
+    .select(ORG_FIELDS)
+    .eq("id", orgId)
     .single();
-
   if (error) throw error;
 
-  // 2. Fetch mediums linked to this organization (via organization_mediums)
-  const { data: links, error: linksError } = await supabase
+  // Fetch theme
+  const { data: theme } = await supabase
+    .from("themes")
+    .select("*")
+    .eq("org_id", orgId)
+    .maybeSingle();
+
+  // Fetch linked mediums
+  const { data: links } = await supabase
     .from("organization_mediums")
     .select("medium_id, mediums(name)")
-    .eq("org_id", 1);
-
-  if (linksError) throw linksError;
+    .eq("org_id", orgId);
 
   const mediums = (links || []).map((om) => ({
     id: om.medium_id,
     name: om.mediums?.name || "",
   }));
 
-  return { ...org, mediums };
+  return { ...org, theme: theme || null, mediums };
 }
 
-export async function updateOrganization(payload) {
-  const { mediums, ...orgData } = payload;   // mediums: array of medium ids (e.g., [1, 2])
+/**
+ * Update organisation details + sync linked mediums.
+ */
+export async function updateOrganization(orgId, payload) {
+  const { mediums, ...orgData } = payload;
 
-  // 1. Update the organization record
+  // Update the organisation record (only known fields)
   const { data: org, error } = await supabase
     .from("organization")
-    .update({ ...orgData, updated_at: new Date() })
-    .eq("id", 1)
-    .select()
+    .update(orgData)
+    .eq("id", orgId)
+    .select(ORG_FIELDS)
     .single();
-
   if (error) throw error;
 
-  // 2. Sync mediums if provided
+  // Sync mediums
   if (mediums !== undefined) {
-    // Delete existing links
-    await supabase
-      .from("organization_mediums")
-      .delete()
-      .eq("org_id", 1);
-
-    // Insert new links
+    await supabase.from("organization_mediums").delete().eq("org_id", orgId);
     if (mediums.length > 0) {
-      const links = mediums.map((mid) => ({
-        org_id: 1,
-        medium_id: mid,
-      }));
-      const { error: linkError } = await supabase
-        .from("organization_mediums")
-        .insert(links);
-      if (linkError) throw linkError;
+      const links = mediums.map((mid) => ({ org_id: orgId, medium_id: mid }));
+      await supabase.from("organization_mediums").insert(links);
     }
   }
 

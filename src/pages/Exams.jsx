@@ -1,3 +1,4 @@
+// src/pages/Exams.jsx
 import React, { useState, useRef } from "react";
 import {
   useInfiniteQuery,
@@ -36,6 +37,7 @@ import {
   getAllExamsForExport,
 } from "../services/examService";
 import { useAuth } from "../context/AuthContext";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 
 export default function Exams() {
   const { profile } = useAuth();
@@ -46,10 +48,14 @@ export default function Exams() {
 
   const queryClient = useQueryClient();
 
+  // ── Organisation / Branch / Financial Year context ──
+  const { branch, selectedFinancialYear } = useOrg();   // NEW
+  const ctx = { branchId: branch?.id, financialYearId: selectedFinancialYear?.id };
+
   const [search, setSearch] = useState("");
   const [batchFilter, setBatchFilter] = useState("");
   const [courseFilter, setCourseFilter] = useState("");
-  const [mediumFilter, setMediumFilter] = useState("");   // NEW
+  const [mediumFilter, setMediumFilter] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [showFilters, setShowFilters] = useState(false);
@@ -57,7 +63,7 @@ export default function Exams() {
     search,
     batchId: batchFilter,
     courseId: courseFilter,
-    medium_id: mediumFilter,   // NEW
+    medium_id: mediumFilter,
     startDate,
     endDate,
   };
@@ -105,8 +111,9 @@ export default function Exams() {
 
   const exams = data?.pages.flatMap((page) => page.data) || [];
 
+  // Mutations – now pass context
   const createMutation = useMutation({
-    mutationFn: createExam,
+    mutationFn: (payload) => createExam(payload, ctx),
     onSuccess: () => {
       toast.success("Exam created");
       queryClient.invalidateQueries({ queryKey: ["exams"] });
@@ -116,7 +123,7 @@ export default function Exams() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, payload }) => updateExam(id, payload),
+    mutationFn: ({ id, payload }) => updateExam(id, payload, ctx),
     onSuccess: () => {
       toast.success("Exam updated");
       queryClient.invalidateQueries({ queryKey: ["exams"] });
@@ -126,7 +133,7 @@ export default function Exams() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: deleteExam,
+    mutationFn: (id) => deleteExam(id, ctx),
     onSuccess: () => {
       toast.success("Exam deleted");
       queryClient.invalidateQueries({ queryKey: ["exams"] });
@@ -150,7 +157,7 @@ export default function Exams() {
               exam_date: row.exam_date,
               total_marks: row.total_marks ? Number(row.total_marks) : null,
             };
-            await createExam(payload);
+            await createExam(payload, ctx);   // pass context
             successCount++;
           } catch (err) {
             console.error(err);

@@ -5,6 +5,7 @@ import { Printer } from "lucide-react";
 import AdminLayout from "../layouts/AdminLayout";
 import { supabase } from "../api/supabase";
 import { getOrganization } from "../services/organizationService";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 
 export default function CashBook() {
   const today = new Date().toISOString().split("T")[0];
@@ -15,7 +16,16 @@ export default function CashBook() {
   const [startDate, setStartDate] = useState(firstOfMonth);
   const [endDate, setEndDate] = useState(today);
   const [selectedAccount, setSelectedAccount] = useState("all");
-  const { data: org } = useQuery({ queryKey: ["organization"], queryFn: getOrganization });
+
+  // ── Current organisation from context ──
+  const { org: currentOrg } = useOrg();
+
+  // Fetch organization details with current org id
+  const { data: org } = useQuery({
+    queryKey: ["organization", currentOrg?.id],
+    queryFn: () => getOrganization(currentOrg?.id),
+    enabled: !!currentOrg?.id,
+  });
 
   // Cash/bank accounts
   const { data: cashBankAccounts = [] } = useQuery({
@@ -61,7 +71,7 @@ export default function CashBook() {
     enabled: !!startDate && cashBankAccounts.length > 0,
   });
 
-  // Main entries for the period (FIXED ordering)
+  // Main entries for the period
   const { data: entries = [], isLoading } = useQuery({
     queryKey: ["cash-book-entries", startDate, endDate, selectedAccount],
     queryFn: async () => {
@@ -80,7 +90,7 @@ export default function CashBook() {
         .in("account_id", accountIds)
         .gte("journal_entries.entry_date", startDate)
         .lte("journal_entries.entry_date", endDate)
-        .order("journal_entries(entry_date)", { ascending: true })   // correct nesting
+        .order("journal_entries(entry_date)", { ascending: true })
         .order("id", { ascending: true });
 
       return data || [];

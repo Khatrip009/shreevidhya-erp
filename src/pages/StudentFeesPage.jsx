@@ -11,10 +11,16 @@ import BackButton from "../components/BackButton";
 import { useStudentId } from "../hooks/useStudentId";
 import { supabase } from "../api/supabase";
 import { submitPaymentRequest } from "../services/feeService";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 
 export default function StudentFeesPage() {
   const { studentId, isLoading: idLoading } = useStudentId();
-  const queryClient = useQueryClient(); 
+  const queryClient = useQueryClient();
+
+  // ── Get branch & financial year for context ──
+  const { branch, selectedFinancialYear } = useOrg();
+  const ctx = { branchId: branch?.id, financialYearId: selectedFinancialYear?.id };
+
   const [expandedFeeId, setExpandedFeeId] = useState(null);
   const [payingFee, setPayingFee] = useState(null);
   const [paymentForm, setPaymentForm] = useState({
@@ -101,13 +107,16 @@ export default function StudentFeesPage() {
       return;
     }
     try {
-      await submitPaymentRequest({
-        student_fee_id: payingFee.id,
-        amount: Number(paymentForm.amount),
-        transaction_no: paymentForm.transaction_no,
-        remarks: paymentForm.remarks,
-        installment_id: paymentForm.installment_id || null,
-      });
+      await submitPaymentRequest(
+        {
+          student_fee_id: payingFee.id,
+          amount: Number(paymentForm.amount),
+          transaction_no: paymentForm.transaction_no,
+          remarks: paymentForm.remarks,
+          installment_id: paymentForm.installment_id || null,
+        },
+        ctx   // pass context with branchId & financialYearId
+      );
       toast.success("Payment request submitted for approval");
       setPayingFee(null);
       queryClient.invalidateQueries({ queryKey: ["student-fees-list", studentId] });

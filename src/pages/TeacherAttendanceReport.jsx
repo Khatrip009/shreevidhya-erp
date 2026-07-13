@@ -6,6 +6,7 @@ import { generateTeacherAttendancePDF } from "../utils/teacherAttendancePdf";
 import toast from "react-hot-toast";
 import AdminLayout from "../layouts/AdminLayout";
 import { Calendar, Download, FileText } from "lucide-react";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 
 const STATUS_COLORS = {
   present: "bg-green-100 text-green-700",
@@ -18,6 +19,9 @@ export default function TeacherAttendanceReport() {
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth() + 1); // 1-12
+
+  // ── Get current organization from context ──
+  const { org: currentOrg } = useOrg();   // NEW
 
   const startDate = `${year}-${String(month).padStart(2, "0")}-01`;
   const daysInMonth = new Date(year, month, 0).getDate();
@@ -79,11 +83,11 @@ export default function TeacherAttendanceReport() {
     }
     const monthLabel = new Date(year, month - 1).toLocaleString("default", { month: "long", year: "numeric" });
 
-    // Fetch organisation info for the PDF header
+    // Fetch organisation info for the PDF header – now uses the current org id
     const { data: org } = await supabase
       .from("organization")
       .select("*")
-      .eq("id", 1)
+      .eq("id", currentOrg?.id)   // use current org id
       .single();
 
     const doc = await generateTeacherAttendancePDF(reportData, monthLabel, org || {});

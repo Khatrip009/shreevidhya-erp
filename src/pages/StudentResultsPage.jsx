@@ -1,3 +1,5 @@
+// src/pages/StudentResultsPage.jsx
+// No changes needed – read‑only page, RLS already scopes the data.
 import { useQuery } from "@tanstack/react-query";
 import { Award } from "lucide-react";
 import AdminLayout from "../layouts/AdminLayout";

@@ -38,7 +38,9 @@ export async function getDebitNote(id) {
   return data;
 }
 
-export async function createDebitNote(payload) {
+// context: { branchId, financialYearId }
+export async function createDebitNote(payload, context) {
+  const { branchId, financialYearId } = context;
   const { data: number } = await supabase.rpc("generate_debit_note_number");
   const { data, error } = await supabase
     .from("debit_notes")
@@ -55,6 +57,8 @@ export async function createDebitNote(payload) {
       total_amount: payload.total_amount,
       gst_breakdown: payload.gst_breakdown || {},
       status: "Draft",
+      branch_id: branchId,
+      financial_year_id: financialYearId,
     })
     .select()
     .single();

@@ -1,3 +1,4 @@
+// src/pages/Courses.jsx
 import React, { useState, useRef } from "react";
 import {
   useInfiniteQuery,
@@ -21,7 +22,7 @@ import Papa from "papaparse";
 import AdminLayout from "../layouts/AdminLayout";
 import CourseForm from "../components/CourseForm";
 import CourseLevelForm from "../components/CourseLevelForm";
-import { supabase } from "../api/supabase";   // <-- direct Supabase access
+import { supabase } from "../api/supabase";
 import {
   createCourse,
   updateCourse,
@@ -33,9 +34,17 @@ import {
   getAllCoursesForExport,
   getMediumOptions,
 } from "../services/courseService";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 
 export default function Courses() {
   const queryClient = useQueryClient();
+
+  // ── Organisation / Branch / Financial Year context ──
+  const { branch, selectedFinancialYear } = useOrg();   // NEW
+  const ctx = {
+    branchId: branch?.id,
+    financialYearId: selectedFinancialYear?.id,
+  };
 
   // Search & filters
   const [search, setSearch] = useState("");
@@ -52,7 +61,7 @@ export default function Courses() {
   } = useInfiniteQuery({
     queryKey: ["courses", filters],
     queryFn: async ({ pageParam = 0 }) => {
-      const from = pageParam * 20;   // adjust page size as needed
+      const from = pageParam * 20;
       const to = from + 19;
 
       let query = supabase
@@ -71,7 +80,6 @@ export default function Courses() {
       const { data, count, error } = await query;
       if (error) throw error;
 
-      // Flatten medium name for easy access
       const courses = (data || []).map((course) => ({
         ...course,
         medium_name: course.mediums?.name || "",
@@ -99,19 +107,24 @@ export default function Courses() {
     staleTime: 10 * 60 * 1000,
   });
 
-  // Mutations (unchanged)
   const createMutation = useMutation({
-    mutationFn: createCourse,
-    onSuccess: () => {
-      toast.success("Course created");
-      queryClient.invalidateQueries({ queryKey: ["courses"] });
-      setShowForm(false);
-    },
-    onError: () => toast.error("Failed to create course"),
-  });
-
+  mutationFn: (payload) => {
+    console.log('Creating course with payload:', payload);
+    console.log('Context (branchId, financialYearId):', ctx);
+    return createCourse(payload, ctx);
+  },
+  onSuccess: () => {
+    toast.success("Course created");
+    queryClient.invalidateQueries({ queryKey: ["courses"] });
+    setShowForm(false);
+  },
+  onError: (err) => {
+    console.error("Create course error:", err);
+    toast.error("Failed to create course");
+  },
+});
   const updateMutation = useMutation({
-    mutationFn: ({ id, payload }) => updateCourse(id, payload),
+    mutationFn: ({ id, payload }) => updateCourse(id, payload, ctx),
     onSuccess: () => {
       toast.success("Course updated");
       queryClient.invalidateQueries({ queryKey: ["courses"] });
@@ -121,7 +134,7 @@ export default function Courses() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: deleteCourse,
+    mutationFn: (id) => deleteCourse(id, ctx),
     onSuccess: () => {
       toast.success("Course deleted");
       queryClient.invalidateQueries({ queryKey: ["courses"] });
@@ -129,7 +142,7 @@ export default function Courses() {
     onError: () => toast.error("Delete failed"),
   });
 
-  // CSV Import (unchanged)
+  // CSV Import – also pass context
   async function handleCSVImport(event) {
     const file = event.target.files[0];
     if (!file) return;
@@ -147,7 +160,7 @@ export default function Courses() {
               status: true,
               medium_id: row.medium_id ? Number(row.medium_id) : null,
             };
-            await createCourse(payload);
+            await createCourse(payload, ctx);
             successCount++;
           } catch (err) {
             console.error(err);
@@ -185,7 +198,7 @@ export default function Courses() {
     }
   }
 
-  // Level management (unchanged)
+  // Level management (unchanged except mutating functions now pass context)
   const [expandedCourseId, setExpandedCourseId] = useState(null);
   const [levelForm, setLevelForm] = useState(null);
   const [levelsMap, setLevelsMap] = useState({});
@@ -209,7 +222,7 @@ export default function Courses() {
   }
 
   const createLevelMutation = useMutation({
-    mutationFn: createCourseLevel,
+    mutationFn: (payload) => createCourseLevel(payload, ctx),
     onSuccess: (data) => {
       toast.success("Level created");
       setLevelForm(null);
@@ -219,7 +232,7 @@ export default function Courses() {
   });
 
   const updateLevelMutation = useMutation({
-    mutationFn: ({ id, payload }) => updateCourseLevel(id, payload),
+    mutationFn: ({ id, payload }) => updateCourseLevel(id, payload, ctx),
     onSuccess: (data) => {
       toast.success("Level updated");
       setLevelForm(null);
@@ -229,7 +242,7 @@ export default function Courses() {
   });
 
   const deleteLevelMutation = useMutation({
-    mutationFn: deleteCourseLevel,
+    mutationFn: deleteCourseLevel,   // hard delete, RLS protects
     onSuccess: () => {
       toast.success("Level deleted");
       if (expandedCourseId) loadLevels(expandedCourseId);
@@ -321,7 +334,7 @@ export default function Courses() {
         </select>
       </div>
 
-      {/* Courses Table */}
+      {/* Courses Table (unchanged) */}
       <div className="bg-white rounded-xl shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[600px]">

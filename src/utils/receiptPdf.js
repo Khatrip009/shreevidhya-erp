@@ -37,9 +37,6 @@ function getRupeeImage() {
   return rupeeImage;
 }
 
-/**
- * Draw a currency amount at (x, y) with the ₹ symbol.
- */
 function drawCurrency(doc, amount, x, y, fontSize = 10, align = 'left', color = '#333') {
   const img = getRupeeImage();
   doc.setFont('helvetica', 'normal');
@@ -57,9 +54,6 @@ function drawCurrency(doc, amount, x, y, fontSize = 10, align = 'left', color = 
   }
 }
 
-/**
- * Convert a number to Indian English words.
- */
 function numberToWords(num) {
   const a = [
     "", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten",
@@ -86,17 +80,22 @@ export async function generateReceiptPdf(receipt) {
   // ---------- 1. Organisation ----------
   const { data: org } = await supabase
     .from("organization")
-    .select("logo_dark_url, company_name, address, phone, email")
+    .select("company_name, letterhead_url")
     .eq("id", 1)
     .single();
 
-  const logoUrl = org?.logo_dark_url || "/ShreeVidhyaDark.png";
+  const letterheadUrl = org?.letterhead_url || null;
   const academyName = org?.company_name || "ShreeVidhya Academy";
-  const address = org?.address || "";
-  const phone = org?.phone || "";
-  const email = org?.email || "";
 
-  const logoBase64 = await loadImageAsBase64(logoUrl).catch(() => null);
+  // Load letterhead
+  let letterheadBase64 = null;
+  if (letterheadUrl) {
+    try {
+      letterheadBase64 = await loadImageAsBase64(letterheadUrl);
+    } catch (err) {
+      console.warn("Letterhead could not be loaded for receipt PDF", err);
+    }
+  }
 
   // ---------- 2. Student details ----------
   const studentId = receipt.students?.id;
@@ -136,8 +135,7 @@ export async function generateReceiptPdf(receipt) {
         fee_structures!inner (
           fee_amount,
           tax_rate_id,
-          tax_inclusive,
-          tax_rates!fee_structures_tax_rate_id_fkey (name, rate)
+          tax_inclusive
         ),
         fee_installments(*)
       `)
@@ -146,14 +144,24 @@ export async function generateReceiptPdf(receipt) {
 
     if (studentFee) {
       totalFee = Number(studentFee.final_fee);
-      installments = studentFee.fee_installments || [];
+      // ONLY keep paid installments
+      installments = (studentFee.fee_installments || []).filter(inst => inst.status === 'Paid');
       const feeStructure = studentFee.fee_structures;
       if (feeStructure) {
         taxInclusive = feeStructure.tax_inclusive !== undefined ? feeStructure.tax_inclusive : true;
-        const taxRate = feeStructure.tax_rates;
-        if (taxRate) {
-          taxRateName = taxRate.name || "";
-          taxRateValue = Number(taxRate.rate) || 0;
+
+        // Fetch tax rate explicitly using tax_rate_id
+        if (feeStructure.tax_rate_id) {
+          const { data: taxRateData } = await supabase
+            .from("tax_rates")
+            .select("name, rate")
+            .eq("id", feeStructure.tax_rate_id)
+            .single();
+
+          if (taxRateData) {
+            taxRateName = taxRateData.name || "";
+            taxRateValue = Number(taxRateData.rate) || 0;
+          }
         }
       }
       const { data: allPayments } = await supabase
@@ -168,6 +176,7 @@ export async function generateReceiptPdf(receipt) {
   const amountWords = numberToWords(amount) + " Only";
   const balance = totalFee - paidSoFar;
 
+  // Tax calculation
   if (taxRateValue > 0) {
     const rate = taxRateValue / 100;
     if (taxInclusive) {
@@ -189,53 +198,32 @@ export async function generateReceiptPdf(receipt) {
   }
 
   // ─── PDF Setup (A5) ────────────────────────────────────────────
-  const doc = new jsPDF({ unit: 'mm', format: 'a5' });  // <-- Changed to A5
+  const doc = new jsPDF({ unit: 'mm', format: 'a5' });
   const pageWidth = doc.internal.pageSize.getWidth();   // 148 mm
   const pageHeight = doc.internal.pageSize.getHeight(); // 210 mm
-  const margin = 10;                                    // reduced margin
-  let y = 16;
 
-  // ========== HEADER ==========
-  if (logoBase64) {
-    doc.addImage(logoBase64, "PNG", margin, y, 25, 25);
-    doc.setFontSize(18);
-    doc.setTextColor("#0D47A1");
-    doc.text(academyName, margin + 30, y + 8);
-    doc.setFontSize(8);
-    doc.setTextColor("#616161");
-    let lineY = y + 14;
-    if (address) { doc.text(address, margin + 30, lineY); lineY += 4; }
-    if (phone)   { doc.text(`Phone: ${phone}`, margin + 30, lineY); lineY += 4; }
-    if (email)   { doc.text(`Email: ${email}`, margin + 30, lineY); }
-  } else {
-    doc.setFontSize(20);
-    doc.setTextColor("#0D47A1");
-    doc.text(academyName, margin, y + 6);
-    doc.setFontSize(8);
-    doc.setTextColor("#616161");
-    let lineY = y + 12;
-    if (address) doc.text(address, margin, lineY);
-    lineY += 4;
-    if (phone) doc.text(`Phone: ${phone}`, margin, lineY);
-    lineY += 4;
-    if (email) doc.text(`Email: ${email}`, margin, lineY);
-  }
-  y += 32;
+  // Letterhead on every page
+  const addLetterhead = () => {
+    if (letterheadBase64) {
+      doc.addImage(letterheadBase64, "PNG", 0, 0, pageWidth, pageHeight);
+    }
+  };
+  addLetterhead();
 
-  // Title
-  doc.setDrawColor("#0D47A1");
-  doc.setLineWidth(0.4);
-  doc.line(margin, y, pageWidth - margin, y);
-  y += 4;
+  const margin = 12;
+  const topMargin = 45;
+  let y = topMargin;
+
+  // ========== TITLE ==========
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(14);
+  doc.setFontSize(16);
   doc.setTextColor("#0D47A1");
   doc.text("FEE RECEIPT", pageWidth / 2, y, { align: "center" });
   y += 10;
 
   // ========== TWO‑COLUMN INFO ==========
   const leftColX = margin;
-  const rightColX = pageWidth - margin - 50; // narrower column
+  const rightColX = pageWidth - margin - 55;
   const studentName = `${receipt.students?.first_name || ""} ${receipt.students?.last_name || ""}`.trim();
 
   doc.setFont("helvetica", "bold");
@@ -262,7 +250,7 @@ export async function generateReceiptPdf(receipt) {
   const studentBlockLines = courseName ? 3 : 2;
   y += 8 + studentBlockLines * 5;
 
-  // ========== ITEM TABLE ==========
+  // ========== ITEM TABLE (with tax rows) ==========
   const itemBody = [];
   itemBody.push({ sr: "1", desc: "Fee Payment", amount: amount });
   if (taxRateValue > 0) {
@@ -291,6 +279,7 @@ export async function generateReceiptPdf(receipt) {
         const num = parseFloat(raw.replace(/,/g, ''));
         if (!isNaN(num)) {
           const cell = data.cell;
+          if (cell.text) cell.text = [];
           const x = cell.x + 2;
           const yPos = cell.y + cell.height / 2 + 1.5;
           doc.setFillColor(255, 255, 255);
@@ -300,29 +289,30 @@ export async function generateReceiptPdf(receipt) {
       }
     }
   });
-  y = doc.lastAutoTable.finalY + 6;
+  y = doc.lastAutoTable.finalY + 8;
 
-  // ========== TOTALS & PAYMENT INFO (stacked) ==========
+  // ========== TOTALS & PAYMENT INFO ==========
   doc.setFillColor(245, 245, 245);
-  doc.rect(margin, y, pageWidth - 2 * margin, 26, 'F');
+  doc.rect(margin, y, pageWidth - 2 * margin, 30, 'F');
 
   const totalX = margin + 4;
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(11);
+  doc.setFontSize(12);
   doc.setTextColor("#0D47A1");
-  doc.text("Total Amount Paid:", totalX, y + 8);
-  drawCurrency(doc, totalDisplay, totalX + 50, y + 8, 11, 'left', '#0D47A1');
+  doc.text("Total Amount Paid:", totalX, y + 10);
+  drawCurrency(doc, totalDisplay, totalX + 52, y + 10, 12, 'left', '#0D47A1');
 
   doc.setFont("helvetica", "normal");
   doc.setFontSize(7);
   doc.setTextColor("#555");
-  doc.text(`In Words: ${amountWords}`, totalX, y + 16);
+  doc.text(`In Words: ${amountWords}`, totalX, y + 19);
 
-  const detailsX = pageWidth - margin - 65;
+  // Move payment details to the far right
+  const detailsX = pageWidth - margin - 45;   // 10mm more to the right
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8);
   doc.setTextColor("#333");
-  let detailY = y + 6;
+  let detailY = y + 8;
   doc.text(`Mode: ${payment?.payment_mode || "N/A"}`, detailsX, detailY);
   detailY += 4;
   doc.text(`Txn No: ${payment?.transaction_no || "-"}`, detailsX, detailY);
@@ -331,47 +321,34 @@ export async function generateReceiptPdf(receipt) {
     doc.text(`Remarks: ${payment.remarks}`, detailsX, detailY);
   }
 
-  y += 30;
+  y += 36;   // increased to account for taller rectangle
 
-  // ========== SIGNATURES & NOTES ==========
-  y += 3;
+  // ========== SIGNATURES ==========
   doc.setFontSize(9);
   doc.setTextColor("#333");
   doc.text("Authorized Signatory", margin, y);
   doc.line(margin, y + 5, margin + 35, y + 5);
   doc.text("Parent / Guardian", pageWidth - margin - 35, y);
   doc.line(pageWidth - margin - 35, y + 5, pageWidth - margin, y + 5);
-  y += 12;
+  y += 14;
 
-  doc.setFontSize(7);
-  doc.setTextColor("#777");
-  doc.text("* This is a computer-generated receipt.", margin, y);
-  y += 4;
-  doc.text("* Payment subject to realisation.", margin, y);
-
-  // Footer
-  const footerY = pageHeight - 10;
-  doc.setFont("helvetica", "italic");
-  doc.setFontSize(6);
-  doc.setTextColor("#999");
-  doc.text(`${academyName} – ${address}`, pageWidth / 2, footerY, { align: "center" });
-
-  // ========== PAGE 2 – INSTALLMENTS & FEE SUMMARY (if any) ==========
+  // ========== PAGE 2 – PAID INSTALLMENTS ONLY (if any) ==========
   if (installments.length > 0) {
     doc.addPage();
-    y = 18;
+    addLetterhead();
+    y = topMargin;
 
     doc.setFont("helvetica", "bold");
     doc.setFontSize(12);
     doc.setTextColor("#0D47A1");
-    doc.text("Installment Details", margin, y);
+    doc.text("Paid Installments", margin, y);   // renamed
     y += 6;
 
     const installmentBody = installments.map((inst, i) => [
       i + 1,
       inst.due_date || "-",
       Number(inst.amount).toLocaleString('en-IN'),
-      inst.status || "pending",
+      inst.status || "Paid",
     ]);
 
     autoTable(doc, {
@@ -394,6 +371,9 @@ export async function generateReceiptPdf(receipt) {
           const num = parseFloat(raw.replace(/,/g, ''));
           if (!isNaN(num)) {
             const cell = data.cell;
+            if (cell.text) cell.text = [];
+            doc.setFillColor(255, 255, 255);
+            doc.rect(cell.x, cell.y, cell.width, cell.height, 'F');
             drawCurrency(doc, num, cell.x + 2, cell.y + cell.height / 2 + 1.5, 8, 'left', '#333');
           }
         }
@@ -401,7 +381,7 @@ export async function generateReceiptPdf(receipt) {
     });
     y = doc.lastAutoTable.finalY + 8;
 
-    // Fee Summary
+    // Fee Summary (always show, even if only paid installments)
     doc.setFont("helvetica", "bold");
     doc.setFontSize(12);
     doc.text("Fee Summary", margin, y);
@@ -431,6 +411,9 @@ export async function generateReceiptPdf(receipt) {
           const num = parseFloat(raw.replace(/,/g, ''));
           if (!isNaN(num)) {
             const cell = data.cell;
+            if (cell.text) cell.text = [];
+            doc.setFillColor(255, 255, 255);
+            doc.rect(cell.x, cell.y, cell.width, cell.height, 'F');
             drawCurrency(doc, num, cell.x + 2, cell.y + cell.height / 2 + 1.5, 9, 'left', '#333');
           }
         }
@@ -438,5 +421,6 @@ export async function generateReceiptPdf(receipt) {
     });
   }
 
+  // Save
   doc.save(`Receipt_${receipt.receipt_no}.pdf`);
 }

@@ -1,43 +1,50 @@
-import { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getTeacherWithSalary, updateTeacherSalary } from '../services/teacherService';
-import toast from 'react-hot-toast';
-import AdminLayout from '../layouts/AdminLayout';
+// src/pages/TeacherSalarySettings.jsx
+import { useState, useEffect } from "react";
+import { useParams, useNavigate } from "react-router-dom";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { getTeacherWithSalary, updateTeacherSalary } from "../services/teacherService";
+import toast from "react-hot-toast";
+import AdminLayout from "../layouts/AdminLayout";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 
 export default function TeacherSalarySettings() {
   const { id } = useParams();
   const navigate = useNavigate();
   const qc = useQueryClient();
+
+  // ── Branch & financial year context ──
+  const { branch, selectedFinancialYear } = useOrg();
+  const ctx = { branchId: branch?.id, financialYearId: selectedFinancialYear?.id };
+
   const { data: teacher, isLoading } = useQuery({
-    queryKey: ['teacher-salary', id],
+    queryKey: ["teacher-salary", id],
     queryFn: () => getTeacherWithSalary(id),
   });
 
   const [form, setForm] = useState({
-    salary_type: 'fixed',
-    monthly_salary: '',
-    per_lecture_rate: '',
-    tds_percentage: '10.00',
+    salary_type: "fixed",
+    monthly_salary: "",
+    per_lecture_rate: "",
+    tds_percentage: "10.00",
   });
 
   useEffect(() => {
     if (teacher) {
       setForm({
-        salary_type: teacher.salary_type || 'fixed',
-        monthly_salary: teacher.monthly_salary || '',
-        per_lecture_rate: teacher.per_lecture_rate || '',
-        tds_percentage: teacher.tds_percentage || '10.00',
+        salary_type: teacher.salary_type || "fixed",
+        monthly_salary: teacher.monthly_salary || "",
+        per_lecture_rate: teacher.per_lecture_rate || "",
+        tds_percentage: teacher.tds_percentage || "10.00",
       });
     }
   }, [teacher]);
 
   const mutation = useMutation({
-    mutationFn: (payload) => updateTeacherSalary(id, payload),
+    mutationFn: (payload) => updateTeacherSalary(id, payload, ctx),   // pass context
     onSuccess: () => {
-      toast.success('Salary settings updated');
-      qc.invalidateQueries(['teacher-salary']);
-      navigate('/teachers');
+      toast.success("Salary settings updated");
+      qc.invalidateQueries(["teacher-salary"]);
+      navigate("/teachers");
     },
     onError: (err) => toast.error(err.message),
   });
@@ -51,7 +58,9 @@ export default function TeacherSalarySettings() {
 
   return (
     <AdminLayout>
-      <h1 className="text-2xl font-bold mb-6">Salary Settings – {teacher?.first_name} {teacher?.last_name}</h1>
+      <h1 className="text-2xl font-bold mb-6">
+        Salary Settings – {teacher?.first_name} {teacher?.last_name}
+      </h1>
       <form onSubmit={handleSubmit} className="bg-white p-6 rounded-lg shadow max-w-lg space-y-4">
         <div>
           <label className="block text-sm font-medium">Salary Type</label>
@@ -64,7 +73,7 @@ export default function TeacherSalarySettings() {
             <option value="lecture_based">Lecture‑based</option>
           </select>
         </div>
-        {form.salary_type === 'fixed' && (
+        {form.salary_type === "fixed" && (
           <div>
             <label className="block text-sm font-medium">Monthly Salary (₹)</label>
             <input
@@ -76,7 +85,7 @@ export default function TeacherSalarySettings() {
             />
           </div>
         )}
-        {form.salary_type === 'lecture_based' && (
+        {form.salary_type === "lecture_based" && (
           <div>
             <label className="block text-sm font-medium">Per Lecture Rate (₹)</label>
             <input

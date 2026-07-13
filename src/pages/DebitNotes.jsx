@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getDebitNotes, createDebitNote, finalizeDebitNote, deleteDebitNote } from "../services/debitNoteService";
 import { supabase } from "../api/supabase";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 import toast from "react-hot-toast";
 import AdminLayout from "../layouts/AdminLayout";
 import {
@@ -16,6 +17,11 @@ import {
 
 export default function DebitNotes() {
   const queryClient = useQueryClient();
+
+  // ── Organisation / Branch / Financial Year context ──
+  const { branch, selectedFinancialYear } = useOrg();   // NEW
+  const ctx = { branchId: branch?.id, financialYearId: selectedFinancialYear?.id };
+
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [showModal, setShowModal] = useState(false);
@@ -103,9 +109,9 @@ export default function DebitNotes() {
     });
   };
 
-  // Mutations
+  // Mutations – only create needs context
   const createMutation = useMutation({
-    mutationFn: createDebitNote,
+    mutationFn: (payload) => createDebitNote(payload, ctx),   // pass context
     onSuccess: () => {
       toast.success("Debit note created");
       queryClient.invalidateQueries(["debit-notes"]);
@@ -116,7 +122,7 @@ export default function DebitNotes() {
   });
 
   const finalizeMutation = useMutation({
-    mutationFn: finalizeDebitNote,
+    mutationFn: finalizeDebitNote,   // no context needed
     onSuccess: () => {
       toast.success("Debit note finalized");
       queryClient.invalidateQueries(["debit-notes"]);
@@ -312,7 +318,7 @@ export default function DebitNotes() {
         </div>
       </div>
 
-      {/* Create Modal */}
+      {/* Create Modal – unchanged except createMutation already passes ctx */}
       {showModal && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-xl">

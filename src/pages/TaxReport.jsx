@@ -2,9 +2,23 @@ import React, { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "../api/supabase";
 import AdminLayout from "../layouts/AdminLayout";
-import { Download } from "lucide-react";
+import { Download, Printer } from "lucide-react";
 import toast from "react-hot-toast";
 import Papa from "papaparse";
+import { jsPDF } from "jspdf";
+import autoTable from "jspdf-autotable";
+
+// ─── Helper: load image as base64 ────────────────────────────
+async function loadImageAsBase64(url) {
+  const response = await fetch(url);
+  const blob = await response.blob();
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
 
 export default function TaxReport() {
   const [startDate, setStartDate] = useState(
@@ -56,6 +70,7 @@ export default function TaxReport() {
 
   const totalTax = summaryArray.reduce((s, r) => s + r.totalTax, 0);
 
+  // CSV Export (unchanged)
   const handleExport = () => {
     if (taxRecords.length === 0) {
       toast.error("No data to export");
@@ -79,6 +94,144 @@ export default function TaxReport() {
     URL.revokeObjectURL(url);
   };
 
+  // ─── PDF Generation with letterhead ─────────────────────────
+  const handlePrintPdf = async () => {
+    if (summaryArray.length === 0) {
+      toast.error("No data to export");
+      return;
+    }
+
+    // 1. Load organization (letterhead)
+    const { data: org } = await supabase
+      .from("organization")
+      .select("company_name, letterhead_url")
+      .eq("id", 1)
+      .single();
+
+    const letterheadUrl = org?.letterhead_url || null;
+    const companyName = org?.company_name || "ShreeVidhya Academy";
+
+    let letterheadBase64 = null;
+    if (letterheadUrl) {
+      try {
+        letterheadBase64 = await loadImageAsBase64(letterheadUrl);
+      } catch (err) {
+        console.warn("Letterhead load failed", err);
+      }
+    }
+
+    // 2. PDF setup (A4 portrait)
+    const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const topMargin = 55;
+    const sideMargin = 16;
+    const bottomMargin = 20;
+
+    // Add letterhead
+    if (letterheadBase64) {
+      doc.addImage(letterheadBase64, "PNG", 0, 0, pageWidth, pageHeight);
+    }
+
+    let y = topMargin;
+
+    // Title
+    doc.setFont("times", "bold");
+    doc.setFontSize(22);
+    doc.setTextColor("#0D47A1");
+    doc.text("Tax Report", pageWidth / 2, y, { align: "center" });
+    y += 12;
+
+    // Period subtitle
+    const period = `${startDate} – ${endDate}`;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    doc.setTextColor("#333");
+    const periodWidth = doc.getTextWidth(`Period: ${period}`);
+    doc.setFillColor(255, 255, 255);
+    doc.rect(pageWidth / 2 - periodWidth / 2 - 4, y - 5, periodWidth + 8, 8, "F");
+    doc.text(`Period: ${period}`, pageWidth / 2, y, { align: "center" });
+    y += 12;
+
+    // Total Tax Collected (highlighted)
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(14);
+    doc.setTextColor("#0D47A1");
+    doc.text(`Total Tax Collected: ₹${totalTax.toLocaleString("en-IN")}`, sideMargin, y);
+    y += 10;
+
+    // Summary table
+    const headers = [["Tax Rate", "Rate %", "Transactions", "Tax Total (₹)"]];
+    const body = summaryArray.map(row => [
+      row.name,
+      `${row.rate}%`,
+      row.count.toString(),
+      row.totalTax.toLocaleString("en-IN"),
+    ]);
+
+    autoTable(doc, {
+      startY: y,
+      head: headers,
+      body,
+      theme: "grid",
+      styles: {
+        fontSize: 10,
+        cellPadding: 3,
+        textColor: "#000000",
+        fillColor: "#FFFFFF",
+        lineColor: "#cccccc",
+        lineWidth: 0.5,
+      },
+      headStyles: {
+        fillColor: "#0D47A1",
+        textColor: "#FFFFFF",
+        fontStyle: "bold",
+        fontSize: 11,
+        cellPadding: 3,
+      },
+      alternateRowStyles: {
+        fillColor: "#F5F8FF",
+        textColor: "#000000",
+      },
+      margin: {
+        top: topMargin,
+        left: sideMargin,
+        bottom: bottomMargin,
+        right: sideMargin,
+      },
+      didParseCell: (data) => {
+        if (data.row.section === "body") {
+          data.cell.styles.textColor = "#000000";
+        } else if (data.row.section === "head") {
+          data.cell.styles.textColor = "#FFFFFF";
+        }
+      },
+      willDrawPage: (data) => {
+        if (letterheadBase64) {
+          doc.addImage(letterheadBase64, "PNG", 0, 0, pageWidth, pageHeight);
+        }
+      },
+      didDrawPage: (data) => {
+        const pgNum = doc.internal.getCurrentPageInfo().pageNumber;
+        doc.setFontSize(7);
+        doc.setTextColor("#aaa");
+        doc.text(`Page ${pgNum}`, pageWidth - sideMargin, pageHeight - 10, { align: "right" });
+      },
+    });
+
+    // Final page numbers
+    const totalPages = doc.getNumberOfPages();
+    for (let i = 1; i <= totalPages; i++) {
+      doc.setPage(i);
+      doc.setFontSize(7);
+      doc.setTextColor("#aaa");
+      doc.text(`Page ${i} of ${totalPages}`, pageWidth - sideMargin, pageHeight - 10, { align: "right" });
+    }
+
+    doc.save(`Tax_Report_${startDate}_to_${endDate}.pdf`);
+    toast.success("PDF downloaded");
+  };
+
   return (
     <AdminLayout>
       <div className="mb-6">
@@ -88,7 +241,7 @@ export default function TaxReport() {
         </p>
       </div>
 
-      {/* Date filters */}
+      {/* Date filters & buttons */}
       <div className="flex flex-wrap items-end gap-4 mb-6">
         <div>
           <label className="text-xs font-montserrat text-secondary-dark">From Date</label>
@@ -109,10 +262,16 @@ export default function TaxReport() {
           />
         </div>
         <button
+          onClick={handlePrintPdf}
+          className="bg-primary text-white px-4 py-2 rounded-lg text-sm flex items-center gap-2"
+        >
+          <Printer size={16} /> Print PDF
+        </button>
+        <button
           onClick={handleExport}
           className="bg-primary text-white px-4 py-2 rounded-lg text-sm flex items-center gap-2"
         >
-          <Download size={16} /> Export
+          <Download size={16} /> Export CSV
         </button>
       </div>
 

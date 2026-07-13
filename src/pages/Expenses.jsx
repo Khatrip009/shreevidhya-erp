@@ -1,3 +1,4 @@
+// src/pages/Expenses.jsx
 import React, { useState, useRef } from "react";
 import {
   useInfiniteQuery,
@@ -32,10 +33,15 @@ import {
   getAllExpensesForExport,
 } from "../services/financeService";
 import { useOrgDarkLogo } from "../hooks/useOrgDarkLogo";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 
 export default function Expenses() {
   const queryClient = useQueryClient();
   const darkLogo = useOrgDarkLogo();
+
+  // ── Organisation / Branch / Financial Year context ──
+  const { branch, selectedFinancialYear } = useOrg();   // NEW
+  const ctx = { branchId: branch?.id, financialYearId: selectedFinancialYear?.id };
 
   // Filters
   const [search, setSearch] = useState("");
@@ -80,9 +86,9 @@ export default function Expenses() {
 
   const expenses = data?.pages.flatMap((page) => page.data) || [];
 
-  // Mutations
+  // Mutations – now pass context
   const createMutation = useMutation({
-    mutationFn: createExpense,
+    mutationFn: (payload) => createExpense(payload, ctx),
     onSuccess: () => {
       toast.success("Expense added");
       queryClient.invalidateQueries({ queryKey: ["expenses"] });
@@ -92,7 +98,7 @@ export default function Expenses() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, payload }) => updateExpense(id, payload),
+    mutationFn: ({ id, payload }) => updateExpense(id, payload, ctx),
     onSuccess: () => {
       toast.success("Expense updated");
       queryClient.invalidateQueries({ queryKey: ["expenses"] });
@@ -102,7 +108,7 @@ export default function Expenses() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: deleteExpense,
+    mutationFn: (id) => deleteExpense(id, ctx),
     onSuccess: () => {
       toast.success("Record deleted");
       queryClient.invalidateQueries({ queryKey: ["expenses"] });
@@ -110,7 +116,7 @@ export default function Expenses() {
     onError: () => toast.error("Delete failed"),
   });
 
-  // CSV Import
+  // CSV Import – need context for createExpense
   async function handleCSVImport(event) {
     const file = event.target.files[0];
     if (!file) return;
@@ -129,7 +135,7 @@ export default function Expenses() {
               description: row.description || "",
               bill_number: row.bill_number || null,
             };
-            await createExpense(payload);
+            await createExpense(payload, ctx);   // pass context
             successCount++;
           } catch (err) {
             console.error(err);
@@ -142,7 +148,7 @@ export default function Expenses() {
     });
   }
 
-  // CSV Export
+  // CSV Export (unchanged)
   async function handleCSVExport() {
     try {
       const allData = await getAllExpensesForExport(allFilters);
@@ -306,7 +312,7 @@ export default function Expenses() {
         </div>
       )}
 
-      {/* Expenses Table */}
+      {/* Expenses Table (unchanged) */}
       <div className="bg-white rounded-xl shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[800px]">
@@ -385,7 +391,7 @@ export default function Expenses() {
         </div>
       </div>
 
-      {/* Load More */}
+      {/* Load More (unchanged) */}
       {hasNextPage && (
         <div className="flex justify-center mt-6">
           <button
@@ -398,7 +404,7 @@ export default function Expenses() {
         </div>
       )}
 
-      {/* Expense Form Modal (branded) */}
+      {/* Expense Form Modal (branded, unchanged) */}
       {showForm && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl w-full max-w-md shadow-xl">

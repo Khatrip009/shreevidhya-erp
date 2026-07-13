@@ -2,11 +2,14 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../api/supabase';
 import { useAuth } from '../context/AuthContext';
+import { useOrg } from '../context/OrganizationContext';   // NEW
 import toast from 'react-hot-toast';
 import { X } from 'lucide-react';
 
 export default function OnlineClassModal({ isOpen, onClose, onSuccess, initialData = null }) {
   const { profile } = useAuth();
+  const { branch, selectedFinancialYear } = useOrg();      // NEW
+
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [startTime, setStartTime] = useState('');
@@ -107,7 +110,11 @@ export default function OnlineClassModal({ isOpen, onClose, onSuccess, initialDa
 
     setLoading(true);
     try {
-      let result;
+      const context = {
+        branch_id: branch?.id,
+        financial_year_id: selectedFinancialYear?.id,
+      };
+
       if (isEdit) {
         const { data, error } = await supabase
           .from('online_classes')
@@ -118,15 +125,14 @@ export default function OnlineClassModal({ isOpen, onClose, onSuccess, initialDa
             duration_minutes: Number(duration),
             batch_id: batchId,
             teacher_id: Number(teacherId),
+            ...context,                                 // NEW: include branch & FY
           })
           .eq('id', initialData.id)
           .select()
           .single();
         if (error) throw error;
-        result = data;
         toast.success('Class updated!');
       } else {
-        // ✅ Room name format compatible with 8x8.vc
         const roomName = `Room-${Date.now()}-${Math.random().toString(36).substring(7)}`;
         const { data, error } = await supabase
           .from('online_classes')
@@ -139,11 +145,11 @@ export default function OnlineClassModal({ isOpen, onClose, onSuccess, initialDa
             teacher_id: Number(teacherId),
             room_name: roomName,
             status: 'scheduled',
+            ...context,                                 // NEW: include branch & FY
           })
           .select()
           .single();
         if (error) throw error;
-        result = data;
         toast.success('Class created!');
       }
 

@@ -1,3 +1,4 @@
+// src/pages/Subjects.jsx
 import React, { useState, useRef } from "react";
 import {
   useInfiniteQuery,
@@ -14,7 +15,7 @@ import {
   Download,
   Upload,
   BookOpen,
-  X, // <-- add this
+  X,
 } from "lucide-react";
 import Papa from "papaparse";
 import AdminLayout from "../layouts/AdminLayout";
@@ -26,9 +27,14 @@ import {
   deleteSubject,
   getAllSubjectsForExport,
 } from "../services/subjectService";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 
 export default function Subjects() {
   const queryClient = useQueryClient();
+
+  // ── Organisation / Branch / Financial Year context ──
+  const { branch, selectedFinancialYear } = useOrg();
+  const ctx = { branchId: branch?.id, financialYearId: selectedFinancialYear?.id };
 
   // Search
   const [search, setSearch] = useState("");
@@ -70,9 +76,9 @@ export default function Subjects() {
     staleTime: 10 * 60 * 1000,
   });
 
-  // Mutations
+  // Mutations – now pass context
   const createMutation = useMutation({
-    mutationFn: createSubject,
+    mutationFn: (payload) => createSubject(payload, ctx),
     onSuccess: () => {
       toast.success("Subject created");
       queryClient.invalidateQueries({ queryKey: ["subjects"] });
@@ -82,7 +88,7 @@ export default function Subjects() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, payload }) => updateSubject(id, payload),
+    mutationFn: ({ id, payload }) => updateSubject(id, payload, ctx),
     onSuccess: () => {
       toast.success("Subject updated");
       queryClient.invalidateQueries({ queryKey: ["subjects"] });
@@ -92,7 +98,7 @@ export default function Subjects() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: deleteSubject,
+    mutationFn: deleteSubject,   // hard delete, RLS protects
     onSuccess: () => {
       toast.success("Subject deleted");
       queryClient.invalidateQueries({ queryKey: ["subjects"] });
@@ -100,7 +106,7 @@ export default function Subjects() {
     onError: () => toast.error("Delete failed"),
   });
 
-  // CSV Import
+  // CSV Import – now passes context to createSubject
   async function handleCSVImport(event) {
     const file = event.target.files[0];
     if (!file) return;
@@ -115,7 +121,7 @@ export default function Subjects() {
               course_id: row.course_id ? Number(row.course_id) : null,
               subject_name: row.subject_name,
             };
-            await createSubject(payload);
+            await createSubject(payload, ctx);
             successCount++;
           } catch (err) {
             console.error(err);
@@ -128,7 +134,7 @@ export default function Subjects() {
     });
   }
 
-  // CSV Export
+  // CSV Export (unchanged)
   async function handleCSVExport() {
     try {
       const allData = await getAllSubjectsForExport(filters);

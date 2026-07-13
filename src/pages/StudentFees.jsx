@@ -37,11 +37,16 @@ import {
   generateInvoicesForInstallments,
 } from "../services/feeService";
 import { supabase } from "../api/supabase";
-
-// ─── Main Component ───────────────────────────────────────────
+import { useOrg } from "../context/OrganizationContext"; // NEW
 
 export default function StudentFees() {
   const queryClient = useQueryClient();
+
+  // ── Get branch, financial year, and org details from context ──
+  const { org, branch, selectedFinancialYear } = useOrg();
+  const ctx = { branchId: branch?.id, financialYearId: selectedFinancialYear?.id };
+  const darkLogo = org?.logo_dark_url || "/ShreeVidhyaDark.png";
+  const orgName = org?.company_name || "Academy";
 
   const [search, setSearch] = useState("");
   const filters = { search };
@@ -99,7 +104,7 @@ export default function StudentFees() {
   });
 
   const createMutation = useMutation({
-    mutationFn: createStudentFee,
+    mutationFn: (payload) => createStudentFee(payload, ctx),   // pass context
     onSuccess: () => {
       toast.success("Fee assigned");
       queryClient.invalidateQueries({ queryKey: ["studentFees"] });
@@ -109,7 +114,7 @@ export default function StudentFees() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, payload }) => updateStudentFee(id, payload),
+    mutationFn: ({ id, payload }) => updateStudentFee(id, payload, ctx),   // pass context
     onSuccess: () => {
       toast.success("Fee updated");
       queryClient.invalidateQueries({ queryKey: ["studentFees"] });
@@ -120,7 +125,7 @@ export default function StudentFees() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: deleteStudentFee,
+    mutationFn: (id) => deleteStudentFee(id, ctx),   // pass context (soft delete)
     onSuccess: () => {
       toast.success("Fee record deleted");
       queryClient.invalidateQueries({ queryKey: ["studentFees"] });
@@ -128,22 +133,22 @@ export default function StudentFees() {
     onError: () => toast.error("Delete failed"),
   });
 
-  // ─── Invoice generation mutation ────────────────────────────
+  // ─── Invoice generation mutation ──
   const generateInvoiceMutation = useMutation({
     mutationFn: async ({ feeId, installmentId }) => {
+      // Note: generateInvoiceFromStudentFee currently throws an error saying invoiceService must be updated,
+      // but we'll still pass context when calling it (if we update that service later). For now keep as-is.
       if (installmentId) {
-        return await generateInvoiceFromStudentFee(feeId, installmentId);
+        return await generateInvoiceFromStudentFee(feeId, installmentId, ctx);
       } else {
-        // Check if fee has installments
         const { data: insts } = await supabase
           .from("fee_installments")
           .select("id")
           .eq("student_fee_id", feeId);
         if (insts && insts.length > 0) {
-          // Generate invoices for all installments
-          return await generateInvoicesForInstallments(feeId);
+          return await generateInvoicesForInstallments(feeId, ctx);
         } else {
-          return await generateInvoiceFromStudentFee(feeId);
+          return await generateInvoiceFromStudentFee(feeId, null, ctx);
         }
       }
     },
@@ -277,7 +282,7 @@ export default function StudentFees() {
               final_fee: Number(row.final_fee),
               status: row.status || "Pending",
             };
-            await createStudentFee(payload);
+            await createStudentFee(payload, ctx);   // pass context
             successCount++;
           } catch (err) {
             console.error(err);
@@ -609,13 +614,13 @@ export default function StudentFees() {
         </div>
       )}
 
-      {/* Assign/Edit Modal */}
+      {/* Assign/Edit Modal – now with dynamic logo */}
       {showAssignForm && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl w-full max-w-lg shadow-xl max-h-[90vh] overflow-y-auto">
             <div className="sticky top-0 bg-white border-b border-secondary-light px-6 py-4 flex items-center justify-between rounded-t-xl">
               <div className="flex items-center gap-3">
-                <img src="/ShreeVidhyaDark.png" alt="ShreeVidhya Academy" className="h-10 w-auto" />
+                <img src={darkLogo} alt={orgName} className="h-10 w-auto" />
                 <h2 className="text-xl font-righteous text-primary-dark">{editingFee ? "Edit Fee" : "Assign Fee"}</h2>
               </div>
               <button onClick={() => setShowAssignForm(false)} className="p-2 hover:bg-secondary-bg rounded-lg"><X size={20} className="text-secondary-dark" /></button>
@@ -655,7 +660,7 @@ export default function StudentFees() {
                 <input type="number" value={form.discount} onChange={(e) => handleDiscountChange(e.target.value)} className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none" />
               </div>
 
-              {/* Final Fee (Base or Total) */}
+              {/* Final Fee */}
               <div>
                 <label className="block text-sm font-montserrat text-secondary-dark mb-1">
                   {form.tax_inclusive ? "Final Fee (incl. tax)" : "Base Amount (excl. tax)"}
@@ -684,7 +689,7 @@ export default function StudentFees() {
                 </select>
               </div>
 
-              {/* ===== INSTALLMENTS SECTION ===== */}
+              {/* Installments */}
               {structureAllowsInstallments && (
                 <div className="border-t border-secondary-light pt-4 mt-4">
                   <div className="flex items-center justify-between mb-3">
@@ -712,7 +717,6 @@ export default function StudentFees() {
                       <span className="text-xs text-green-600 bg-green-50 px-2 py-1 rounded-full">Active</span>
                     )}
                   </div>
-
                   {enableInstallments && (
                     <div className="space-y-3">
                       <div>
@@ -725,7 +729,6 @@ export default function StudentFees() {
                           className="w-full border border-secondary-light rounded p-2 text-sm focus:ring-1 focus:ring-primary outline-none"
                         />
                       </div>
-
                       {installments.map((inst, idx) => (
                         <div key={idx} className="grid grid-cols-2 gap-3">
                           <div>
@@ -802,12 +805,15 @@ export default function StudentFees() {
         />
       )}
 
-      {/* View Payments Modal */}
+      {/* View Payments Modal – now with dynamic logo */}
       {viewPayments && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl w-full max-w-xl shadow-xl max-h-[90vh] overflow-y-auto">
             <div className="sticky top-0 bg-white border-b border-secondary-light px-6 py-4 flex items-center justify-between rounded-t-xl">
-              <div className="flex items-center gap-3"><img src="/ShreeVidhyaDark.png" alt="ShreeVidhya Academy" className="h-10 w-auto" /><h2 className="text-xl font-righteous text-primary-dark">Payment History</h2></div>
+              <div className="flex items-center gap-3">
+                <img src={darkLogo} alt={orgName} className="h-10 w-auto" />
+                <h2 className="text-xl font-righteous text-primary-dark">Payment History</h2>
+              </div>
               <button onClick={() => { setViewPayments(null); setSelectedFeeForPayments(null); }} className="p-2 hover:bg-secondary-bg rounded-lg"><X size={20} className="text-secondary-dark" /></button>
             </div>
             <div className="p-6">

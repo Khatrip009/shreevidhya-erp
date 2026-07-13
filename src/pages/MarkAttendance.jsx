@@ -19,10 +19,15 @@ import {
   saveAttendance,
 } from "../services/attendanceService";
 import { supabase } from "../api/supabase";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 
 export default function MarkAttendance() {
   const { sessionId } = useParams();
   const navigate = useNavigate();
+
+  // ── Organisation / Branch / Financial Year context ──
+  const { branch, selectedFinancialYear } = useOrg();   // NEW
+  const ctx = { branchId: branch?.id, financialYearId: selectedFinancialYear?.id };
 
   const [students, setStudents] = useState([]);
   const [attendance, setAttendance] = useState({});
@@ -97,14 +102,12 @@ export default function MarkAttendance() {
 
     setSaving(true);
     try {
-      // ── 1. Save the attendance records ──
-      await saveAttendance(sessionId, records);
+      // Pass the context (financialYearId) to saveAttendance
+      await saveAttendance(sessionId, records, selectedFinancialYear?.id);
 
-      // ── 2. Link the session to the current teacher (for lecture counting) ──
-      // Get the currently logged‑in user (admin or teacher)
+      // Link the session to the current teacher
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
-        // Find the teacher row that belongs to this user
         const { data: teacherData } = await supabase
           .from("teachers")
           .select("id")
@@ -112,12 +115,15 @@ export default function MarkAttendance() {
           .single();
 
         if (teacherData?.id) {
-          // Update the session with the teacher's ID (only if not already set)
           const { error: updateError } = await supabase
             .from("attendance_sessions")
-            .update({ teacher_id: teacherData.id })
+            .update({
+              teacher_id: teacherData.id,
+              branch_id: branch?.id,           // optional RLS compliance
+              financial_year_id: selectedFinancialYear?.id,
+            })
             .eq("id", sessionId)
-            .is("teacher_id", null);   // only update if currently empty
+            .is("teacher_id", null);
 
           if (updateError) {
             console.error("Failed to set teacher_id on session:", updateError);

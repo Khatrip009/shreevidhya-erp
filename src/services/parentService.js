@@ -1,3 +1,4 @@
+// src/services/parentService.js
 import { supabase } from "../api/supabase";
 
 /**
@@ -71,7 +72,7 @@ export async function getParents({ pageParam = 0, filters = {} } = {}) {
   return { data: enriched, count };
 }
 
-// Export all parents (for CSV) – still flat, you may add student names if needed
+// Export all parents (for CSV)
 export async function getAllParentsForExport(filters = {}) {
   let query = supabase
     .from("parents")
@@ -93,9 +94,11 @@ export async function getAllParentsForExport(filters = {}) {
  * Create a parent record.
  * @param {Object} payload – parent fields + optional `email` & `password` for auth.
  * @param {number} [studentId] – if provided, the new parent is immediately linked to this student.
+ * @param {Object} context – { branchId, financialYearId }
  */
-export async function createParent(payload, studentId = null) {
+export async function createParent(payload, studentId = null, context) {
   const { email, password, ...parentData } = payload;
+  const { branchId, financialYearId } = context;
 
   const fullName =
     parentData.father_name || parentData.mother_name || "Parent";
@@ -103,7 +106,7 @@ export async function createParent(payload, studentId = null) {
 
   const { data: parent, error } = await supabase
     .from("parents")
-    .insert([{ ...parentData, user_id: userId }])
+    .insert([{ ...parentData, user_id: userId, branch_id: branchId, financial_year_id: financialYearId }])
     .select()
     .single();
   if (error) throw error;
@@ -116,6 +119,8 @@ export async function createParent(payload, studentId = null) {
         student_id: studentId,
         parent_id: parent.id,
         relation: "guardian",
+        branch_id: branchId,
+        financial_year_id: financialYearId,
       });
     if (linkError) throw linkError;
   }
@@ -123,10 +128,17 @@ export async function createParent(payload, studentId = null) {
   return parent;
 }
 
-export async function updateParent(id, payload) {
+/**
+ * Update a parent record (soft delete is separate).
+ * @param {number} id – parent ID
+ * @param {Object} payload – fields to update
+ * @param {Object} context – { branchId, financialYearId }
+ */
+export async function updateParent(id, payload, context) {
+  const { branchId, financialYearId } = context;
   const { data, error } = await supabase
     .from("parents")
-    .update(payload)
+    .update({ ...payload, branch_id: branchId, financial_year_id: financialYearId })
     .eq("id", id)
     .select()
     .single();
@@ -134,15 +146,33 @@ export async function updateParent(id, payload) {
   return data;
 }
 
-export async function deleteParent(id) {
+/**
+ * Soft delete a parent record.
+ * @param {number} id
+ * @param {Object} context – { branchId, financialYearId }
+ */
+export async function deleteParent(id, context) {
+  const { branchId, financialYearId } = context;
   const { error } = await supabase
     .from("parents")
-    .update({ deleted_at: new Date().toISOString() })
+    .update({
+      deleted_at: new Date().toISOString(),
+      branch_id: branchId,
+      financial_year_id: financialYearId,
+    })
     .eq("id", id);
   if (error) throw error;
 }
 
-export async function linkStudentToParent(parentId, studentId) {
+/**
+ * Link a student to a parent.
+ * @param {number} parentId
+ * @param {number} studentId
+ * @param {Object} context – { branchId, financialYearId }
+ */
+export async function linkStudentToParent(parentId, studentId, context) {
+  const { branchId, financialYearId } = context;
+
   // Check if link already exists
   const { data: existing } = await supabase
     .from("student_parents")
@@ -162,6 +192,8 @@ export async function linkStudentToParent(parentId, studentId) {
       parent_id: parentId,
       student_id: studentId,
       relation: "parent",
+      branch_id: branchId,
+      financial_year_id: financialYearId,
     });
 
   if (error) throw error;

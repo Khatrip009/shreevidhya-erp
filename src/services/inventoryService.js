@@ -12,20 +12,24 @@ export async function getInventoryItems(filters = {}) {
   return data || [];
 }
 
-export async function createInventoryItem(payload) {
+// context: { branchId, financialYearId }
+export async function createInventoryItem(payload, context) {
+  const { branchId, financialYearId } = context;
   const { data, error } = await supabase
     .from("inventory_items")
-    .insert(payload)
+    .insert({ ...payload, branch_id: branchId, financial_year_id: financialYearId })
     .select()
     .single();
   if (error) throw error;
   return data;
 }
 
-export async function updateInventoryItem(id, payload) {
+// context: { branchId, financialYearId }
+export async function updateInventoryItem(id, payload, context) {
+  const { branchId, financialYearId } = context;
   const { data, error } = await supabase
     .from("inventory_items")
-    .update(payload)
+    .update({ ...payload, branch_id: branchId, financial_year_id: financialYearId })
     .eq("id", id)
     .select()
     .single();
@@ -33,6 +37,7 @@ export async function updateInventoryItem(id, payload) {
   return data;
 }
 
+// Hard delete – RLS protects
 export async function deleteInventoryItem(id) {
   const { error } = await supabase.from("inventory_items").delete().eq("id", id);
   if (error) throw error;
@@ -54,10 +59,12 @@ export async function getInventoryTransactions(filters = {}) {
   return data || [];
 }
 
-export async function addInventoryTransaction(payload) {
+// context: { branchId, financialYearId }
+export async function addInventoryTransaction(payload, context) {
+  const { branchId, financialYearId } = context;
   const { data, error } = await supabase
     .from("inventory_transactions")
-    .insert(payload)
+    .insert({ ...payload, branch_id: branchId, financial_year_id: financialYearId })
     .select()
     .single();
   if (error) throw error;

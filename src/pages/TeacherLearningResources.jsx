@@ -1,3 +1,4 @@
+// src/pages/TeacherLearningResources.jsx
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "../api/supabase";
@@ -6,9 +7,11 @@ import BackButton from "../components/BackButton";
 
 import { useAuth } from "../context/AuthContext";
 import { ExternalLink, BookOpen, Search, Filter } from "lucide-react";
+import { useOrg } from "../context/OrganizationContext";   // NEW (for consistency)
 
 export default function TeacherLearningResources() {
   const { user } = useAuth();
+  useOrg();   // context import – no writes on this page
 
   // Filter states
   const [searchChapter, setSearchChapter] = useState("");

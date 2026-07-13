@@ -8,10 +8,15 @@ import AdminLayout from "../layouts/AdminLayout";
 import BackButton from "../components/BackButton";
 
 import { getPurchaseOrders, receivePO, deletePO } from "../services/poService";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 
 export default function PurchaseOrders() {
   const queryClient = useQueryClient();
   const [statusFilter, setStatusFilter] = useState("");
+
+  // ── Organisation / Branch / Financial Year context ──
+  const { branch, selectedFinancialYear } = useOrg();   // NEW
+  const ctx = { branchId: branch?.id, financialYearId: selectedFinancialYear?.id };
 
   const { data: pos = [], isLoading } = useQuery({
     queryKey: ["purchase-orders", statusFilter],
@@ -20,7 +25,7 @@ export default function PurchaseOrders() {
   });
 
   const receiveMut = useMutation({
-    mutationFn: receivePO,
+    mutationFn: (poId) => receivePO(poId, ctx),   // pass context
     onSuccess: () => {
       toast.success("PO received – stock updated");
       queryClient.invalidateQueries(["purchase-orders"]);
@@ -29,7 +34,7 @@ export default function PurchaseOrders() {
   });
 
   const deleteMut = useMutation({
-    mutationFn: deletePO,
+    mutationFn: deletePO,   // no context needed
     onSuccess: () => {
       toast.success("PO deleted");
       queryClient.invalidateQueries(["purchase-orders"]);
@@ -95,17 +100,14 @@ export default function PurchaseOrders() {
                   </td>
                   <td className="text-sm">
                     <div className="flex gap-2">
-                        
-                    <Link to={`/purchase-orders/${po.id}/edit`} className="text-blue-600">
-                    <Edit3 size={15} />
-                    </Link>
+                      <Link to={`/purchase-orders/${po.id}/edit`} className="text-blue-600">
+                        <Edit3 size={15} />
+                      </Link>
                       <Link to={`/purchase-orders/${po.id}`} className="text-blue-600"><Eye size={15} /></Link>
                       {(po.status !== "Received" && po.status !== "Cancelled") && (
                         <button onClick={() => receiveMut.mutate(po.id)} className="text-green-600" title="Receive"><Truck size={15} /></button>
                       )}
-                      
                       <button onClick={() => { if (window.confirm("Delete?")) deleteMut.mutate(po.id); }} className="text-red-600"><Trash2 size={15} /></button>
-                      
                     </div>
                   </td>
                 </tr>

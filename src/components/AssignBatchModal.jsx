@@ -7,12 +7,16 @@ import {
   getMediumOptions,
   bulkAssignStudents,
 } from "../services/batchAssignmentService";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 
 export default function AssignBatchModal({ onSubmit, onClose }) {
+  const { branch, selectedFinancialYear } = useOrg();      // NEW
+  const context = { branchId: branch?.id, financialYearId: selectedFinancialYear?.id };  // NEW
+
   const [students, setStudents] = useState([]);
   const [batches, setBatches] = useState([]);
-  const [mediums, setMediums] = useState([]);                      // NEW
-  const [selectedMediumId, setSelectedMediumId] = useState("");    // NEW
+  const [mediums, setMediums] = useState([]);
+  const [selectedMediumId, setSelectedMediumId] = useState("");
 
   const [selectedStudents, setSelectedStudents] = useState([]);
   const [search, setSearch] = useState("");
@@ -31,11 +35,11 @@ export default function AssignBatchModal({ onSubmit, onClose }) {
       const [studentData, batchData, mediumData] = await Promise.all([
         getActiveStudents(),
         getActiveBatches(),
-        getMediumOptions(),              // NEW
+        getMediumOptions(),
       ]);
       setStudents(studentData);
       setBatches(batchData);
-      setMediums(mediumData);             // NEW
+      setMediums(mediumData);
     } catch (err) {
       toast.error("Failed to load data");
     }
@@ -85,7 +89,8 @@ export default function AssignBatchModal({ onSubmit, onClose }) {
 
     setLoading(true);
     try {
-      await bulkAssignStudents(batchId, selectedStudents, enrollmentDate);
+      // Pass context as 4th argument (branchId, financialYearId)
+      await bulkAssignStudents(batchId, selectedStudents, enrollmentDate, context);
       toast.success(`${selectedStudents.length} student(s) assigned to batch`);
       if (onSubmit) onSubmit();
       onClose();
@@ -117,7 +122,7 @@ export default function AssignBatchModal({ onSubmit, onClose }) {
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-5">
-          {/* Medium Filter – NEW */}
+          {/* Medium Filter */}
           <div>
             <label className="block text-sm font-montserrat text-secondary-dark mb-1">
               <Layers size={14} className="inline mr-1" /> Medium

@@ -1,3 +1,4 @@
+// src/services/financeService.js
 import { supabase } from "../api/supabase";
 
 // ========================
@@ -47,21 +48,24 @@ export async function getAllIncomesForExport(filters = {}) {
   return data || [];
 }
 
-export async function createIncome(payload) {
-  // Do NOT force created_by – it defaults to null
+// context: { branchId, financialYearId }
+export async function createIncome(payload, context) {
+  const { branchId, financialYearId } = context;
   const { data, error } = await supabase
     .from("income")
-    .insert([payload])
+    .insert([{ ...payload, branch_id: branchId, financial_year_id: financialYearId }])
     .select()
     .single();
   if (error) throw error;
   return data;
 }
 
-export async function updateIncome(id, payload) {
+// context: { branchId, financialYearId }
+export async function updateIncome(id, payload, context) {
+  const { branchId, financialYearId } = context;
   const { data, error } = await supabase
     .from("income")
-    .update(payload)
+    .update({ ...payload, branch_id: branchId, financial_year_id: financialYearId })
     .eq("id", id)
     .select()
     .single();
@@ -69,10 +73,17 @@ export async function updateIncome(id, payload) {
   return data;
 }
 
-export async function deleteIncome(id) {
+// Soft delete – context required for RLS on update
+// context: { branchId, financialYearId }
+export async function deleteIncome(id, context) {
+  const { branchId, financialYearId } = context;
   const { error } = await supabase
     .from("income")
-    .update({ deleted_at: new Date().toISOString() })
+    .update({
+      deleted_at: new Date().toISOString(),
+      branch_id: branchId,
+      financial_year_id: financialYearId,
+    })
     .eq("id", id);
   if (error) throw error;
 }
@@ -124,21 +135,24 @@ export async function getAllExpensesForExport(filters = {}) {
   return data || [];
 }
 
-export async function createExpense(payload) {
-  // Do NOT force created_by – it defaults to null
+// context: { branchId, financialYearId }
+export async function createExpense(payload, context) {
+  const { branchId, financialYearId } = context;
   const { data, error } = await supabase
     .from("expenses")
-    .insert([payload])
+    .insert([{ ...payload, branch_id: branchId, financial_year_id: financialYearId }])
     .select()
     .single();
   if (error) throw error;
   return data;
 }
 
-export async function updateExpense(id, payload) {
+// context: { branchId, financialYearId }
+export async function updateExpense(id, payload, context) {
+  const { branchId, financialYearId } = context;
   const { data, error } = await supabase
     .from("expenses")
-    .update(payload)
+    .update({ ...payload, branch_id: branchId, financial_year_id: financialYearId })
     .eq("id", id)
     .select()
     .single();
@@ -146,14 +160,22 @@ export async function updateExpense(id, payload) {
   return data;
 }
 
-export async function deleteExpense(id) {
+// Soft delete – context required for RLS on update
+// context: { branchId, financialYearId }
+export async function deleteExpense(id, context) {
+  const { branchId, financialYearId } = context;
   const { error } = await supabase
     .from("expenses")
-    .update({ deleted_at: new Date().toISOString() })
+    .update({
+      deleted_at: new Date().toISOString(),
+      branch_id: branchId,
+      financial_year_id: financialYearId,
+    })
     .eq("id", id);
   if (error) throw error;
 }
 
+// Profit & Loss summary – read only, RLS filters automatically
 export async function getProfitLossSummary(startDate, endDate) {
   const { data: incomes, error: incomeError } = await supabase
     .from("income")

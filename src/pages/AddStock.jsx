@@ -5,9 +5,14 @@ import toast from "react-hot-toast";
 import { Plus, Trash2, Save } from "lucide-react";
 import AdminLayout from "../layouts/AdminLayout";
 import { supabase } from "../api/supabase";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 
 export default function AddStock() {
   const queryClient = useQueryClient();
+  const { branch, selectedFinancialYear } = useOrg();      // NEW
+  const branchId = branch?.id;
+  const financialYearId = selectedFinancialYear?.id;
+
   const [vendor, setVendor] = useState("");
   const [reference, setReference] = useState("");
   const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
@@ -93,7 +98,7 @@ export default function AddStock() {
 
         if (!itemId || qty <= 0 || price <= 0) continue;
 
-        // 1. Insert inventory transaction (minimal fields)
+        // 1. Insert inventory transaction with branch & FY
         const { data: tx, error: txError } = await supabase
           .from("inventory_transactions")
           .insert({
@@ -103,6 +108,8 @@ export default function AddStock() {
             unit_price: price,
             reference: reference || `Purchase on ${date}`,
             notes: `Vendor: ${vendor || "Unknown"}`,
+            branch_id: branchId,
+            financial_year_id: financialYearId,
           })
           .select("id")
           .single();
@@ -124,15 +131,17 @@ export default function AddStock() {
               reference: reference || `Stock #${tx.id}`,
               description: `Purchase with tax ${taxRate}%`,
               is_posted: true,
+              branch_id: branchId,
+              financial_year_id: financialYearId,
             })
             .select("id")
             .single();
 
           await supabase.from("journal_entry_lines").insert([
-            { journal_entry_id: journal.id, account_id: acc.invAssetId, debit: total, credit: 0 },
-            { journal_entry_id: journal.id, account_id: acc.inputCgstId, debit: taxHalf, credit: 0 },
-            { journal_entry_id: journal.id, account_id: acc.inputSgstId, debit: taxHalf, credit: 0 },
-            { journal_entry_id: journal.id, account_id: acc.cashId, debit: 0, credit: total + taxHalf * 2 },
+            { journal_entry_id: journal.id, account_id: acc.invAssetId, debit: total, credit: 0, branch_id: branchId, financial_year_id: financialYearId },
+            { journal_entry_id: journal.id, account_id: acc.inputCgstId, debit: taxHalf, credit: 0, branch_id: branchId, financial_year_id: financialYearId },
+            { journal_entry_id: journal.id, account_id: acc.inputSgstId, debit: taxHalf, credit: 0, branch_id: branchId, financial_year_id: financialYearId },
+            { journal_entry_id: journal.id, account_id: acc.cashId, debit: 0, credit: total + taxHalf * 2, branch_id: branchId, financial_year_id: financialYearId },
           ]);
         } else {
           const { data: journal } = await supabase
@@ -142,13 +151,15 @@ export default function AddStock() {
               reference: reference || `Stock #${tx.id}`,
               description: "Purchase without tax",
               is_posted: true,
+              branch_id: branchId,
+              financial_year_id: financialYearId,
             })
             .select("id")
             .single();
 
           await supabase.from("journal_entry_lines").insert([
-            { journal_entry_id: journal.id, account_id: acc.invAssetId, debit: total, credit: 0 },
-            { journal_entry_id: journal.id, account_id: acc.cashId, debit: 0, credit: total },
+            { journal_entry_id: journal.id, account_id: acc.invAssetId, debit: total, credit: 0, branch_id: branchId, financial_year_id: financialYearId },
+            { journal_entry_id: journal.id, account_id: acc.cashId, debit: 0, credit: total, branch_id: branchId, financial_year_id: financialYearId },
           ]);
         }
       }

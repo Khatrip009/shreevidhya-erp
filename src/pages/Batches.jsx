@@ -1,3 +1,4 @@
+// src/pages/Batches.jsx
 import React, { useState, useRef, useEffect, useMemo } from "react";
 import {
   useInfiniteQuery,
@@ -30,9 +31,17 @@ import {
   getCourseOptions,
   getMediumOptions,
 } from "../services/batchService";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 
 export default function Batches() {
   const queryClient = useQueryClient();
+
+  // ── Organization, Branch & Financial Year context ──
+  const { branch, selectedFinancialYear } = useOrg();   // NEW
+  const ctx = {
+    branchId: branch?.id,
+    financialYearId: selectedFinancialYear?.id,
+  };
 
   // Filters
   const [search, setSearch] = useState("");
@@ -126,9 +135,8 @@ export default function Batches() {
     staleTime: 10 * 60 * 1000,
   });
 
-  // ── Helper: Sync teacher_batches (for lecture counting) ──
-  const syncTeacherBatches = async (batchId, payload) => {
-    // Extract distinct teacher_ids from teacher_subjects
+  // ── Helper: Sync teacher_batches (with context) ──
+  const syncTeacherBatches = async (batchId, payload, context) => {
     const teacherIds = [
       ...new Set(
         (payload.teacher_subjects || [])
@@ -137,14 +145,14 @@ export default function Batches() {
       ),
     ];
 
-    // Delete existing teacher_batches for this batch
     await supabase.from("teacher_batches").delete().eq("batch_id", batchId);
 
-    // Insert new ones
     if (teacherIds.length > 0) {
       const inserts = teacherIds.map((tid) => ({
         batch_id: batchId,
         teacher_id: tid,
+        branch_id: context.branchId,
+        financial_year_id: context.financialYearId,
       }));
       const { error } = await supabase.from("teacher_batches").insert(inserts);
       if (error) throw error;
@@ -154,9 +162,8 @@ export default function Batches() {
   // ── Mutations ──────────────────────────────────────────────
   const createMutation = useMutation({
     mutationFn: async (payload) => {
-      const result = await createBatch(payload);
-      // After batch creation, sync teacher_batches
-      await syncTeacherBatches(result.id, payload);
+      const result = await createBatch(payload, ctx);   // pass context
+      await syncTeacherBatches(result.id, payload, ctx);
       return result;
     },
     onSuccess: () => {
@@ -169,9 +176,8 @@ export default function Batches() {
 
   const updateMutation = useMutation({
     mutationFn: async ({ id, payload }) => {
-      const result = await updateBatch(id, payload);
-      // After batch update, sync teacher_batches
-      await syncTeacherBatches(id, payload);
+      const result = await updateBatch(id, payload, ctx);   // pass context
+      await syncTeacherBatches(id, payload, ctx);
       return result;
     },
     onSuccess: () => {
@@ -183,7 +189,7 @@ export default function Batches() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: deleteBatch,
+    mutationFn: deleteBatch,   // soft delete, RLS handles
     onSuccess: () => {
       toast.success("Batch deleted");
       queryClient.invalidateQueries({ queryKey: ["batches"] });
@@ -196,7 +202,7 @@ export default function Batches() {
   const [editing, setEditing] = useState(null);
   const fileInputRef = useRef(null);
 
-  // CSV Import
+  // CSV Import – needs context for createBatch
   async function handleCSVImport(event) {
     const file = event.target.files[0];
     if (!file) return;
@@ -219,7 +225,7 @@ export default function Batches() {
               medium_id: row.medium_id ? Number(row.medium_id) : null,
               teacher_subjects: [], // no assignments in CSV
             };
-            await createBatch(payload);
+            await createBatch(payload, ctx);   // pass context
             successCount++;
           } catch (err) {
             console.error(err);
@@ -232,7 +238,7 @@ export default function Batches() {
     });
   }
 
-  // CSV Export
+  // CSV Export (unchanged)
   async function handleCSVExport() {
     try {
       const allData = await getAllBatchesForExport(allFilters);

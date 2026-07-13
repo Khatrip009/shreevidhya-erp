@@ -5,16 +5,19 @@ import {
   X, Users, BookOpen, Calendar, Layers, Plus, Trash2,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
-import { getOrganization } from "../services/organizationService";
 import { getCourseOptions, getTeacherOptions, getMediumOptions } from "../services/batchService";
 import { supabase } from "../api/supabase";
 import { useAuth } from "../context/AuthContext";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 
 export default function BatchForm({ onSubmit, onClose, initialData = {} }) {
-  const darkLogo = useQuery({ queryKey: ["organization"], queryFn: getOrganization })
-    .data?.logo_dark_url || "/ShreeVidhyaDark.png";
-
   const { profile } = useAuth();
+  const { org, branch, selectedFinancialYear } = useOrg();      // get org from context
+
+  // Dynamic logo and name
+  const darkLogo = org?.logo_dark_url || "/ShreeVidhyaDark.png";
+  const orgName = org?.company_name || "Academy";
+
   const isAdmin = profile?.role === "admin" || profile?.role === "super_admin";
 
   // ---- Basic batch fields ----
@@ -147,9 +150,15 @@ export default function BatchForm({ onSubmit, onClose, initialData = {} }) {
       })),
     };
 
+    // Build context for branch & FY
+    const context = {
+      branchId: branch?.id,
+      financialYearId: selectedFinancialYear?.id,
+    };
+
     try {
-      // Call the parent onSubmit – it should handle saving the batch and its relationships
-      await onSubmit(payload);
+      // Call the parent onSubmit with payload and context
+      await onSubmit(payload, context);
       toast.success("Batch saved successfully");
       onClose();
     } catch (err) {
@@ -160,10 +169,10 @@ export default function BatchForm({ onSubmit, onClose, initialData = {} }) {
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto shadow-xl">
-        {/* Header */}
+        {/* Header with dynamic logo */}
         <div className="sticky top-0 bg-white border-b border-secondary-light px-6 py-4 flex items-center justify-between rounded-t-xl z-10">
           <div className="flex items-center gap-3">
-            <img src={darkLogo} alt="ShreeVidhya Academy" className="h-10 w-auto" />
+            <img src={darkLogo} alt={orgName} className="h-10 w-auto" />
             <h2 className="text-xl font-righteous text-primary-dark">
               {initialData.id ? "Edit Batch" : "New Batch"}
             </h2>
@@ -210,7 +219,7 @@ export default function BatchForm({ onSubmit, onClose, initialData = {} }) {
                 className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light"
               />
             </div>
-            {/* Medium Dropdown – NEW */}
+            {/* Medium Dropdown */}
             <div>
               <label className="block text-sm font-montserrat text-secondary-dark mb-1">
                 <Layers size={14} className="inline mr-1" />

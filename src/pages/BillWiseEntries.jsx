@@ -12,9 +12,13 @@ import {
   recordBillPayment,
 } from "../services/billWiseService";
 import { getOrganization } from "../services/organizationService";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 
 export default function BillWiseEntries() {
   const queryClient = useQueryClient();
+  const { org: currentOrg, branch, selectedFinancialYear } = useOrg();   // NEW
+  const context = { branchId: branch?.id, financialYearId: selectedFinancialYear?.id };
+
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState({
@@ -33,7 +37,12 @@ export default function BillWiseEntries() {
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
 
-  const { data: org } = useQuery({ queryKey: ["organization"], queryFn: getOrganization });
+  // Fetch organization with current org id
+  const { data: org } = useQuery({
+    queryKey: ["organization", currentOrg?.id],
+    queryFn: () => getOrganization(currentOrg?.id),
+    enabled: !!currentOrg?.id,
+  });
 
   const { data: bills = [], isLoading } = useQuery({
     queryKey: ["bill-wise-entries", search, statusFilter, startDate, endDate],
@@ -47,8 +56,9 @@ export default function BillWiseEntries() {
     staleTime: 2 * 60 * 1000,
   });
 
+  // Mutations now pass context
   const createMut = useMutation({
-    mutationFn: createBillWiseEntry,
+    mutationFn: (payload) => createBillWiseEntry(payload, context),
     onSuccess: () => {
       toast.success("Bill created");
       queryClient.invalidateQueries(["bill-wise-entries"]);
@@ -59,7 +69,7 @@ export default function BillWiseEntries() {
   });
 
   const updateMut = useMutation({
-    mutationFn: ({ id, payload }) => updateBillWiseEntry(id, payload),
+    mutationFn: ({ id, payload }) => updateBillWiseEntry(id, payload, context),
     onSuccess: () => {
       toast.success("Bill updated");
       queryClient.invalidateQueries(["bill-wise-entries"]);
@@ -70,7 +80,7 @@ export default function BillWiseEntries() {
   });
 
   const deleteMut = useMutation({
-    mutationFn: deleteBillWiseEntry,
+    mutationFn: deleteBillWiseEntry,   // hard delete, RLS protects
     onSuccess: () => {
       toast.success("Bill deleted");
       queryClient.invalidateQueries(["bill-wise-entries"]);
@@ -79,7 +89,7 @@ export default function BillWiseEntries() {
   });
 
   const paymentMut = useMutation({
-    mutationFn: ({ entryId, amount }) => recordBillPayment(entryId, amount),
+    mutationFn: ({ entryId, amount }) => recordBillPayment(entryId, amount, context),
     onSuccess: () => {
       toast.success("Payment recorded");
       queryClient.invalidateQueries(["bill-wise-entries"]);

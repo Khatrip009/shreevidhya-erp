@@ -1,44 +1,29 @@
+// src/services/studentService.js
 import { supabase } from "../api/supabase";
 
-/**
- * Create a Supabase auth user, update profile role, and return the user ID.
- * Throws user-friendly error if email already exists.
- */
-async function createAuthUser(email, password, fullName, role) {
-  if (!email || !password) return null;
+// Helper: convert empty strings to null for fields that must be integers or dates
+function cleanStudentPayload(payload) {
+  const clean = { ...payload };
+  const intFields = ['medium_id', 'batch_id', 'fee_structure_id'];
+  const dateFields = ['dob'];
 
-  const { data: existing } = await supabase
-    .from("profiles")
-    .select("id")
-    .eq("email", email)
-    .maybeSingle();
-  if (existing) throw new Error("A user with this email already exists.");
-
-  const { data, error } = await supabase.auth.signUp({
-    email,
-    password,
-    options: { data: { full_name: fullName } },
+  intFields.forEach(field => {
+    if (clean[field] === '' || clean[field] === undefined) {
+      clean[field] = null;
+    }
   });
-  if (error) {
-    if (error.message.includes("already been registered"))
-      throw new Error("This email is already registered. Please use another email.");
-    throw error;
-  }
 
-  const userId = data.user.id;
+  dateFields.forEach(field => {
+    if (clean[field] === '') {
+      clean[field] = null;
+    }
+  });
 
-  const { error: profileError } = await supabase
-    .from("profiles")
-    .update({ role })
-    .eq("id", userId);
-  if (profileError) throw profileError;
-
-  return userId;
+  return clean;
 }
 
 // ─── CRUD ───────────────────────────────────────────────
 
-// Now includes medium name and medium_id filter
 export async function getStudents({ pageParam = 0, filters = {} }) {
   const limit = 10;
   const from = pageParam * limit;
@@ -59,6 +44,7 @@ export async function getStudents({ pageParam = 0, filters = {} }) {
   if (filters.gender) query = query.eq("gender", filters.gender);
   if (filters.status) query = query.eq("status", filters.status);
   if (filters.medium_id) query = query.eq("medium_id", filters.medium_id);
+
   if (filters.batch_id) {
     const { data: batchStudents } = await supabase
       .from("student_batches")
@@ -69,6 +55,7 @@ export async function getStudents({ pageParam = 0, filters = {} }) {
     if (ids.length > 0) query = query.in("id", ids);
     else return { data: [], count: 0 };
   }
+
   if (filters.course_id) {
     const { data: courseBatches } = await supabase
       .from("batches")
@@ -88,7 +75,6 @@ export async function getStudents({ pageParam = 0, filters = {} }) {
   const { data, error, count } = await query;
   if (error) throw error;
 
-  // Flatten medium name
   const enriched = (data || []).map((student) => ({
     ...student,
     medium_name: student.mediums?.name || "",
@@ -97,7 +83,6 @@ export async function getStudents({ pageParam = 0, filters = {} }) {
   return { data: enriched, count };
 }
 
-// Now returns medium name
 export async function getStudent(id) {
   const { data, error } = await supabase
     .from("students")
@@ -112,43 +97,76 @@ export async function getStudent(id) {
   };
 }
 
-// createStudent/updateStudent unchanged – medium_id is part of payload
-export async function createStudent(payload) {
-  const { _parent_ids, email, password, ...studentData } = payload;
+export async function createStudent(payload, context) {
+  const { _parent_ids, email, password, batch_id, ...studentData } = payload;
+  const { branchId, financialYearId } = context;
 
-  const fullName = `${studentData.first_name || ""} ${studentData.last_name || ""}`.trim();
-  const userId = await createAuthUser(email, password, fullName, "student");
+  // Clean the payload to avoid empty string integers/dates
+  const cleanData = cleanStudentPayload({
+    ...studentData,
+    email,
+    batch_id,
+    user_id: null,
+    branch_id: branchId,
+    financial_year_id: financialYearId,
+  });
 
   const { data: student, error } = await supabase
     .from("students")
-    .insert([{ ...studentData, user_id: userId }])
+    .insert([cleanData])
     .select()
     .single();
   if (error) throw error;
 
+  // Link parents
   if (_parent_ids && _parent_ids.length > 0) {
     const links = _parent_ids.map((parentId) => ({
       student_id: student.id,
       parent_id: parentId,
       relation: "Parent",
+      branch_id: branchId,
+      financial_year_id: financialYearId,
     }));
     const { error: linkError } = await supabase.from("student_parents").insert(links);
     if (linkError) throw linkError;
   }
 
+  // Assign to batch if provided
+  if (batch_id) {
+    const { error: batchError } = await supabase.from("student_batches").insert({
+      student_id: student.id,
+      batch_id: batch_id,
+      status: "active",
+      branch_id: branchId,
+      financial_year_id: financialYearId,
+    });
+    if (batchError) throw batchError;
+  }
+
   return student;
 }
 
-export async function updateStudent(id, payload) {
-  const { _parent_ids, email, password, ...studentData } = payload;
+export async function updateStudent(id, payload, context) {
+  const { _parent_ids, email, password, batch_id, ...studentData } = payload;
+  const { branchId, financialYearId } = context;
+
+  const cleanData = cleanStudentPayload({
+    ...studentData,
+    email,
+    batch_id,
+    branch_id: branchId,
+    financial_year_id: financialYearId,
+  });
+
   const { data: student, error } = await supabase
     .from("students")
-    .update(studentData)
+    .update(cleanData)
     .eq("id", id)
     .select()
     .single();
   if (error) throw error;
 
+  // Update parent links
   if (_parent_ids !== undefined) {
     await supabase.from("student_parents").delete().eq("student_id", id);
     if (_parent_ids.length > 0) {
@@ -156,23 +174,44 @@ export async function updateStudent(id, payload) {
         student_id: id,
         parent_id: parentId,
         relation: "Parent",
+        branch_id: branchId,
+        financial_year_id: financialYearId,
       }));
       const { error: linkError } = await supabase.from("student_parents").insert(links);
       if (linkError) throw linkError;
     }
   }
+
+  // Update batch assignment
+  if (batch_id !== undefined) {
+    await supabase.from("student_batches").delete().eq("student_id", id);
+    const { error: batchError } = await supabase.from("student_batches").insert({
+      student_id: id,
+      batch_id: batch_id,
+      status: "active",
+      branch_id: branchId,
+      financial_year_id: financialYearId,
+    });
+    if (batchError) throw batchError;
+  }
+
   return student;
 }
 
-export async function deleteStudent(id) {
+export async function deleteStudent(id, context) {
+  const { branchId, financialYearId } = context;
   const { error } = await supabase
     .from("students")
-    .update({ deleted_at: new Date().toISOString() })
+    .update({
+      deleted_at: new Date().toISOString(),
+      branch_id: branchId,
+      financial_year_id: financialYearId,
+    })
     .eq("id", id);
   if (error) throw error;
 }
 
-// Export includes medium name and medium_id filter
+// ─── EXPORT ──────────────────────────────────────────────
 export async function getAllStudentsForExport(filters = {}) {
   let query = supabase
     .from("students")
@@ -198,7 +237,7 @@ export async function getAllStudentsForExport(filters = {}) {
   }));
 }
 
-// NEW – get mediums for filter dropdown
+// ─── OPTIONS ─────────────────────────────────────────────
 export async function getMediumOptions() {
   const { data, error } = await supabase
     .from("mediums")

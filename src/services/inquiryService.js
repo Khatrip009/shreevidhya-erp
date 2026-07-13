@@ -1,3 +1,4 @@
+// src/services/inquiryService.js
 import { supabase } from "../api/supabase";
 
 // Paginated fetch with filters – now includes medium name
@@ -63,21 +64,23 @@ export async function getAllInquiriesForExport(filters = {}) {
   }));
 }
 
-// CRUD – unchanged (medium_id can be passed in payload)
-export async function createInquiry(payload) {
+// CRUD – context = { branchId, financialYearId }
+export async function createInquiry(payload, context) {
+  const { branchId, financialYearId } = context;
   const { data, error } = await supabase
     .from("inquiries")
-    .insert([payload])
+    .insert([{ ...payload, branch_id: branchId, financial_year_id: financialYearId }])
     .select()
     .single();
   if (error) throw error;
   return data;
 }
 
-export async function updateInquiry(id, payload) {
+export async function updateInquiry(id, payload, context) {
+  const { branchId, financialYearId } = context;
   const { data, error } = await supabase
     .from("inquiries")
-    .update(payload)
+    .update({ ...payload, branch_id: branchId, financial_year_id: financialYearId })
     .eq("id", id)
     .select()
     .single();
@@ -85,10 +88,15 @@ export async function updateInquiry(id, payload) {
   return data;
 }
 
-export async function deleteInquiry(id) {
+export async function deleteInquiry(id, context) {
+  const { branchId, financialYearId } = context;
   const { error } = await supabase
     .from("inquiries")
-    .update({ deleted_at: new Date().toISOString() })
+    .update({
+      deleted_at: new Date().toISOString(),
+      branch_id: branchId,
+      financial_year_id: financialYearId,
+    })
     .eq("id", id);
   if (error) throw error;
 }

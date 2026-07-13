@@ -7,9 +7,12 @@ import {
   getBatchStudents,
 } from "../services/homeworkService";
 import { useOrgDarkLogo } from "../hooks/useOrgDarkLogo";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 
 export default function ViewSubmissionsModal({ homework, onClose }) {
   const darkLogo = useOrgDarkLogo();
+  const { branch, selectedFinancialYear } = useOrg();      // NEW
+
   const [students, setStudents] = useState([]);
   const [submissions, setSubmissions] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -50,11 +53,20 @@ export default function ViewSubmissionsModal({ homework, onClose }) {
 
   async function handleSaveMarks(submission) {
     try {
-      await updateSubmission(submission.id, {
-        marks: Number(marksInput[submission.student_id]),
-        remarks: remarksInput[submission.student_id],
-        status: "Graded",
-      });
+      // Build context
+      const context = {
+        branchId: branch?.id,
+        financialYearId: selectedFinancialYear?.id,
+      };
+      await updateSubmission(
+        submission.id,
+        {
+          marks: Number(marksInput[submission.student_id]),
+          remarks: remarksInput[submission.student_id],
+          status: "Graded",
+        },
+        context                     // pass context as third argument
+      );
       toast.success("Marks saved");
       loadData();
     } catch (err) {

@@ -19,6 +19,7 @@ import {
 import AdminLayout from "../layouts/AdminLayout";
 import { supabase } from "../api/supabase";
 import { getOrganization } from "../services/organizationService";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 
 const GROUP_CONFIG = {
   "Direct Income": { parent: 4000, type: "income" },
@@ -37,7 +38,15 @@ export default function ProfitLoss() {
 
   const [startDate, setStartDate] = useState(firstOfMonth);
   const [endDate, setEndDate] = useState(today);
-  const { data: org } = useQuery({ queryKey: ["organization"], queryFn: getOrganization });
+
+  // ── Current organisation from context ──
+  const { org: currentOrg } = useOrg();
+
+  const { data: org } = useQuery({
+    queryKey: ["organization", currentOrg?.id],
+    queryFn: () => getOrganization(currentOrg?.id),
+    enabled: !!currentOrg?.id,
+  });
 
   const chartRef = useRef(null); // for capturing charts as image
 
@@ -121,7 +130,6 @@ export default function ProfitLoss() {
     if (!printArea) return;
 
     let chartImage = null;
-    // Capture the charts container if it exists
     const chartsContainer = document.getElementById("pl-charts");
     if (chartsContainer) {
       const canvas = await html2canvas(chartsContainer, { scale: 2, useCORS: true });
@@ -263,7 +271,7 @@ export default function ProfitLoss() {
             </div>
           </div>
 
-          {/* Printable content (same as before) */}
+          {/* Printable content */}
           <div id="pl-print-area" className="bg-white rounded-xl p-6 shadow-sm">
             <div className="print-content">
               {/* Income */}

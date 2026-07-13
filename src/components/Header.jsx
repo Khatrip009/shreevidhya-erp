@@ -1,11 +1,14 @@
+// src/components/Header.jsx
 import { useState, useRef, useEffect } from "react";
 import {
   Bell, LogOut, UserCircle2, Check, Menu, Download,
+  Sliders,
 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../api/supabase";
 import { useAuth } from "../context/AuthContext";
+import { useOrg } from "../context/OrganizationContext";
 import GlobalSearch from "./GlobalSearch";
 import { useInstallPrompt } from "../hooks/useInstallPrompt";
 import toast from "react-hot-toast";
@@ -17,11 +20,27 @@ export default function Header({ onMenuClick }) {
   const dropdownRef = useRef(null);
   const [dropdownOpen, setDropdownOpen] = useState(false);
 
+  // ── Organization, Branch & Financial Year Context ──
+  const {
+    org,
+    branch,
+    setBranch,
+    branches,
+    financialYears,
+    selectedFinancialYear,
+    switchFinancialYear,
+  } = useOrg();
+
+  // ── Branch / FY panel state ──
+  const [settingsPanelOpen, setSettingsPanelOpen] = useState(false);
+  const settingsPanelRef = useRef(null);
+
   // Install prompt hook
   const { isInstallable, promptInstall } = useInstallPrompt();
 
   const role = (profile?.role || "").toLowerCase().replace(/\s+/g, "_");
   const isStudent = role === "student";
+  const showBranchFY = !isStudent && (branches.length > 1 || financialYears.length > 0);
 
   // Fetch student photo (if student)
   const { data: student } = useQuery({
@@ -112,6 +131,20 @@ export default function Header({ onMenuClick }) {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  // Close settings panel on outside click
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (
+        settingsPanelRef.current &&
+        !settingsPanelRef.current.contains(event.target)
+      ) {
+        setSettingsPanelOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
   async function handleLogout() {
     await supabase.auth.signOut();
     navigate("/login", { replace: true });
@@ -122,7 +155,6 @@ export default function Header({ onMenuClick }) {
   const studentPhotoUrl = student?.photo_url;
   const userAvatar = avatarUrl || studentPhotoUrl || null;
 
-  // ------ Install button handler ------
   const handleInstallClick = () => {
     if (isInstallable) {
       promptInstall();
@@ -136,7 +168,7 @@ export default function Header({ onMenuClick }) {
 
   return (
     <header className="bg-white border-b border-secondary-light px-4 lg:px-6 py-3 lg:py-4 flex items-center justify-between">
-      {/* Left section: hamburger + date */}
+      {/* ── Left section (no org name) ── */}
       <div className="flex items-center gap-3">
         <button
           onClick={onMenuClick}
@@ -145,6 +177,7 @@ export default function Header({ onMenuClick }) {
         >
           <Menu size={22} className="text-secondary-dark" />
         </button>
+
         <div className="hidden sm:block">
           <p className="text-sm text-secondary-dark font-montserrat whitespace-nowrap">
             {today.toLocaleDateString("en-IN", {
@@ -155,14 +188,98 @@ export default function Header({ onMenuClick }) {
             })}
           </p>
         </div>
+
+        {/* ── Branch / FY icon button ── */}
+        {showBranchFY && (
+          <div className="relative" ref={settingsPanelRef}>
+            <button
+              onClick={() => setSettingsPanelOpen(!settingsPanelOpen)}
+              className="p-2 rounded-lg hover:bg-secondary-bg transition"
+              title="Branch & Financial Year"
+            >
+              <Sliders size={18} className="text-secondary-dark" />
+            </button>
+
+            {settingsPanelOpen && (
+              <div className="absolute top-full mt-2 left-0 bg-white rounded-xl shadow-xl border border-secondary-light z-50 p-4 w-56 space-y-3">
+                {/* Branch selector */}
+                {branches.length > 1 && (
+                  <div>
+                    <label className="text-xs font-medium text-secondary-dark mb-1 block">
+                      Branch
+                    </label>
+                    <select
+                      value={branch?.id || ""}
+                      onChange={(e) => {
+                        const selected = branches.find(
+                          (b) => b.id == e.target.value
+                        );
+                        setBranch(selected || null);
+                      }}
+                      className="w-full border border-secondary-light rounded p-1.5 text-sm focus:ring-1 focus:ring-primary"
+                    >
+                      {branches.map((b) => (
+                        <option key={b.id} value={b.id}>
+                          {b.branch_name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {/* Financial Year selector */}
+                {financialYears.length > 0 && (
+                  <div>
+                    <label className="text-xs font-medium text-secondary-dark mb-1 block">
+                      Financial Year
+                    </label>
+                    {selectedFinancialYear ? (
+                      <select
+                        value={selectedFinancialYear.id}
+                        onChange={(e) =>
+                          switchFinancialYear(Number(e.target.value))
+                        }
+                        className="w-full border border-secondary-light rounded p-1.5 text-sm focus:ring-1 focus:ring-primary"
+                      >
+                        {financialYears.map((fy) => (
+                          <option key={fy.id} value={fy.id}>
+                            {fy.name}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <select
+                        onChange={(e) => {
+                          const id = Number(e.target.value);
+                          if (id) switchFinancialYear(id);
+                        }}
+                        className="w-full border border-secondary-light rounded p-1.5 text-sm focus:ring-1 focus:ring-primary"
+                        defaultValue=""
+                      >
+                        <option value="" disabled>
+                          Select FY
+                        </option>
+                        {financialYears.map((fy) => (
+                          <option key={fy.id} value={fy.id}>
+                            {fy.name}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Center Search – visible for all roles */}
+      {/* Center Search */}
       <GlobalSearch />
 
       {/* Right Side */}
       <div className="flex items-center gap-3 sm:gap-4 lg:gap-6">
-        {/* Notification Bell – for all roles */}
+        {/* Notification Bell */}
         <div className="relative" ref={dropdownRef}>
           <button
             onClick={() => setDropdownOpen(!dropdownOpen)}
@@ -251,7 +368,7 @@ export default function Header({ onMenuClick }) {
           </div>
         </div>
 
-        {/* ---- Install App button – always visible ---- */}
+        {/* Install App button */}
         <button
           onClick={handleInstallClick}
           className="flex items-center gap-1 bg-primary hover:bg-primary-light text-white px-3 py-2 rounded-lg transition font-montserrat text-sm"

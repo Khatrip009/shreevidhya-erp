@@ -1,3 +1,4 @@
+// src/services/purchaseOrderService.js
 import { supabase } from "../api/supabase";
 
 export async function getPurchaseOrders() {
@@ -9,7 +10,10 @@ export async function getPurchaseOrders() {
   return data || [];
 }
 
-export async function createPurchaseOrder(payload) {
+// context: { branchId, financialYearId }
+export async function createPurchaseOrder(payload, context) {
+  const { branchId, financialYearId } = context;
+
   // Generate PO number
   const { data: poNum } = await supabase.rpc("generate_po_number");
   const poNumber = poNum;
@@ -24,6 +28,8 @@ export async function createPurchaseOrder(payload) {
       expected_date: payload.expected_date,
       notes: payload.notes,
       total_amount: payload.items.reduce((s, i) => s + (i.quantity * i.unit_price), 0),
+      branch_id: branchId,
+      financial_year_id: financialYearId,
     })
     .select()
     .single();
@@ -36,22 +42,34 @@ export async function createPurchaseOrder(payload) {
     quantity_ordered: item.quantity,
     unit_price: item.unit_price,
     tax_rate_id: item.tax_rate_id || null,
+    branch_id: branchId,
+    financial_year_id: financialYearId,
   }));
   await supabase.from("purchase_order_items").insert(itemInserts);
 
   return po;
 }
 
-export async function updatePurchaseOrderStatus(id, status) {
+// context: { branchId, financialYearId }
+export async function updatePurchaseOrderStatus(id, status, context) {
+  const { branchId, financialYearId } = context;
   const { error } = await supabase
     .from("purchase_orders")
-    .update({ status, updated_at: new Date() })
+    .update({
+      status,
+      updated_at: new Date(),
+      branch_id: branchId,
+      financial_year_id: financialYearId,
+    })
     .eq("id", id);
   if (error) throw error;
 }
 
 // Receive stock against a PO
-export async function receiveStock(poId, itemReceipts) {
+// context: { branchId, financialYearId }
+export async function receiveStock(poId, itemReceipts, context) {
+  const { branchId, financialYearId } = context;
+
   // itemReceipts: [{ item_id, quantity_received }]
   for (const receipt of itemReceipts) {
     // 1. Update PO item
@@ -65,7 +83,11 @@ export async function receiveStock(poId, itemReceipts) {
     const newQtyReceived = (poItem.quantity_received || 0) + receipt.quantity_received;
     await supabase
       .from("purchase_order_items")
-      .update({ quantity_received: newQtyReceived })
+      .update({
+        quantity_received: newQtyReceived,
+        branch_id: branchId,
+        financial_year_id: financialYearId,
+      })
       .eq("purchase_order_id", poId)
       .eq("item_id", receipt.item_id);
 
@@ -77,8 +99,9 @@ export async function receiveStock(poId, itemReceipts) {
       unit_price: poItem.unit_price,
       reference: `PO-${poId}`,
       notes: `Received against PO #${poId}`,
+      branch_id: branchId,
+      financial_year_id: financialYearId,
     });
-    // (trigger will auto-post journal)
   }
 
   // 3. Update PO status
@@ -94,5 +117,6 @@ export async function receiveStock(poId, itemReceipts) {
   if (allFullyReceived) newStatus = "Received";
   else if (anyReceived) newStatus = "Partially Received";
 
-  await updatePurchaseOrderStatus(poId, newStatus);
+  // Pass context to the status update
+  await updatePurchaseOrderStatus(poId, newStatus, context);
 }

@@ -8,8 +8,9 @@ import Papa from "papaparse";
 import AdminLayout from "../layouts/AdminLayout";
 import ConfirmDialog from "../components/ConfirmDialog";
 import BackButton from "../components/BackButton";
-import StudentForm from "../components/StudentForm";  // <-- our enhanced form
+import StudentForm from "../components/StudentForm";
 import { getStudents, createStudent, updateStudent, deleteStudent, getMediumOptions } from "../services/studentService";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 
 export default function Students() {
   const queryClient = useQueryClient();
@@ -19,6 +20,10 @@ export default function Students() {
   const [editingStudent, setEditingStudent] = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(null);
   const fileInputRef = useRef(null);
+
+  // ── Organisation / Branch / Financial Year context ──
+  const { branch, selectedFinancialYear } = useOrg();
+  const ctx = { branchId: branch?.id, financialYearId: selectedFinancialYear?.id };
 
   const { data: mediums = [] } = useQuery({
     queryKey: ["mediums-dropdown"],
@@ -46,8 +51,9 @@ export default function Students() {
 
   const students = data?.pages.flatMap((page) => page.data) || [];
 
+  // Mutations – now pass context
   const deleteMutation = useMutation({
-    mutationFn: (id) => deleteStudent(id),
+    mutationFn: (id) => deleteStudent(id, ctx),
     onSuccess: () => {
       toast.success("Student deleted");
       queryClient.invalidateQueries(["students"]);
@@ -55,7 +61,29 @@ export default function Students() {
     onError: (err) => toast.error(err.message),
   });
 
-  // CSV import – uses dob column correctly
+  const createMutation = useMutation({
+    mutationFn: (payload) => createStudent(payload, ctx),
+    onSuccess: () => {
+      toast.success("Student added");
+      queryClient.invalidateQueries(["students"]);
+      setShowModal(false);
+      setEditingStudent(null);
+    },
+    onError: (err) => toast.error(err.message || "Failed to add student"),
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, payload }) => updateStudent(id, payload, ctx),
+    onSuccess: () => {
+      toast.success("Student updated");
+      queryClient.invalidateQueries(["students"]);
+      setShowModal(false);
+      setEditingStudent(null);
+    },
+    onError: (err) => toast.error(err.message || "Failed to update student"),
+  });
+
+  // CSV import – now passes context to createStudent
   const handleImport = (event) => {
     const file = event.target.files[0];
     if (!file) return;
@@ -66,7 +94,6 @@ export default function Students() {
         let successCount = 0;
         for (const row of results.data) {
           try {
-            // Map CSV field 'date_of_birth' (if present) to db column 'dob'
             const payload = {
               first_name: row.first_name,
               last_name: row.last_name,
@@ -80,7 +107,7 @@ export default function Students() {
               medium_id: row.medium_id || null,
               status: row.status || "Active",
             };
-            await createStudent(payload);
+            await createStudent(payload, ctx);
             successCount++;
           } catch (err) {
             console.error(err);
@@ -91,6 +118,15 @@ export default function Students() {
       },
       error: () => toast.error("CSV parsing error"),
     });
+  };
+
+  // Submit handler for StudentForm (create or update)
+  const handleFormSubmit = async (payload, formContext) => {
+    if (editingStudent) {
+      await updateMutation.mutateAsync({ id: editingStudent.id, payload });
+    } else {
+      await createMutation.mutateAsync(payload);
+    }
   };
 
   return (
@@ -227,6 +263,7 @@ export default function Students() {
       {showModal && (
         <StudentForm
           initialData={editingStudent || {}}
+          onSubmit={handleFormSubmit}   // now we pass onSubmit
           onSuccess={() => {
             queryClient.invalidateQueries(["students"]);
             setShowModal(false);

@@ -1,21 +1,19 @@
+// src/components/InquiryForm.jsx
 import { useState, useEffect } from "react";
 import toast from "react-hot-toast";
 import {
-  X,
-  User,
-  Phone,
-  Mail,
-  FileText,
-  BookOpen,
-  Calendar,
-  Tag,
-  Layers,
+  X, User, Phone, Mail, FileText, BookOpen, Calendar, Tag, Layers,
 } from "lucide-react";
 import { supabase } from "../api/supabase";
 import { useOrgDarkLogo } from "../hooks/useOrgDarkLogo";
+import { useOrg } from "../context/OrganizationContext";
 
 export default function InquiryForm({ onSubmit, onClose, initialData = {} }) {
+  // ── Dynamic organisation branding ──
   const darkLogo = useOrgDarkLogo();
+  const { org, branch, selectedFinancialYear } = useOrg();
+  const orgName = org?.company_name || "Academy";
+
   const [form, setForm] = useState({
     student_name: initialData.student_name || "",
     parent_name: initialData.parent_name || "",
@@ -27,15 +25,21 @@ export default function InquiryForm({ onSubmit, onClose, initialData = {} }) {
     remarks: initialData.remarks || "",
     followup_date: initialData.followup_date || "",
     status: initialData.status || "New",
-    medium_id: initialData.medium_id || "",          // NEW
+    medium_id: initialData.medium_id || "",
   });
 
   const [courses, setCourses] = useState([]);
-  const [mediums, setMediums] = useState([]);       // NEW
+  const [mediums, setMediums] = useState([]);
+  const [isContextReady, setIsContextReady] = useState(false);
 
+  useEffect(() => { loadDropdowns(); }, []);
+
+  // Wait until both branch and financial year are fully loaded
   useEffect(() => {
-    loadDropdowns();
-  }, []);
+    if (branch !== undefined && selectedFinancialYear !== undefined) {
+      setIsContextReady(true);
+    }
+  }, [branch, selectedFinancialYear]);
 
   async function loadDropdowns() {
     try {
@@ -56,25 +60,50 @@ export default function InquiryForm({ onSubmit, onClose, initialData = {} }) {
 
   async function handleSubmit(e) {
     e.preventDefault();
+
     if (!form.student_name || !form.mobile) {
       toast.error("Student name and mobile are required");
       return;
     }
-    await onSubmit({
-      ...form,
-      medium_id: form.medium_id || null,
-    });
+
+    // ── Double‑check that we have a real branch id ──
+    if (!branch?.id) {
+      toast.error("No branch selected – please refresh and try again.");
+      return;
+    }
+    if (!selectedFinancialYear?.id) {
+      toast.error("No financial year selected – please select one first.");
+      return;
+    }
+
+    const context = {
+      branchId: branch.id,
+      financialYearId: selectedFinancialYear.id,
+    };
+
+    await onSubmit({ ...form, medium_id: form.medium_id || null }, context);
+  }
+
+  // ── Loading state while context loads ──
+  if (!isContextReady) {
+    return (
+      <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+        <div className="bg-white rounded-xl p-8 shadow-xl">
+          <p className="text-secondary font-montserrat">Loading organisation data…</p>
+        </div>
+      </div>
+    );
   }
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-xl w-full max-w-2xl shadow-xl max-h-[90vh] overflow-y-auto">
-        {/* Header with logo */}
+        {/* Header with dynamic logo */}
         <div className="sticky top-0 bg-white border-b border-secondary-light px-6 py-4 flex items-center justify-between rounded-t-xl z-10">
           <div className="flex items-center gap-3">
             <img
               src={darkLogo}
-              alt="ShreeVidhya Academy"
+              alt={orgName}
               className="h-10 w-auto"
             />
             <h2 className="text-xl font-righteous text-primary-dark">

@@ -5,9 +5,13 @@ import { Plus, Trash2 } from "lucide-react";
 import AdminLayout from "../layouts/AdminLayout";
 import { getChartOfAccounts } from "../services/accountingService";
 import { createVoucher } from "../services/voucherService";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 
 export default function PaymentVoucher() {
   const queryClient = useQueryClient();
+  const { branch, selectedFinancialYear } = useOrg();      // NEW
+  const context = { branchId: branch?.id, financialYearId: selectedFinancialYear?.id };
+
   const { data: accounts = [] } = useQuery({ queryKey: ["chart-of-accounts"], queryFn: getChartOfAccounts });
   const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
   const [reference, setReference] = useState("");
@@ -28,7 +32,6 @@ export default function PaymentVoucher() {
   const createMutation = useMutation({
     mutationFn: async () => {
       const journalLines = [];
-      // Credit the bank/cash account
       const totalAmount = lines.reduce((s, l) => s + (parseFloat(l.amount) || 0), 0);
       journalLines.push({
         account_id: parseInt(cashBankAccount),
@@ -36,7 +39,6 @@ export default function PaymentVoucher() {
         credit: totalAmount,
         description: "Cash/Bank payment",
       });
-      // Debit each expense account
       lines.forEach(l => {
         journalLines.push({
           account_id: parseInt(l.account_id),
@@ -45,13 +47,16 @@ export default function PaymentVoucher() {
           description: l.description,
         });
       });
-      await createVoucher({
-        voucher_type_code: "payment",
-        entry_date: date,
-        reference,
-        description,
-        lines: journalLines,
-      });
+      await createVoucher(
+        {
+          voucher_type_code: "payment",
+          entry_date: date,
+          reference,
+          description,
+          lines: journalLines,
+        },
+        context   // pass branch & FY context
+      );
     },
     onSuccess: () => {
       toast.success("Payment voucher created");

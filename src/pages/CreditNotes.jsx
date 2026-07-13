@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getCreditNotes, createCreditNote, finalizeCreditNote, deleteCreditNote } from "../services/creditNoteService";
 import { supabase } from "../api/supabase";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 import toast from "react-hot-toast";
 import AdminLayout from "../layouts/AdminLayout";
 import {
@@ -16,6 +17,11 @@ import {
 
 export default function CreditNotes() {
   const queryClient = useQueryClient();
+
+  // ── Organisation / Branch / Financial Year context ──
+  const { branch, selectedFinancialYear } = useOrg();   // NEW
+  const ctx = { branchId: branch?.id, financialYearId: selectedFinancialYear?.id };
+
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [showModal, setShowModal] = useState(false);
@@ -123,9 +129,9 @@ export default function CreditNotes() {
     });
   };
 
-  // Mutations
+  // Mutations – only create needs context
   const createMutation = useMutation({
-    mutationFn: createCreditNote,
+    mutationFn: (payload) => createCreditNote(payload, ctx),   // pass context
     onSuccess: () => {
       toast.success("Credit note created");
       queryClient.invalidateQueries(["credit-notes"]);
@@ -136,7 +142,7 @@ export default function CreditNotes() {
   });
 
   const finalizeMutation = useMutation({
-    mutationFn: finalizeCreditNote,
+    mutationFn: finalizeCreditNote,   // no context needed
     onSuccess: () => {
       toast.success("Credit note finalized");
       queryClient.invalidateQueries(["credit-notes"]);
@@ -337,7 +343,7 @@ export default function CreditNotes() {
         </div>
       </div>
 
-      {/* Create Modal */}
+      {/* Create Modal – unchanged except createMutation already passes ctx */}
       {showModal && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-xl">

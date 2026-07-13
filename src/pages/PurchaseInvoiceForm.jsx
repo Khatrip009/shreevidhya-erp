@@ -9,6 +9,7 @@ import {
   getPurchaseInvoice,
 } from "../services/purchaseInvoiceService";
 import { getOrganization } from "../services/organizationService";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 import toast from "react-hot-toast";
 import AdminLayout from "../layouts/AdminLayout";
 import { ArrowLeft, Save, Plus, Trash2, Loader } from "lucide-react";
@@ -18,6 +19,10 @@ export default function PurchaseInvoiceForm() {
   const isEditing = !!id;
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+
+  // ── Organisation / Branch / Financial Year context ──
+  const { branch, selectedFinancialYear } = useOrg();   // NEW
+  const ctx = { branchId: branch?.id, financialYearId: selectedFinancialYear?.id };
 
   const [form, setForm] = useState({
     vendor_id: "",
@@ -164,7 +169,6 @@ export default function PurchaseInvoiceForm() {
   const computeTotals = () => {
     let taxableTotal = 0;
     let totalGST = 0;
-    let totalCess = 0;
     let grandTotal = 0;
 
     items.forEach((item) => {
@@ -176,9 +180,6 @@ export default function PurchaseInvoiceForm() {
       const taxRate = taxRates.find((t) => t.id === Number(item.tax_rate_id));
       const rate = taxRate?.rate || 0;
       if (rate > 0) {
-        // We don't know vendor state yet, so we'll just compute total GST
-        // The service will split based on vendor state during creation
-        // For display, we'll just show total GST as if it's all IGST
         totalGST += taxable * (rate / 100);
       }
       grandTotal += taxable + taxable * (rate / 100);
@@ -189,9 +190,9 @@ export default function PurchaseInvoiceForm() {
 
   const totals = computeTotals();
 
-  // ── Mutations ──
+  // ── Mutations – now pass context ──
   const createMutation = useMutation({
-    mutationFn: createPurchaseInvoice,
+    mutationFn: (payload) => createPurchaseInvoice(payload, ctx),
     onSuccess: () => {
       toast.success("Invoice created");
       queryClient.invalidateQueries(["purchase-invoices"]);
@@ -201,7 +202,7 @@ export default function PurchaseInvoiceForm() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, payload }) => updatePurchaseInvoice(id, payload),
+    mutationFn: ({ id, payload }) => updatePurchaseInvoice(id, payload, ctx),
     onSuccess: () => {
       toast.success("Invoice updated");
       queryClient.invalidateQueries(["purchase-invoices"]);

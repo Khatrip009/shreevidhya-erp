@@ -25,6 +25,7 @@ import BackButton from "../components/BackButton";
 
 import { supabase } from "../api/supabase";
 import { useOrgDarkLogo } from "../hooks/useOrgDarkLogo";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 
 export default function Notifications() {
   const queryClient = useQueryClient();
@@ -32,6 +33,11 @@ export default function Notifications() {
   const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
   const fileInputRef = useRef(null);
+
+  // ── Organisation / Branch / Financial Year context ──
+  const { branch, selectedFinancialYear } = useOrg();   // NEW
+  const branchId = branch?.id;
+  const financialYearId = selectedFinancialYear?.id;
 
   const [form, setForm] = useState({
     title: "",
@@ -139,7 +145,6 @@ export default function Notifications() {
 
     if (error) {
       console.error("Error filtering user IDs:", error);
-      // Fallback: return uniqueIds (may cause FK error if some are invalid)
       return uniqueIds;
     }
 
@@ -189,7 +194,7 @@ export default function Notifications() {
 
   const notifications = data?.pages.flatMap((page) => page.data) || [];
 
-  // ---------- Create mutation ----------
+  // ---------- Create mutation – now includes branch & FY ----------
   const createMutation = useMutation({
     mutationFn: async (payload) => {
       const { title, message, target_type, batch_id } = payload;
@@ -199,7 +204,7 @@ export default function Notifications() {
         throw new Error("No valid recipients found for this target.");
       }
 
-      // Build rows
+      // Build rows with branch & FY
       const rows = userIds.map((user_id) => ({
         title,
         message,
@@ -208,7 +213,8 @@ export default function Notifications() {
         user_id,
         is_read: false,
         created_at: new Date().toISOString(),
-        // created_by is omitted to avoid type mismatch (integer vs UUID)
+        branch_id: branchId,
+        financial_year_id: financialYearId,
       }));
 
       // Insert in chunks (Supabase limit ~1000 per call)
@@ -272,7 +278,7 @@ export default function Notifications() {
     },
   });
 
-  // ---------- CSV Import ----------
+  // ---------- CSV Import – now includes branch & FY ----------
   async function handleCSVImport(event) {
     const file = event.target.files[0];
     if (!file) return;
@@ -289,6 +295,8 @@ export default function Notifications() {
               target_type: row.target_type || "All",
               batch_id: row.batch_id || null,
               is_read: false,
+              branch_id: branchId,
+              financial_year_id: financialYearId,
             };
             const { error } = await supabase.from("notifications").insert([payload]);
             if (!error) successCount++;
@@ -303,7 +311,7 @@ export default function Notifications() {
     });
   }
 
-  // ---------- CSV Export ----------
+  // ---------- CSV Export (unchanged) ----------
   async function handleCSVExport() {
     try {
       const { data: allData } = await supabase

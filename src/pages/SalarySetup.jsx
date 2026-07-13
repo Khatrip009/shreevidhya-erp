@@ -4,10 +4,15 @@ import { getActiveTeachers, updateTeacherSalary } from "../services/teacherServi
 import toast from "react-hot-toast";
 import AdminLayout from "../layouts/AdminLayout";
 import { Search, Save, RefreshCw } from "lucide-react";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 
 export default function SalarySetup() {
   const qc = useQueryClient();
   const [search, setSearch] = useState("");
+
+  // ── Get branch & financial year from context ──
+  const { branch, selectedFinancialYear } = useOrg();   // NEW
+  const ctx = { branchId: branch?.id, financialYearId: selectedFinancialYear?.id };
 
   const { data: teachers = [], isLoading } = useQuery({
     queryKey: ["active-teachers-salary"],
@@ -25,7 +30,7 @@ export default function SalarySetup() {
   }, [teachers, search]);
 
   const mutation = useMutation({
-    mutationFn: ({ id, payload }) => updateTeacherSalary(id, payload),
+    mutationFn: ({ id, payload }) => updateTeacherSalary(id, payload, ctx),   // pass context
     onSuccess: () => {
       toast.success("Salary settings updated");
       qc.invalidateQueries(["active-teachers-salary"]);

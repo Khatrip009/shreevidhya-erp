@@ -1,3 +1,4 @@
+// src/pages/TeacherProfile.jsx
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
@@ -19,10 +20,16 @@ import BackButton from "../components/BackButton";
 
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../api/supabase";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 
 export default function TeacherProfile() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
+
+  // ── Branch & financial year context ──
+  const { branch, selectedFinancialYear } = useOrg();   // NEW
+  const branchId = branch?.id;
+  const financialYearId = selectedFinancialYear?.id;
 
   // ---- Fetch teacher data ----
   const { data: teacher, isLoading, error } = useQuery({
@@ -82,7 +89,7 @@ export default function TeacherProfile() {
     reason: "",
   });
 
-  // Set form when teacher data loads (fixed: useEffect)
+  // Set form when teacher data loads
   useEffect(() => {
     if (teacher) {
       setForm({
@@ -95,12 +102,16 @@ export default function TeacherProfile() {
     }
   }, [teacher]);
 
-  // ---- Update profile mutation ----
+  // ---- Update profile mutation (with branch & FY) ----
   const updateMutation = useMutation({
     mutationFn: async (payload) => {
       const { error } = await supabase
         .from("teachers")
-        .update(payload)
+        .update({
+          ...payload,
+          branch_id: branchId,
+          financial_year_id: financialYearId,
+        })
         .eq("id", teacher.id);
       if (error) throw error;
     },
@@ -112,7 +123,7 @@ export default function TeacherProfile() {
     onError: (err) => toast.error(err.message || "Update failed"),
   });
 
-  // ---- Leave request mutation ----
+  // ---- Leave request mutation (with branch & FY) ----
   const leaveMutation = useMutation({
     mutationFn: async (payload) => {
       const { error } = await supabase.from("leaves").insert({
@@ -121,6 +132,8 @@ export default function TeacherProfile() {
         end_date: payload.end_date,
         reason: payload.reason,
         status: "Pending",
+        branch_id: branchId,
+        financial_year_id: financialYearId,
       });
       if (error) throw error;
     },
@@ -136,7 +149,6 @@ export default function TeacherProfile() {
   function handleEditToggle() {
     if (editing) {
       setEditing(false);
-      // reset form to current teacher data
       setForm({
         first_name: teacher.first_name || "",
         last_name: teacher.last_name || "",

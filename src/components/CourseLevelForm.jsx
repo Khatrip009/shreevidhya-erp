@@ -8,6 +8,7 @@ import {
   Award,
 } from "lucide-react";
 import { useOrgDarkLogo } from "../hooks/useOrgDarkLogo";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 
 export default function CourseLevelForm({
   courseId,
@@ -16,7 +17,8 @@ export default function CourseLevelForm({
   initialData = {},
 }) {
   const darkLogo = useOrgDarkLogo();
-  
+  const { branch, selectedFinancialYear } = useOrg();      // NEW
+
   const [form, setForm] = useState({
     level_name: initialData.level_name || "",
     level_number: initialData.level_number || "",
@@ -50,7 +52,14 @@ export default function CourseLevelForm({
         : null,
       course_id: courseId,
     };
-    await onSubmit(payload);
+
+    // Build context for branch & financial year
+    const context = {
+      branchId: branch?.id,
+      financialYearId: selectedFinancialYear?.id,
+    };
+
+    await onSubmit(payload, context);
   }
 
   return (

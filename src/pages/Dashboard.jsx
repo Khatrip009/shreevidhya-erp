@@ -36,7 +36,7 @@ import {
 import { Link, useNavigate } from "react-router-dom";
 import AdminLayout from "../layouts/AdminLayout";
 import { useAuth } from "../context/AuthContext";
-import { supabase } from "../api/supabase";
+import { supabase } from "../api/supabase";                 // direct supabase import
 
 // ─── Reusable Stat Card ─────────────────────────────────────────────────
 const StatCard = ({ icon: Icon, title, value, subtext, color, linkTo, onClick }) => {
@@ -117,7 +117,7 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const role = (profile?.role || "").toLowerCase().replace(/\s+/g, "_");
 
-  // Single RPC call – returns everything
+  // Call the parameterless RPC – it now filters by the user's org internally
   const { data: rawStats, isLoading, isError } = useQuery({
     queryKey: ["dashboardStats"],
     queryFn: async () => {
@@ -130,7 +130,6 @@ export default function Dashboard() {
   });
 
   // Ensure all array fields are arrays
-   // Ensure all array fields are arrays
   const s = rawStats || {};
 
   // Safe feeStatusData – never an array
@@ -154,7 +153,7 @@ export default function Dashboard() {
     monthlyFeeData: s.monthlyFeeData || [],
     batchStudentData: s.batchStudentData || [],
     inquiryTrendData: s.inquiryTrendData || [],
-    feeStatusData: safeFeeStatus,          // <-- now correctly defined
+    feeStatusData: safeFeeStatus,
     attendanceTrend: s.attendanceTrend || [],
     courseWiseStudents: s.courseWiseStudents || [],
     lowStockItems: s.lowStockItems || [],
@@ -162,6 +161,7 @@ export default function Dashboard() {
     pendingInvoicesAmount: s.pendingInvoicesAmount ?? 0,
     todayIncome: s.todayIncome ?? 0,
   };
+
   if (isLoading) {
     return (
       <AdminLayout>

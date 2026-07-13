@@ -1,5 +1,7 @@
+// src/utils/teacherAttendancePdf.js
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
+import { supabase } from "../api/supabase";
 
 // Helper: load an image from a URL and return base64
 async function loadImage(url) {
@@ -17,62 +19,64 @@ async function loadImage(url) {
 }
 
 export async function generateTeacherAttendancePDF(data, monthLabel, org = {}) {
-  const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
-  const margin = 12;
-  const pageWidth = doc.internal.pageSize.getWidth();
-  let y = 12;
+  // Fetch organisation (for letterhead)
+  const { data: orgData } = await supabase
+    .from("organization")
+    .select("company_name, letterhead_url")
+    .eq("id", 1)
+    .single();
 
-  // ---------- Header (Logo + Academy Name) ----------
-  const logoUrl = org?.logo_dark_url || null;
-  if (logoUrl) {
-    const logoBase64 = await loadImage(logoUrl);
-    if (logoBase64) {
-      doc.addImage(logoBase64, "PNG", margin, y, 20, 20);
-      doc.setFontSize(16);
-      doc.setFont("helvetica", "bold");
-      doc.setTextColor("#0D47A1");
-      doc.text(org?.company_name || "ShreeVidhya Academy", margin + 24, y + 10);
-      doc.setFontSize(8);
-      doc.setFont("helvetica", "normal");
-      doc.setTextColor("#555");
-      doc.text(`${org?.address || ""}  |  Phone: ${org?.phone || ""}  |  Email: ${org?.email || ""}`, margin + 24, y + 16);
-      y = y + 24;
+  const academyName = orgData?.company_name || org?.company_name || "ShreeVidhya Academy";
+  const letterheadUrl = orgData?.letterhead_url || org?.letterhead_url || null;
+
+  // Load letterhead as base64
+  let letterheadBase64 = null;
+  if (letterheadUrl) {
+    try {
+      letterheadBase64 = await loadImage(letterheadUrl);
+    } catch (e) {
+      console.warn("Letterhead could not be loaded for attendance PDF", e);
     }
-  } else {
-    // No logo – centre the academy name
-    doc.setFontSize(18);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor("#0D47A1");
-    doc.text(org?.company_name || "ShreeVidhya Academy", pageWidth / 2, y, { align: "center" });
-    y += 10;
-    doc.setFontSize(8);
-    doc.setFont("helvetica", "normal");
-    doc.setTextColor("#555");
-    const subtitle = `${org?.address || ""}  |  Phone: ${org?.phone || ""}  |  Email: ${org?.email || ""}`;
-    doc.text(subtitle, pageWidth / 2, y, { align: "center" });
-    y += 6;
   }
 
-  // ---------- Report Title ----------
-  doc.setFontSize(14);
-  doc.setFont("helvetica", "bold");
+  // A4 Portrait
+  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  const pageWidth = doc.internal.pageSize.getWidth();   // 210 mm
+  const pageHeight = doc.internal.pageSize.getHeight(); // 297 mm
+  const margin = 14;
+  const topMargin = 85;   // consistent with other A4 reports
+
+  // Add full‑page letterhead background on every page
+  const addLetterhead = () => {
+    if (letterheadBase64) {
+      doc.addImage(letterheadBase64, "PNG", 0, 0, pageWidth, pageHeight);
+    }
+  };
+  addLetterhead();   // first page
+
+  let y = topMargin;
+
+  // ── Report Title ──
+  doc.setFont("times", "bold");
+  doc.setFontSize(22);
   doc.setTextColor("#0D47A1");
   doc.text("Teacher Attendance Report", pageWidth / 2, y, { align: "center" });
   y += 8;
-  doc.setFontSize(10);
   doc.setFont("helvetica", "normal");
+  doc.setFontSize(12);
   doc.setTextColor("#333");
   doc.text(`Month: ${monthLabel}`, pageWidth / 2, y, { align: "center" });
-  y += 8;
+  y += 12;
 
   if (!data.length) return doc;
 
   const daysInMonth = data[0].days.length;
 
-  // ---------- Table header + rows ----------
+  // Build table headers
   const headers = ["Teacher", "Code"];
   for (let d = 1; d <= daysInMonth; d++) headers.push(String(d));
 
+  // Build rows
   const rows = data.map((teacher) => {
     const row = [teacher.name, teacher.employee_code];
     teacher.days.forEach((day) => {
@@ -86,26 +90,48 @@ export async function generateTeacherAttendancePDF(data, monthLabel, org = {}) {
     return row;
   });
 
+  // Calculate dynamic column styles to fit the portrait width
+  const colStyles = {
+    0: { cellWidth: 45, halign: "left" },   // Teacher name
+    1: { cellWidth: 18, halign: "center" }, // Code
+  };
+  // Remaining space for day columns
+  const fixedWidth = 45 + 18; // 63 mm
+  const remainingWidth = pageWidth - 2 * margin - fixedWidth;
+  const dayColWidth = Math.min(8, Math.floor(remainingWidth / daysInMonth)); // max 8mm per day
+  for (let d = 0; d < daysInMonth; d++) {
+    colStyles[2 + d] = { cellWidth: dayColWidth, halign: "center" };
+  }
+
   autoTable(doc, {
     startY: y,
     head: [headers],
     body: rows,
     theme: "grid",
-    styles: { fontSize: 7, cellPadding: 1.5, halign: "center" },
-    headStyles: { fillColor: "#0D47A1", textColor: "#FFFFFF", fontSize: 7, fontStyle: "bold" },
-    columnStyles: {
-      0: { cellWidth: 40, halign: "left" },
-      1: { cellWidth: 18, halign: "center" },
-    },
+    styles: { fontSize: 8, cellPadding: 1.5, halign: "center" },
+    headStyles: { fillColor: "#0D47A1", textColor: "#FFFFFF", fontSize: 8, fontStyle: "bold" },
+    columnStyles: colStyles,
     margin: { left: margin, right: margin },
-    didDrawPage: (data) => {
-      // Footer on every page
-      const footerY = doc.internal.pageSize.getHeight() - 8;
-      doc.setFontSize(6);
-      doc.setTextColor("#999");
-      doc.text(`Generated on ${new Date().toLocaleString()}  |  © ${org?.company_name || "ShreeVidhya Academy"}`, margin, footerY);
+    didDrawPage: (pageData) => {
+      // Add letterhead on every new page created by autoTable
+      addLetterhead();
+      // Optional: tiny page number
+      const pgNum = doc.internal.getCurrentPageInfo().pageNumber;
+      doc.setFontSize(7);
+      doc.setTextColor("#aaa");
+      doc.text(`Page ${pgNum}`, pageWidth - margin, pageHeight - 8, { align: "right" });
     },
   });
 
-  return doc;
+  // Final page numbers on all pages (if table didn't overflow, we still need page numbers)
+  const totalPages = doc.getNumberOfPages();
+  for (let i = 1; i <= totalPages; i++) {
+    doc.setPage(i);
+    doc.setFontSize(7);
+    doc.setTextColor("#aaa");
+    doc.text(`Page ${i} of ${totalPages}`, pageWidth - margin, pageHeight - 8, { align: "right" });
+  }
+
+  // Save
+  doc.save(`Teacher_Attendance_${monthLabel.replace(/\s+/g, "_")}.pdf`);
 }

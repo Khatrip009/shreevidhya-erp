@@ -14,6 +14,7 @@ import {
   Globe,
   Star,
 } from "lucide-react";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 
 export default function TaxSettings() {
   const queryClient = useQueryClient();
@@ -26,6 +27,11 @@ export default function TaxSettings() {
     is_default: false,
     is_active: true,
   });
+
+  // ── Get branch & financial year from context ──
+  const { branch, selectedFinancialYear } = useOrg();   // NEW
+  const branchId = branch?.id;
+  const financialYearId = selectedFinancialYear?.id;
 
   // Fetch tax rates
   const { data: taxRates = [], isLoading } = useQuery({
@@ -52,7 +58,13 @@ export default function TaxSettings() {
       }
       const { data, error } = await supabase
         .from("tax_rates")
-        .insert([payload])
+        .insert([
+          {
+            ...payload,
+            branch_id: branchId,                  // NEW
+            financial_year_id: financialYearId,   // NEW
+          },
+        ])
         .select()
         .single();
       if (error) throw error;
@@ -79,7 +91,11 @@ export default function TaxSettings() {
       }
       const { data, error } = await supabase
         .from("tax_rates")
-        .update(payload)
+        .update({
+          ...payload,
+          branch_id: branchId,                  // NEW
+          financial_year_id: financialYearId,   // NEW
+        })
         .eq("id", id)
         .select()
         .single();
@@ -96,7 +112,7 @@ export default function TaxSettings() {
     onError: (err) => toast.error(err.message),
   });
 
-  // Delete mutation
+  // Delete mutation (unchanged)
   const deleteMutation = useMutation({
     mutationFn: async (id) => {
       const { error } = await supabase

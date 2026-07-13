@@ -19,6 +19,7 @@ import {
   getProgressEvaluations,
 } from "../services/progressService";
 import { useOrgDarkLogo } from "../hooks/useOrgDarkLogo";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 
 export default function ProgressEvaluationForm({
   onSubmit,
@@ -26,6 +27,8 @@ export default function ProgressEvaluationForm({
   initialData = {},
 }) {
   const darkLogo = useOrgDarkLogo();
+  const { branch, selectedFinancialYear } = useOrg();      // NEW
+
   const [batches, setBatches] = useState([]);
   const [mediums, setMediums] = useState([]);
   const [selectedMediumId, setSelectedMediumId] = useState("");
@@ -41,12 +44,10 @@ export default function ProgressEvaluationForm({
     teacher_remarks: initialData.teacher_remarks || "",
   });
 
-  // Load dropdowns once
   useEffect(() => {
     loadDropdowns();
   }, []);
 
-  // If editing, preselect medium based on the existing batch
   useEffect(() => {
     if (initialData.batch_id && batches.length > 0) {
       const batch = batches.find((b) => b.id == initialData.batch_id);
@@ -56,7 +57,6 @@ export default function ProgressEvaluationForm({
     }
   }, [initialData.batch_id, batches]);
 
-  // When batch changes, update medium and load students
   useEffect(() => {
     if (form.batch_id && batches.length > 0) {
       const batch = batches.find((b) => b.id == form.batch_id);
@@ -144,8 +144,15 @@ export default function ProgressEvaluationForm({
         ? Number(form.performance_score)
         : null,
     };
+
+    // Build context for branch & financial year
+    const context = {
+      branchId: branch?.id,
+      financialYearId: selectedFinancialYear?.id,
+    };
+
     try {
-      await onSubmit(payload);
+      await onSubmit(payload, context);
     } catch (err) {
       toast.error(err.message);
     }
@@ -208,7 +215,6 @@ export default function ProgressEvaluationForm({
               value={selectedMediumId}
               onChange={(e) => {
                 setSelectedMediumId(e.target.value);
-                // Don't clear batch if it still matches the new medium
                 if (form.batch_id && e.target.value) {
                   const batch = batches.find((b) => b.id == form.batch_id);
                   if (batch && batch.medium_id != e.target.value) {

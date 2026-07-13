@@ -1,3 +1,4 @@
+// src/services/homeworkService.js
 import { supabase } from "../api/supabase";
 
 // Paginated fetch with filters – now includes medium name
@@ -22,7 +23,6 @@ export async function getHomeworks({ pageParam = 0, filters = {} } = {}) {
   if (filters.batchId) query = query.eq("batch_id", filters.batchId);
   if (filters.subjectId) query = query.eq("subject_id", filters.subjectId);
   if (filters.medium_id) {
-    // Filter homework belonging to batches of the selected medium
     const { data: mediumBatches } = await supabase
       .from("batches")
       .select("id")
@@ -119,21 +119,23 @@ export async function getAllHomeworksForExport(filters = {}) {
   return enriched;
 }
 
-// CRUD – unchanged (medium is determined by batch assignment, not stored on homework)
-export async function createHomework(payload) {
+// CRUD – context = { branchId, financialYearId }
+export async function createHomework(payload, context) {
+  const { branchId, financialYearId } = context;
   const { data, error } = await supabase
     .from("homework")
-    .insert([payload])
+    .insert([{ ...payload, branch_id: branchId, financial_year_id: financialYearId }])
     .select()
     .single();
   if (error) throw error;
   return data;
 }
 
-export async function updateHomework(id, payload) {
+export async function updateHomework(id, payload, context) {
+  const { branchId, financialYearId } = context;
   const { data, error } = await supabase
     .from("homework")
-    .update(payload)
+    .update({ ...payload, branch_id: branchId, financial_year_id: financialYearId })
     .eq("id", id)
     .select()
     .single();
@@ -141,15 +143,20 @@ export async function updateHomework(id, payload) {
   return data;
 }
 
-export async function deleteHomework(id) {
+export async function deleteHomework(id, context) {
+  const { branchId, financialYearId } = context;
   const { error } = await supabase
     .from("homework")
-    .update({ deleted_at: new Date().toISOString() })
+    .update({
+      deleted_at: new Date().toISOString(),
+      branch_id: branchId,
+      financial_year_id: financialYearId,
+    })
     .eq("id", id);
   if (error) throw error;
 }
 
-// Submissions (unchanged)
+// Submissions
 export async function getSubmissionsByHomework(homeworkId) {
   const { data, error } = await supabase
     .from("homework_submissions")
@@ -163,10 +170,11 @@ export async function getSubmissionsByHomework(homeworkId) {
   return data;
 }
 
-export async function updateSubmission(id, payload) {
+export async function updateSubmission(id, payload, context) {
+  const { branchId, financialYearId } = context;
   const { data, error } = await supabase
     .from("homework_submissions")
-    .update(payload)
+    .update({ ...payload, branch_id: branchId, financial_year_id: financialYearId })
     .eq("id", id)
     .select()
     .single();
@@ -212,7 +220,9 @@ export async function getBatchStudents(batchId) {
   return data.map((item) => item.students);
 }
 
-export async function submitHomework({ homeworkId, studentId, file, remarks }) {
+export async function submitHomework({ homeworkId, studentId, file, remarks }, context) {
+  const { branchId, financialYearId } = context;
+
   const fileExt = file.name.split(".").pop();
   const fileName = `${Date.now()}-${Math.random().toString(36).substring(2)}.${fileExt}`;
   const filePath = `homework-submissions/${studentId}/${homeworkId}/${fileName}`;
@@ -236,6 +246,8 @@ export async function submitHomework({ homeworkId, studentId, file, remarks }) {
         submission_file: fileUrl,
         remarks: remarks || "",
         status: "Pending",
+        branch_id: branchId,
+        financial_year_id: financialYearId,
       },
     ])
     .select()

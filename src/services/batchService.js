@@ -1,3 +1,4 @@
+// src/services/batchService.js
 import { supabase } from "../api/supabase";
 
 // Paginated fetch with filters – now includes medium info
@@ -81,42 +82,61 @@ export async function getAllBatchesForExport(filters = {}) {
   return data || [];
 }
 
-export async function createBatch(payload) {
+// context = { branchId, financialYearId }
+export async function createBatch(payload, context) {
   const { teacher_subjects, teacher_id, ...batchData } = payload;
   console.log("Creating batch with payload:", payload);
+
+  const { branchId, financialYearId } = context;
 
   // medium_id is already part of batchData (spread from form)
   const { data: batch, error } = await supabase
     .from("batches")
-    .insert([{ ...batchData, teacher_id: teacher_id || null }])
+    .insert([{
+      ...batchData,
+      teacher_id: teacher_id || null,
+      branch_id: branchId,
+      financial_year_id: financialYearId,
+    }])
     .select()
     .single();
   if (error) throw error;
 
-  await syncBatchTeachers(batch.id, teacher_subjects, teacher_id);
+  await syncBatchTeachers(batch.id, teacher_subjects, teacher_id, context);
   return batch;
 }
 
-export async function updateBatch(id, payload) {
+// context = { branchId, financialYearId }
+export async function updateBatch(id, payload, context) {
   const { teacher_subjects, teacher_id, ...batchData } = payload;
   console.log("Updating batch", id, "with payload:", payload);
+
+  const { branchId, financialYearId } = context;
 
   // medium_id is part of batchData
   const { data: batch, error } = await supabase
     .from("batches")
-    .update({ ...batchData, teacher_id: teacher_id || null })
+    .update({
+      ...batchData,
+      teacher_id: teacher_id || null,
+      branch_id: branchId,
+      financial_year_id: financialYearId,
+    })
     .eq("id", id)
     .select()
     .single();
   if (error) throw error;
 
-  await syncBatchTeachers(id, teacher_subjects, teacher_id);
+  await syncBatchTeachers(id, teacher_subjects, teacher_id, context);
   return batch;
 }
 
-async function syncBatchTeachers(batchId, teacherSubjects, singleTeacherId) {
+// Internal helper – handles batch_teachers with branch & FY
+async function syncBatchTeachers(batchId, teacherSubjects, singleTeacherId, context) {
+  const { branchId, financialYearId } = context || {};
   if (teacherSubjects !== undefined) {
     console.log("Syncing teacher_subjects for batch", batchId, teacherSubjects);
+    // Delete existing (RLS allows based on org/branch/FY)
     await supabase.from("batch_teachers").delete().eq("batch_id", batchId);
     const links = teacherSubjects
       .filter((ts) => ts.teacher_id)
@@ -125,6 +145,8 @@ async function syncBatchTeachers(batchId, teacherSubjects, singleTeacherId) {
         teacher_id: ts.teacher_id,
         subject_id: ts.subject_id || null,
         day: ts.day || null,
+        branch_id: branchId,
+        financial_year_id: financialYearId,
       }));
     if (links.length > 0) {
       console.log("Inserting links:", links);
@@ -141,7 +163,12 @@ async function syncBatchTeachers(batchId, teacherSubjects, singleTeacherId) {
     if (singleTeacherId) {
       const { error: linkError } = await supabase
         .from("batch_teachers")
-        .insert({ batch_id: batchId, teacher_id: singleTeacherId });
+        .insert({
+          batch_id: batchId,
+          teacher_id: singleTeacherId,
+          branch_id: branchId,
+          financial_year_id: financialYearId,
+        });
       if (linkError) throw linkError;
     }
   }

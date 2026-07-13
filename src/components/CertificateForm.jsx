@@ -7,9 +7,12 @@ import {
   getLevelsByCourse,
 } from "../services/certificateService";
 import { useOrgDarkLogo } from "../hooks/useOrgDarkLogo";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 
 export default function CertificateForm({ onSubmit, onClose, initialData = {} }) {
   const darkLogo = useOrgDarkLogo();
+  const { branch, selectedFinancialYear } = useOrg();      // NEW
+
   const [students, setStudents] = useState([]);
   const [courses, setCourses] = useState([]);
   const [levels, setLevels] = useState([]);
@@ -67,8 +70,15 @@ export default function CertificateForm({ onSubmit, onClose, initialData = {} })
       toast.error("Please fill all required fields");
       return;
     }
+
+    // Build context for branch & financial year
+    const context = {
+      branchId: branch?.id,
+      financialYearId: selectedFinancialYear?.id,
+    };
+
     try {
-      await onSubmit({ ...form, issued_by: 1 });
+      await onSubmit({ ...form, issued_by: 1 }, context);
     } catch (err) {
       toast.error(err.message);
     }

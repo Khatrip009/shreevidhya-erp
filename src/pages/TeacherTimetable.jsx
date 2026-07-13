@@ -1,3 +1,4 @@
+// src/pages/TeacherTimetable.jsx
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "../api/supabase";
 import AdminLayout from "../layouts/AdminLayout";
@@ -5,12 +6,14 @@ import BackButton from "../components/BackButton";
 
 import { useAuth } from "../context/AuthContext";
 import { Clock } from "lucide-react";
+import { useOrg } from "../context/OrganizationContext";   // NEW (for consistency)
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const TIME_SLOTS = Array.from({ length: 14 }, (_, i) => `${i + 7}:00`); // 7 AM to 8 PM
+const TIME_SLOTS = Array.from({ length: 14 }, (_, i) => `${i + 7}:00`);
 
 export default function TeacherTimetable() {
   const { user } = useAuth();
+  useOrg(); 
 
   // 1. Fetch teacher ID
   const { data: teacherId, isLoading: idLoading } = useQuery({

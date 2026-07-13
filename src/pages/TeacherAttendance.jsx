@@ -4,14 +4,20 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "../api/supabase";
 import toast from "react-hot-toast";
 import AdminLayout from "../layouts/AdminLayout";
-import { useAuth } from "../context/AuthContext";      // <-- added
+import { useAuth } from "../context/AuthContext";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 import { Calendar, CheckCircle, XCircle, Clock, X } from "lucide-react";
 
 export default function TeacherAttendance() {
   const qc = useQueryClient();
-  const { profile } = useAuth();                      // <-- get current user
+  const { profile } = useAuth();
   const isAdmin = profile?.role === "admin" || profile?.role === "super_admin";
   const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
+
+  // ── Branch & Financial Year context ──
+  const { branch, selectedFinancialYear } = useOrg();   // NEW
+  const branchId = branch?.id;
+  const financialYearId = selectedFinancialYear?.id;
 
   // ---- Get the teacher's own ID if the user is a teacher ----
   const { data: ownTeacherId } = useQuery({
@@ -38,11 +44,9 @@ export default function TeacherAttendance() {
         .eq("status", "active")
         .order("first_name");
 
-      // If teacher, restrict to own ID
       if (!isAdmin && ownTeacherId) {
         query = query.eq("id", ownTeacherId);
       }
-      // If teacher but ownTeacherId not yet loaded, return empty array
       if (!isAdmin && !ownTeacherId) return [];
 
       const { data } = await query;
@@ -51,12 +55,10 @@ export default function TeacherAttendance() {
     enabled: isAdmin || !!ownTeacherId,
   });
 
-  // ---- Fetch attendance for selected date (RLS will also filter for teachers) ----
+  // ---- Fetch attendance for selected date ----
   const { data: attendance = [], isLoading } = useQuery({
     queryKey: ["teacher-attendance", date, isAdmin, ownTeacherId],
     queryFn: async () => {
-      // For admins, fetch all attendance for the date
-      // For teachers, RLS will limit to their own row, but we can also filter explicitly for performance
       let query = supabase
         .from("teacher_attendance")
         .select("*")
@@ -86,18 +88,29 @@ export default function TeacherAttendance() {
   // ---- Mark/update attendance ----
   const markMutation = useMutation({
     mutationFn: async ({ teacher_id, status }) => {
-      // RLS ensures the teacher can only update their own record
       const existing = attendance.find((a) => a.teacher_id === teacher_id);
+      const payload = {
+        status,
+        updated_at: new Date().toISOString(),
+        branch_id: branchId,                  // NEW
+        financial_year_id: financialYearId,   // NEW
+      };
       if (existing) {
         const { error } = await supabase
           .from("teacher_attendance")
-          .update({ status, updated_at: new Date().toISOString() })
+          .update(payload)
           .eq("id", existing.id);
         if (error) throw error;
       } else {
         const { error } = await supabase
           .from("teacher_attendance")
-          .insert({ teacher_id, attendance_date: date, status });
+          .insert({
+            teacher_id,
+            attendance_date: date,
+            status,
+            branch_id: branchId,               // NEW
+            financial_year_id: financialYearId,// NEW
+          });
         if (error) throw error;
       }
     },

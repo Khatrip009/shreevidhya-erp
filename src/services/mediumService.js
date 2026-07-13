@@ -1,3 +1,4 @@
+// src/services/mediumService.js
 import { supabase } from "../api/supabase";
 
 export async function getMediums() {

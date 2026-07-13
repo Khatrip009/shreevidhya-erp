@@ -1,13 +1,15 @@
 // src/components/ReportPage.jsx
 import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Navigate, Link } from 'react-router-dom';   // add Link
+import { Navigate, Link } from 'react-router-dom';
 import { FileDown, BarChart3, RotateCcw, Printer, ArrowLeft } from 'lucide-react';
 import { fetchReportData } from '../services/reportService';
 import { getReportConfig } from '../utils/reportConfig';
-import { exportToPDF, exportToExcel } from '../utils/reportExport';
+import { exportToExcel } from '../utils/reportExport';   // Excel export kept unchanged
 import { useAuth } from '../context/AuthContext';
+import { useOrg } from '../context/OrganizationContext';
 import { getOrganization } from '../services/organizationService';
+import { generateReportPdf } from '../utils/generateReportPdf';   // new PDF generator with letterhead
 import { supabase } from '../api/supabase';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
@@ -60,7 +62,7 @@ function isDateField(field) {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Dropdown configuration – maps filter field to a Supabase table     */
+/*  Dropdown configuration                                             */
 /* ------------------------------------------------------------------ */
 const DROPDOWN_TABLES = {
   course_id: { table: 'courses', label: 'course_name', value: 'id' },
@@ -86,7 +88,7 @@ function FilterDropdown({ field, filters, onChange }) {
       if (error) throw error;
       return data || [];
     },
-    staleTime: 5 * 60 * 1000, // 5 minutes
+    staleTime: 5 * 60 * 1000,
   });
 
   return (
@@ -114,6 +116,7 @@ function FilterDropdown({ field, filters, onChange }) {
 /* ------------------------------------------------------------------ */
 export default function ReportPage({ reportId }) {
   const { profile } = useAuth();
+  const { org: currentOrg } = useOrg();
   const hasReportAccess = Boolean(profile && ['admin', 'super_admin'].includes(profile.role));
 
   /* ---------- Config & initial filters ---------- */
@@ -137,10 +140,10 @@ export default function ReportPage({ reportId }) {
   });
 
   const { data: org } = useQuery({
-    queryKey: ['organization'],
-    queryFn: getOrganization,
+    queryKey: ['organization', currentOrg?.id],
+    queryFn: () => getOrganization(currentOrg?.id),
     staleTime: 10 * 60 * 1000,
-    enabled: hasReportAccess,
+    enabled: hasReportAccess && Boolean(currentOrg?.id),
   });
 
   /* ---------- Derived values ---------- */
@@ -166,9 +169,30 @@ export default function ReportPage({ reportId }) {
 
   const resetFilters = () => setFilters(initialFilters);
 
-  const handleExportPDF = () => {
+  // --- NEW: generate PDF with letterhead, then download or open ---
+  const handleDownloadPdf = async () => {
     if (!rows.length) return;
-    exportToPDF(config.title, config.columns, rows);
+    try {
+      const doc = await generateReportPdf(config, filters, org);
+      doc.save(`${reportId}_${new Date().toISOString().slice(0, 10)}.pdf`);
+    } catch (err) {
+      console.error(err);
+      alert('Failed to generate PDF: ' + err.message);
+    }
+  };
+
+  const handlePrintPreview = async () => {
+    if (!rows.length) return;
+    try {
+      const doc = await generateReportPdf(config, filters, org);
+      // Open PDF in a new tab for printing
+      const blob = doc.output('blob');
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank');
+    } catch (err) {
+      console.error(err);
+      alert('Failed to generate PDF: ' + err.message);
+    }
   };
 
   const handleExportExcel = () => {
@@ -176,103 +200,13 @@ export default function ReportPage({ reportId }) {
     exportToExcel(config.title, config.columns, rows);
   };
 
-  const openPrintPreview = () => {
-    if (!rows.length) return;
-
-    const printWindow = window.open('', '_blank', 'width=900,height=650');
-    if (!printWindow) return;
-
-    const orgLogo = org?.logo_light_url || '/ShreeVidhyalight.png';
-    const orgName = org?.company_name || 'ShreeVidhya Academy';
-    const orgAddress = org?.address || '';
-    const orgMobile = org?.mobile || '';
-    const orgEmail = org?.email || '';
-
-    const tableRows = rows
-      .map((row) => {
-        const cells = config.columns
-          .map((col) => `<td style="border:1px solid #ddd;padding:8px;">${resolvePath(row, col.accessor) ?? '—'}</td>`)
-          .join('');
-        return `<tr>${cells}</tr>`;
-      })
-      .join('');
-
-    let footerRow = '';
-    if (config.aggregateRow) {
-      const footerCells = config.columns
-        .map((col, idx) => {
-          let val = '';
-          if (col.aggregate) {
-            val = computeAggregate(rows, col.aggregate, col.accessor);
-          } else if (idx === 0) {
-            val = 'Total';
-          }
-          return `<td style="border:1px solid #ddd;padding:8px;font-weight:bold;">${val}</td>`;
-        })
-        .join('');
-      footerRow = `<tr>${footerCells}</tr>`;
-    }
-
-    const html = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>${config.title}</title>
-        <style>
-          body { font-family: Montserrat, sans-serif; margin: 40px; color: #333; }
-          .header { display: flex; align-items: center; border-bottom: 2px solid #0D47A1; padding-bottom: 15px; margin-bottom: 20px; }
-          .header img { height: 70px; margin-right: 20px; }
-          .header .org-name { font-size: 24px; color: #0D47A1; font-weight: bold; }
-          .header .details { font-size: 12px; color: #666; margin-top: 5px; }
-          h1 { text-align: center; color: #0D47A1; margin: 20px 0; }
-          table { width: 100%; border-collapse: collapse; margin: 20px 0; }
-          th { background: #E3F2FD; padding: 10px; border: 1px solid #ddd; text-align: left; }
-          td { padding: 8px; border: 1px solid #ddd; }
-          .footer { margin-top: 40px; border-top: 1px solid #ddd; padding-top: 10px; font-size: 10px; color: #888; text-align: center; }
-          @media print { body { margin: 20px; } }
-        </style>
-      </head>
-      <body>
-        <div class="header">
-          <img src="${orgLogo}" alt="Logo" />
-          <div>
-            <div class="org-name">${orgName}</div>
-            <div class="details">${orgAddress}</div>
-            <div class="details">Phone: ${orgMobile} | Email: ${orgEmail}</div>
-          </div>
-        </div>
-        <h1>${config.title}</h1>
-        <table>
-          <thead>
-            <tr>${config.columns.map((col) => `<th>${col.header}</th>`).join('')}</tr>
-          </thead>
-          <tbody>
-            ${tableRows}
-          </tbody>
-          ${footerRow ? `<tfoot>${footerRow}</tfoot>` : ''}
-        </table>
-        <div class="footer">
-          This is a computer‑generated report. For any queries, contact the academy office.
-        </div>
-        <script>
-          window.onload = function() { window.print(); }
-        </script>
-      </body>
-      </html>
-    `;
-
-    printWindow.document.write(html);
-    printWindow.document.close();
-  };
-
   /* ---------- UI ---------- */
   return (
-    
     <div className="p-4 md:p-6 max-w-7xl mx-auto space-y-6">
-       {/* Back button */}
       <Link to="/reports" className="inline-flex items-center gap-2 text-secondary hover:text-primary-dark mb-2 font-montserrat text-sm">
         <ArrowLeft size={18} /> Back to Reports
       </Link>
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
@@ -283,14 +217,14 @@ export default function ReportPage({ reportId }) {
         </div>
         <div className="flex items-center gap-3">
           <button
-            onClick={openPrintPreview}
+            onClick={handlePrintPreview}
             disabled={!rows.length}
             className="inline-flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 text-primary rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             <Printer size={16} /> Print Preview
           </button>
           <button
-            onClick={handleExportPDF}
+            onClick={handleDownloadPdf}
             disabled={!rows.length}
             className="inline-flex items-center gap-2 px-4 py-2 bg-accent text-white rounded-lg hover:bg-accent-dark disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
@@ -306,7 +240,7 @@ export default function ReportPage({ reportId }) {
         </div>
       </div>
 
-      {/* Filter Bar */}
+      {/* Filter Bar (unchanged) */}
       <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
         <div className="flex flex-wrap items-end gap-4">
           {config.fields.map((field) => (
@@ -437,6 +371,5 @@ export default function ReportPage({ reportId }) {
         </p>
       )}
     </div>
-    
   );
 }

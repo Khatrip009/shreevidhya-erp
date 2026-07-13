@@ -77,8 +77,10 @@ export async function getPurchaseInvoice(id) {
   return data;
 }
 
-export async function createPurchaseInvoice(payload) {
+// context: { branchId, financialYearId }
+export async function createPurchaseInvoice(payload, context) {
   const { vendor_id, invoice_date, purchase_order_id, reference, notes, items } = payload;
+  const { branchId, financialYearId } = context;
 
   // Fetch vendor state
   const { data: vendor } = await supabase
@@ -128,6 +130,8 @@ export async function createPurchaseInvoice(payload) {
       status: "Draft",
       reference: reference || "",
       notes: notes || "",
+      branch_id: branchId,
+      financial_year_id: financialYearId,
     })
     .select()
     .single();
@@ -148,6 +152,8 @@ export async function createPurchaseInvoice(payload) {
     igst_amount: item.igst,
     cess_amount: item.cess || 0,
     total_amount: item.total,
+    branch_id: branchId,
+    financial_year_id: financialYearId,
   }));
   const { error: insError } = await supabase
     .from("purchase_invoice_items")
@@ -157,8 +163,10 @@ export async function createPurchaseInvoice(payload) {
   return invoice;
 }
 
-export async function updatePurchaseInvoice(id, payload) {
+// context: { branchId, financialYearId }
+export async function updatePurchaseInvoice(id, payload, context) {
   const { vendor_id, invoice_date, purchase_order_id, reference, notes, items } = payload;
+  const { branchId, financialYearId } = context;
 
   // Fetch existing invoice to delete old items
   const { data: existing } = await supabase
@@ -208,6 +216,8 @@ export async function updatePurchaseInvoice(id, payload) {
       reference: reference || "",
       notes: notes || "",
       updated_at: new Date(),
+      branch_id: branchId,
+      financial_year_id: financialYearId,
     })
     .eq("id", id)
     .select()
@@ -234,6 +244,8 @@ export async function updatePurchaseInvoice(id, payload) {
     igst_amount: item.igst,
     cess_amount: item.cess || 0,
     total_amount: item.total,
+    branch_id: branchId,
+    financial_year_id: financialYearId,
   }));
   const { error: insError } = await supabase
     .from("purchase_invoice_items")
@@ -243,10 +255,17 @@ export async function updatePurchaseInvoice(id, payload) {
   return invoice;
 }
 
-export async function finalizePurchaseInvoice(id) {
+// context: { branchId, financialYearId }
+export async function finalizePurchaseInvoice(id, context) {
+  const { branchId, financialYearId } = context;
   const { data, error } = await supabase
     .from("purchase_invoices")
-    .update({ status: "Final", updated_at: new Date() })
+    .update({
+      status: "Final",
+      updated_at: new Date(),
+      branch_id: branchId,
+      financial_year_id: financialYearId,
+    })
     .eq("id", id)
     .select()
     .single();

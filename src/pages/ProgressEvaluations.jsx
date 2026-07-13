@@ -1,3 +1,4 @@
+// src/pages/ProgressEvaluations.jsx
 import React, { useState, useRef, useMemo } from "react";
 import {
   useInfiniteQuery,
@@ -32,9 +33,14 @@ import {
   getAllProgressEvaluationsForExport,
   getMediumOptions,
 } from "../services/progressService";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 
 export default function ProgressEvaluations() {
   const queryClient = useQueryClient();
+
+  // ── Organization, Branch & Financial Year context ──
+  const { branch, selectedFinancialYear } = useOrg();   // NEW
+  const ctx = { branchId: branch?.id, financialYearId: selectedFinancialYear?.id };
 
   // Filters
   const [batchFilter, setBatchFilter] = useState("");
@@ -107,9 +113,9 @@ export default function ProgressEvaluations() {
     };
   }, [evaluations]);
 
-  // Mutations
+  // Mutations – now pass context
   const createMutation = useMutation({
-    mutationFn: createProgressEvaluation,
+    mutationFn: (payload) => createProgressEvaluation(payload, ctx),
     onSuccess: () => {
       toast.success("Evaluation saved");
       queryClient.invalidateQueries({ queryKey: ["progress-evaluations"] });
@@ -119,7 +125,7 @@ export default function ProgressEvaluations() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, payload }) => updateProgressEvaluation(id, payload),
+    mutationFn: ({ id, payload }) => updateProgressEvaluation(id, payload, ctx),
     onSuccess: () => {
       toast.success("Evaluation updated");
       queryClient.invalidateQueries({ queryKey: ["progress-evaluations"] });
@@ -129,7 +135,7 @@ export default function ProgressEvaluations() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: deleteProgressEvaluation,
+    mutationFn: deleteProgressEvaluation,   // hard delete, RLS protects
     onSuccess: () => {
       toast.success("Evaluation deleted");
       queryClient.invalidateQueries({ queryKey: ["progress-evaluations"] });
@@ -137,7 +143,7 @@ export default function ProgressEvaluations() {
     onError: () => toast.error("Delete failed"),
   });
 
-  // CSV Import
+  // CSV Import – now passes context to createProgressEvaluation
   async function handleCSVImport(event) {
     const file = event.target.files[0];
     if (!file) return;
@@ -156,7 +162,7 @@ export default function ProgressEvaluations() {
               performance_score: row.performance_score ? Number(row.performance_score) : null,
               teacher_remarks: row.teacher_remarks || "",
             };
-            await createProgressEvaluation(payload);
+            await createProgressEvaluation(payload, ctx);   // pass context
             successCount++;
           } catch (err) {
             console.error(err);

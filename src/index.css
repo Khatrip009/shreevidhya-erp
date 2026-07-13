@@ -44,6 +44,12 @@
   border-radius: 3px;
 }
 @media print {
-  .no-print { display: none !important; }
-  .print-only-header { display: flex !important; }
+  @page {
+    margin: 0;
+    size: A4;
+  }
+  body {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
 }

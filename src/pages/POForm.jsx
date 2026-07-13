@@ -7,12 +7,17 @@ import { Plus, Trash2, Save, ArrowLeft } from "lucide-react";
 import AdminLayout from "../layouts/AdminLayout";
 import { supabase } from "../api/supabase";
 import { getPOById, createPO } from "../services/poService";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 
 export default function POForm() {
   const { id } = useParams();
   const isEditing = !!id;
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+
+  // ── Organisation / Branch / Financial Year context ──
+  const { branch, selectedFinancialYear } = useOrg();   // NEW
+  const ctx = { branchId: branch?.id, financialYearId: selectedFinancialYear?.id };
 
   const [form, setForm] = useState({
     vendor: "",
@@ -77,10 +82,10 @@ export default function POForm() {
     }
   }, [existingPO]);
 
-  // ── Create / Update mutation ──
+  // ── Create / Update mutation – now includes context ──
   const saveMutation = useMutation({
     mutationFn: async () => {
-      // 1. Prepare line items
+      // Prepare line items
       const payloadItems = lines.map((l) => ({
         item_id: l.item_id ? parseInt(l.item_id) : null,
         quantity_ordered: parseInt(l.quantity_ordered) || 0,
@@ -88,29 +93,19 @@ export default function POForm() {
         tax_rate_id: l.tax_rate_id || null,
       }));
 
-      // 2. Compute total
+      // Compute total
       const total = payloadItems.reduce((s, i) => s + i.quantity_ordered * i.unit_price, 0);
 
-      // 3. Build PO data – now includes all vendor fields
-      const poData = {
-        vendor: form.vendor,
-        vendor_address: form.vendor_address,
-        vendor_gstin: form.vendor_gstin,
-        vendor_contact_person: form.vendor_contact_person,
-        vendor_phone: form.vendor_phone,
-        vendor_email: form.vendor_email,
-        order_date: form.order_date,
-        expected_date: form.expected_date,
-        status: form.status,
-        notes: form.notes,
-        total_amount: total, // if your table has this column; remove if not
-      };
-
       if (isEditing) {
-        // Update PO
+        // Update PO header (add branch & FY for RLS)
         const { error: poError } = await supabase
           .from("purchase_orders")
-          .update(poData)
+          .update({
+            ...form,
+            total_amount: total,
+            branch_id: ctx.branchId,
+            financial_year_id: ctx.financialYearId,
+          })
           .eq("id", id);
         if (poError) throw poError;
 
@@ -121,11 +116,13 @@ export default function POForm() {
           .eq("purchase_order_id", id);
         if (delError) throw delError;
 
-        // Insert new items
+        // Insert new items with branch & FY
         if (payloadItems.length > 0) {
           const itemsToInsert = payloadItems.map((item) => ({
             ...item,
             purchase_order_id: id,
+            branch_id: ctx.branchId,
+            financial_year_id: ctx.financialYearId,
           }));
           const { error: insError } = await supabase
             .from("purchase_order_items")
@@ -133,8 +130,8 @@ export default function POForm() {
           if (insError) throw insError;
         }
       } else {
-        // Create new PO – use the service (assumes it handles items)
-        await createPO({ ...poData, items: payloadItems });
+        // Create new PO – pass context to service
+        await createPO({ ...form, total_amount: total, items: payloadItems }, ctx);
       }
     },
     onSuccess: () => {

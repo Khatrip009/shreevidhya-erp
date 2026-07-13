@@ -1,3 +1,4 @@
+// src/pages/Parents.jsx
 import React, { useState, useRef } from "react";
 import {
   useInfiniteQuery,
@@ -25,9 +26,14 @@ import {
   deleteParent,
   getAllParentsForExport,
 } from "../services/parentService";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 
 export default function Parents() {
   const queryClient = useQueryClient();
+
+  // ── Organisation / Branch / Financial Year context ──
+  const { branch, selectedFinancialYear } = useOrg();   // NEW
+  const ctx = { branchId: branch?.id, financialYearId: selectedFinancialYear?.id };
 
   // Search & filters
   const [search, setSearch] = useState("");
@@ -61,9 +67,9 @@ export default function Parents() {
 
   const parents = data?.pages.flatMap((page) => page.data) || [];
 
-  // Mutations
+  // Mutations – now pass context
   const createMutation = useMutation({
-    mutationFn: ({ form, studentId }) => createParent(form, studentId),
+    mutationFn: ({ form, studentId }) => createParent(form, studentId, ctx),
     onSuccess: () => {
       toast.success("Parent created and linked");
       queryClient.invalidateQueries({ queryKey: ["parents"] });
@@ -73,7 +79,7 @@ export default function Parents() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, payload }) => updateParent(id, payload),
+    mutationFn: ({ id, payload }) => updateParent(id, payload, ctx),
     onSuccess: () => {
       toast.success("Parent updated");
       queryClient.invalidateQueries({ queryKey: ["parents"] });
@@ -83,7 +89,7 @@ export default function Parents() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: deleteParent,
+    mutationFn: (id) => deleteParent(id, ctx),
     onSuccess: () => {
       toast.success("Parent deleted");
       queryClient.invalidateQueries({ queryKey: ["parents"] });
@@ -92,7 +98,7 @@ export default function Parents() {
       toast.error("Deletion failed. The parent may be linked to students."),
   });
 
-  // CSV Import (unchanged)
+  // CSV Import – now passes context (no studentId)
   async function handleCSVImport(event) {
     const file = event.target.files[0];
     if (!file) return;
@@ -112,7 +118,7 @@ export default function Parents() {
               occupation: row.occupation || null,
               address: row.address || null,
             };
-            await createParent(payload);   // without studentId – won't link, but you may want to enforce here too
+            await createParent(payload, null, ctx);  // pass context
             successCount++;
           } catch (err) {
             console.error(err);
@@ -149,7 +155,7 @@ export default function Parents() {
   }
 
   function handleUpdate(updatedFields) {
-    // updatedFields is just the form object (parent fields)
+    // updatedFields is just the form object
     updateMutation.mutate({ id: editing.id, payload: updatedFields });
   }
 

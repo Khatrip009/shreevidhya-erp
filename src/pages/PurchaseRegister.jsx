@@ -3,6 +3,7 @@ import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "../api/supabase";
 import { getOrganization } from "../services/organizationService";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 import toast from "react-hot-toast";
 import AdminLayout from "../layouts/AdminLayout";
 import {
@@ -29,11 +30,14 @@ export default function PurchaseRegister() {
   const [taxRateFilter, setTaxRateFilter] = useState("");
   const [search, setSearch] = useState("");
 
-  const { data: org } = useQuery({
-    queryKey: ["organization"],
-    queryFn: getOrganization,
-  });
+  // ── Get current organization from context ──
+  const { org: currentOrg } = useOrg();   // NEW
 
+  const { data: org } = useQuery({
+    queryKey: ["organization", currentOrg?.id],
+    queryFn: () => getOrganization(currentOrg?.id),   // pass org id
+    enabled: !!currentOrg?.id,
+  });
   // ─── Fetch vendors for filter dropdown ─────────────────────
   const { data: vendors = [] } = useQuery({
     queryKey: ["vendors-dropdown"],

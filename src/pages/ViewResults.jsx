@@ -1,3 +1,4 @@
+// src/pages/ViewResults.jsx
 import { useState } from "react";
 import { Navigate, useParams, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
@@ -8,12 +9,16 @@ import {
 import Papa from "papaparse";
 import AdminLayout from "../layouts/AdminLayout";
 import { getExamById, getResultsByExam } from "../services/examService";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 
 export default function ViewResults() {
   const { examId } = useParams();
   const navigate = useNavigate();
   const [search, setSearch] = useState("");
   const hasValidExamId = !!examId && examId !== "undefined";
+
+  // Context for multi-tenant readiness (page is read-only)
+  useOrg();
 
   const {
     data: exam,

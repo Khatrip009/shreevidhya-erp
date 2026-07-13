@@ -1,10 +1,13 @@
 import React, { useState } from 'react';
 import { supabase } from '../api/supabase';
 import { useAuth } from '../context/AuthContext';
+import { useOrg } from '../context/OrganizationContext';   // NEW
 import toast from 'react-hot-toast';
 
 export default function CreateOnlineClass() {
   const { profile } = useAuth();
+  const { branch, selectedFinancialYear } = useOrg();      // NEW
+
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [startTime, setStartTime] = useState('');
@@ -37,7 +40,7 @@ export default function CreateOnlineClass() {
       // Generate a unique room name (using timestamp)
       const roomName = `class-${Date.now()}-${Math.random().toString(36).substring(7)}`;
 
-      // Get teacher ID from profile (you may need to fetch from teachers table)
+      // Get teacher ID from profile
       const { data: teacherData } = await supabase
         .from('teachers')
         .select('id')
@@ -55,6 +58,8 @@ export default function CreateOnlineClass() {
           teacher_id: teacherData?.id || null,
           room_name: roomName,
           status: 'scheduled',
+          branch_id: branch?.id,                         // NEW
+          financial_year_id: selectedFinancialYear?.id,  // NEW
         })
         .select()
         .single();

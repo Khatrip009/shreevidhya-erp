@@ -4,13 +4,13 @@ import {
   ChevronDown, Bell, X, Wallet, Building, Video, FileText,
   PanelLeftOpen, PanelLeftClose, BarChart3, Shield, Layers,
   Calendar, CalendarCheck, BookOpen, Award, ClipboardCheck,
-  MessageSquare, Palette,
+  MessageSquare, Palette,Activity,
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
-import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useState, useEffect } from "react";
 import { useAuth } from "../context/AuthContext";
-import { getOrganization } from "../services/organizationService";
+import { useOrg } from "../context/OrganizationContext";
+import { supabase } from "../api/supabase";
 
 function normaliseRole(rawRole) {
   return (rawRole || "").toLowerCase().replace(/\s+/g, "_");
@@ -67,13 +67,43 @@ function AccordionSection({ icon: Icon, label, open, onClick, collapsed, childre
 
 export default function Sidebar({ onClose, collapsed, onToggleCollapse }) {
   const { profile } = useAuth();
+  const orgContext = useOrg();
+  const [org, setOrg] = useState(orgContext?.org || null);
+
+  // Financial year from context
+  const {
+    financialYears,
+    selectedFinancialYear,
+    switchFinancialYear,
+  } = orgContext || {};
+
   const [academicOpen, setAcademicOpen] = useState(false);
 
-  const { data: org } = useQuery({
-    queryKey: ["organization"],
-    queryFn: getOrganization,
-    staleTime: 10 * 60 * 1000,
-  });
+  // Fallback org loading (if context not available)
+  useEffect(() => {
+    if (!org && profile?.id) {
+      const loadOrg = async () => {
+        const { data: profileData } = await supabase
+          .from("profiles")
+          .select("organization_id")
+          .eq("id", profile.id)
+          .single();
+        if (profileData?.organization_id) {
+          const { data: orgData } = await supabase
+            .from("organization")
+            .select("*")
+            .eq("id", profileData.organization_id)
+            .single();
+          if (orgData) setOrg(orgData);
+        }
+      };
+      loadOrg();
+    }
+  }, [org, profile?.id]);
+
+  useEffect(() => {
+    if (orgContext?.org) setOrg(orgContext.org);
+  }, [orgContext?.org]);
 
   if (!profile) {
     return (
@@ -129,7 +159,7 @@ export default function Sidebar({ onClose, collapsed, onToggleCollapse }) {
         <SidebarLink to="/online-classes" icon={Video}>Online Classes</SidebarLink>
         <SidebarLink to="/teacher-attendance" icon={CalendarCheck}>My Attendance</SidebarLink>
         <SidebarLink to="/teacher-lecture-report" icon={Calendar}>My Lectures</SidebarLink>
-        <SidebarLink to="/teacher-lecture-count" icon={Calendar}>My Lecture Count</SidebarLink>  {/* NEW */}
+        <SidebarLink to="/teacher-lecture-count" icon={Calendar}>My Lecture Count</SidebarLink>
       </AccordionSection>
       <SidebarLink to="/teacher/salary" icon={Wallet}>My Salary</SidebarLink>
       <SidebarLink to="/teacher/leaves" icon={Calendar}>My Leaves</SidebarLink>
@@ -142,7 +172,7 @@ export default function Sidebar({ onClose, collapsed, onToggleCollapse }) {
     </>
   );
 
-  // ── Admin / Super Admin ──
+  // ── Admin / Super Admin / Organization Admin ──
   const adminLinks = (
     <>
       <SidebarLink to="/" end icon={LayoutDashboard}>Dashboard</SidebarLink>
@@ -164,12 +194,19 @@ export default function Sidebar({ onClose, collapsed, onToggleCollapse }) {
       <SidebarLink to="/teacher-attendance-report" icon={FileText}>Teacher Attendance Report</SidebarLink>
       <SidebarLink to="/teacher-daily-attendance-report" icon={Calendar}>Daily Teacher Attendance</SidebarLink>
       <SidebarLink to="/teacher-lecture-report" icon={Calendar}>Teacher Lecture Report</SidebarLink>
-      <SidebarLink to="/teacher-lecture-count" icon={Calendar}>Teacher Lecture Count</SidebarLink>  {/* NEW */}
+      <SidebarLink to="/teacher-lecture-count" icon={Calendar}>Teacher Lecture Count</SidebarLink>
 
       {!collapsed && <SectionLabel>System</SectionLabel>}
+      <SidebarLink to="/branches" icon={Building}>Branches</SidebarLink>
       <SidebarLink to="/settings-hub" icon={Settings}>Settings</SidebarLink>
+      <SidebarLink to="/activity-logs" icon={Activity}>Activity Logs</SidebarLink>
+      
     </>
   );
+
+  // ── Financial Year selector (bottom) ──
+  const isAdminOrStaff = ["admin", "super_admin", "organization_admin", "branch_admin", "teacher"].includes(role);
+  const showFYSelector = isAdminOrStaff && financialYears && financialYears.length > 0;
 
   return (
     <aside
@@ -194,7 +231,7 @@ export default function Sidebar({ onClose, collapsed, onToggleCollapse }) {
       <div className="flex justify-center border-b border-primary-dark py-4">
         <img
           src={org?.logo_light_url || "/ShreeVidhyalight.png"}
-          alt="ShreeVidhya Academy"
+          alt={org?.company_name || "Academy"}
           style={{ height: collapsed ? 32 : 64, width: "auto", transition: "height 0.3s" }}
         />
       </div>
@@ -203,8 +240,40 @@ export default function Sidebar({ onClose, collapsed, onToggleCollapse }) {
       <nav className="flex-1 px-2 py-4 space-y-1 overflow-y-auto">
         {role === "student" && studentLinks}
         {role === "teacher" && teacherLinks}
-        {(role === "admin" || role === "super_admin") && adminLinks}
+        {(role === "admin" || role === "super_admin" || role === "organization_admin") && adminLinks}
       </nav>
+
+      {/* Financial Year Selector */}
+      {showFYSelector && (
+        <div className="px-3 py-3 border-t border-primary-dark">
+          {collapsed ? (
+            <div className="flex justify-center" title={selectedFinancialYear?.name || "Select FY"}>
+              <Calendar size={20} className="text-white/70" />
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 text-sm">
+              <Calendar size={16} className="text-white/60" />
+              <select
+                value={selectedFinancialYear?.id || ""}
+                onChange={(e) => {
+                  const id = Number(e.target.value);
+                  if (id && switchFinancialYear) switchFinancialYear(id);
+                }}
+                className="bg-primary-light text-white border border-primary-dark rounded px-2 py-1 text-xs w-full focus:outline-none"
+              >
+                {!selectedFinancialYear && (
+                  <option value="" disabled>Select FY</option>
+                )}
+                {financialYears.map((fy) => (
+                  <option key={fy.id} value={fy.id}>
+                    {fy.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
+      )}
     </aside>
   );
 }

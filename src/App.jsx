@@ -140,9 +140,15 @@ import TeacherAttendanceReport from "./pages/TeacherAttendanceReport";
 import TeacherDailyAttendanceReport from "./pages/TeacherDailyAttendanceReport";
 import TeacherLectureReport from "./pages/TeacherLectureReport";
 import TeacherLectureCountReport from "./pages/TeacherLectureCountReport";
+import Signup from "./pages/Signup";
+import OnboardingWizard from "./pages/OnboardingWizard";
 
 // Theme Settings
 import ThemeSettings from "./pages/ThemeSettings";
+import ActivityLogs from "./pages/ActivityLogs";
+import Branches from "./pages/Branches";
+
+
 
 function ReportPageWrapper() {
   const { reportId } = useParams();
@@ -158,165 +164,172 @@ function App() {
   return (
     <ErrorBoundary>
       <Routes>
+        {/* Public routes – no OrganizationProvider needed */}
         <Route path="/login" element={<Login />} />
+        <Route path="/signup" element={<Signup />} />
 
-        <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-        <Route path="/organization-settings" element={<ProtectedRoute><OrganizationSettings /></ProtectedRoute>} />
+        {/* All authenticated routes are inside AuthenticatedApp */}
+      
+          <Route path="/" element={<Dashboard />} />
+          <Route path="/organization-settings" element={<OrganizationSettings />} />
 
-        {/* Student routes */}
-        <Route path="/student" element={<ProtectedRoute><StudentDashboard /></ProtectedRoute>} />
-        <Route path="/student/fees" element={<ProtectedRoute><StudentFeesPage /></ProtectedRoute>} />
-        <Route path="/student/batch" element={<ProtectedRoute><StudentBatchPage /></ProtectedRoute>} />
-        <Route path="/student/attendance" element={<ProtectedRoute><StudentAttendancePage /></ProtectedRoute>} />
-        <Route path="/student/homework" element={<ProtectedRoute><StudentHomeworkPage /></ProtectedRoute>} />
-        <Route path="/student/results" element={<ProtectedRoute><StudentResultsPage /></ProtectedRoute>} />
-        <Route path="/student/certificates" element={<ProtectedRoute><StudentCertificatesPage /></ProtectedRoute>} />
-        <Route path="/student/profile" element={<ProtectedRoute><StudentProfile /></ProtectedRoute>} />
-        <Route path="/student/timetable" element={<ProtectedRoute><PersonalTimetable /></ProtectedRoute>} />
-        <Route path="/student/exams" element={<ProtectedRoute><StudentExamsPage /></ProtectedRoute>} />
-        <Route path="/student/resources" element={<ProtectedRoute><StudentLearningResources /></ProtectedRoute>} />
-        <Route path="/student/notifications" element={<ProtectedRoute><StudentNotifications /></ProtectedRoute>} />
+          {/* Student routes */}
+          <Route path="/student" element={<StudentDashboard />} />
+          <Route path="/student/fees" element={<StudentFeesPage />} />
+          <Route path="/student/batch" element={<StudentBatchPage />} />
+          <Route path="/student/attendance" element={<StudentAttendancePage />} />
+          <Route path="/student/homework" element={<StudentHomeworkPage />} />
+          <Route path="/student/results" element={<StudentResultsPage />} />
+          <Route path="/student/certificates" element={<StudentCertificatesPage />} />
+          <Route path="/student/profile" element={<StudentProfile />} />
+          <Route path="/student/timetable" element={<PersonalTimetable />} />
+          <Route path="/student/exams" element={<StudentExamsPage />} />
+          <Route path="/student/resources" element={<StudentLearningResources />} />
+          <Route path="/student/notifications" element={<StudentNotifications />} />
 
-        {/* Teacher routes */}
-        <Route path="/teacher" element={<ProtectedRoute><TeacherDashboard /></ProtectedRoute>} />
-        <Route path="/teacher/salary" element={<ProtectedRoute><MySalary /></ProtectedRoute>} />
-        <Route path="/teacher/leaves" element={<ProtectedRoute><MyLeaves /></ProtectedRoute>} />
-        <Route path="/teacher/profile" element={<ProtectedRoute><TeacherProfile /></ProtectedRoute>} />
-        <Route path="/teacher/calendar" element={<ProtectedRoute><TeacherWeeklyTimetable /></ProtectedRoute>}/>
-        <Route path="/teacher/timetable" element={<ProtectedRoute><TeacherTimetable /></ProtectedRoute>} />
-        <Route path="/teacher/resources" element={<ProtectedRoute><TeacherLearningResources /></ProtectedRoute>} />
+          {/* Teacher routes */}
+          <Route path="/teacher" element={<TeacherDashboard />} />
+          <Route path="/teacher/salary" element={<MySalary />} />
+          <Route path="/teacher/leaves" element={<MyLeaves />} />
+          <Route path="/teacher/profile" element={<TeacherProfile />} />
+          <Route path="/teacher/calendar" element={<TeacherWeeklyTimetable />}/>
+          <Route path="/teacher/timetable" element={<TeacherTimetable />} />
+          <Route path="/teacher/resources" element={<TeacherLearningResources />} />
 
-        {/* Admin/Teacher shared routes */}
-        <Route path="/students" element={<ProtectedRoute><Students /></ProtectedRoute>} />
-        <Route path="/students/:id" element={<ProtectedRoute><StudentProfile /></ProtectedRoute>} />
-        <Route path="/inquiries" element={<ProtectedRoute><Inquiries /></ProtectedRoute>} />
-        <Route path="/courses" element={<ProtectedRoute><Courses /></ProtectedRoute>} />
-        <Route path="/batches" element={<ProtectedRoute><Batches /></ProtectedRoute>} />
-        <Route path="/teachers" element={<ProtectedRoute><Teachers /></ProtectedRoute>} />
-        <Route path="/attendance" element={<ProtectedRoute><Attendance /></ProtectedRoute>} />
-        <Route path="/attendance/mark/:sessionId" element={<ProtectedRoute><MarkAttendance /></ProtectedRoute>} />
-        <Route path="/fees/structures" element={<ProtectedRoute><FeeStructures /></ProtectedRoute>} />
-        <Route path="/fees" element={<ProtectedRoute><StudentFees /></ProtectedRoute>} />
-        <Route path="/parents" element={<ProtectedRoute><Parents /></ProtectedRoute>} />
-        <Route path="/exams" element={<ProtectedRoute><Exams /></ProtectedRoute>} />
-        <Route path="/results" element={<ProtectedRoute><Results /></ProtectedRoute>} />
-        <Route path="/results/enter/:examId" element={<ProtectedRoute><EnterResults /></ProtectedRoute>} />
-        <Route path="/results/view/:examId" element={<ProtectedRoute><ViewResults /></ProtectedRoute>} />
-        <Route path="/income" element={<ProtectedRoute><Income /></ProtectedRoute>} />
-        <Route path="/expenses" element={<ProtectedRoute><Expenses /></ProtectedRoute>} />
-        <Route path="/homework" element={<ProtectedRoute><Homework /></ProtectedRoute>} />
-        <Route path="/subjects" element={<ProtectedRoute><Subjects /></ProtectedRoute>} />
-        <Route path="/receipts" element={<ProtectedRoute><Receipts /></ProtectedRoute>} />
-        <Route path="/certificates" element={<ProtectedRoute><Certificates /></ProtectedRoute>} />
-        <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
-        <Route path="/user-management" element={<ProtectedRoute><UserManagement /></ProtectedRoute>} />
-        <Route path="/notifications" element={<ProtectedRoute><Notifications /></ProtectedRoute>} />
-        <Route path="/student-batches" element={<ProtectedRoute><StudentBatches /></ProtectedRoute>} />
-        <Route path="/student-documents" element={<ProtectedRoute><StudentDocuments /></ProtectedRoute>} />
-        <Route path="/progress" element={<ProtectedRoute><ProgressEvaluations /></ProtectedRoute>} />
-        <Route path="/student-progress" element={<ProtectedRoute><StudentProgressReport /></ProtectedRoute>} />
-        <Route path="/attendance/reports" element={<ProtectedRoute><AttendanceReports /></ProtectedRoute>} />
-        <Route path="/profit-loss" element={<ProtectedRoute><ProfitLoss /></ProtectedRoute>} />
-        <Route path="/learning-resources" element={<ProtectedRoute><LearningResources /></ProtectedRoute>} />
-        <Route path="/mediums" element={<ProtectedRoute><Mediums /></ProtectedRoute>} />
-        <Route path="/tax-settings" element={<ProtectedRoute><TaxSettings /></ProtectedRoute>} />
-        <Route path="/tax-report" element={<ProtectedRoute><TaxReport /></ProtectedRoute>} />
+          {/* Admin/Teacher shared routes */}
+          <Route path="/students" element={<Students />} />
+          <Route path="/students/:id" element={<StudentProfile />} />
+          <Route path="/inquiries" element={<Inquiries />} />
+          <Route path="/courses" element={<Courses />} />
+          <Route path="/batches" element={<Batches />} />
+          <Route path="/teachers" element={<Teachers />} />
+          <Route path="/attendance" element={<Attendance />} />
+          <Route path="/attendance/mark/:sessionId" element={<MarkAttendance />} />
+          <Route path="/fees/structures" element={<FeeStructures />} />
+          <Route path="/fees" element={<StudentFees />} />
+          <Route path="/parents" element={<Parents />} />
+          <Route path="/exams" element={<Exams />} />
+          <Route path="/results" element={<Results />} />
+          <Route path="/results/enter/:examId" element={<EnterResults />} />
+          <Route path="/results/view/:examId" element={<ViewResults />} />
+          <Route path="/income" element={<Income />} />
+          <Route path="/expenses" element={<Expenses />} />
+          <Route path="/homework" element={<Homework />} />
+          <Route path="/subjects" element={<Subjects />} />
+          <Route path="/receipts" element={<Receipts />} />
+          <Route path="/certificates" element={<Certificates />} />
+          <Route path="/settings" element={<Settings />} />
+          <Route path="/user-management" element={<UserManagement />} />
+          <Route path="/notifications" element={<Notifications />} />
+          <Route path="/student-batches" element={<StudentBatches />} />
+          <Route path="/student-documents" element={<StudentDocuments />} />
+          <Route path="/progress" element={<ProgressEvaluations />} />
+          <Route path="/student-progress" element={<StudentProgressReport />} />
+          <Route path="/attendance/reports" element={<AttendanceReports />} />
+          <Route path="/profit-loss" element={<ProfitLoss />} />
+          <Route path="/learning-resources" element={<LearningResources />} />
+          <Route path="/mediums" element={<Mediums />} />
+          <Route path="/tax-settings" element={<TaxSettings />} />
+          <Route path="/tax-report" element={<TaxReport />} />
 
-        {/* Accounting Routes */}
-        <Route path="/chart-of-accounts" element={<ProtectedRoute><ChartOfAccounts /></ProtectedRoute>} />
-        <Route path="/journal-entry" element={<ProtectedRoute><JournalEntry /></ProtectedRoute>} />
-        <Route path="/ledger" element={<ProtectedRoute><Ledger /></ProtectedRoute>} />
-        <Route path="/trial-balance" element={<ProtectedRoute><TrialBalance /></ProtectedRoute>} />
-        <Route path="/inventory-issue" element={<ProtectedRoute><IssueInventory /></ProtectedRoute>} />
-        <Route path="/vouchers" element={<ProtectedRoute><Vouchers /></ProtectedRoute>} />
-        <Route path="/payment-voucher" element={<ProtectedRoute><PaymentVoucher /></ProtectedRoute>} />
-        <Route path="/receipt-voucher" element={<ProtectedRoute><ReceiptVoucher /></ProtectedRoute>} />
-        <Route path="/contra-voucher" element={<ProtectedRoute><ContraVoucher /></ProtectedRoute>} />
-        <Route path="/accounting" element={<ProtectedRoute><AccountingHub /></ProtectedRoute>} />
-        <Route path="/vouchers/:id" element={<ProtectedRoute><VoucherDetail /></ProtectedRoute>} />
-        <Route path="/balance-sheet" element={<ProtectedRoute><BalanceSheet /></ProtectedRoute>} />
-        <Route path="/cash-book" element={<ProtectedRoute><CashBook /></ProtectedRoute>} />
-        <Route path="/day-book" element={<ProtectedRoute><DayBook /></ProtectedRoute>} />
-        <Route path="/aged-receivables" element={<ProtectedRoute><AgedReceivables /></ProtectedRoute>} />
-        <Route path="/bank-reconciliation" element={<ProtectedRoute><BankReconciliation /></ProtectedRoute>} />
-        <Route path="/budgets" element={<ProtectedRoute><Budgets /></ProtectedRoute>} />
-        <Route path="/budget-vs-actual" element={<ProtectedRoute><BudgetVsActual /></ProtectedRoute>} />
-        <Route path="/fixed-assets" element={<ProtectedRoute><FixedAssets /></ProtectedRoute>} />
-        <Route path="/bill-wise" element={<ProtectedRoute><BillWiseEntries /></ProtectedRoute>} />
-        <Route path="/gst-report" element={<ProtectedRoute><GSTReport /></ProtectedRoute>} />
+          {/* Accounting Routes */}
+          <Route path="/chart-of-accounts" element={<ChartOfAccounts />} />
+          <Route path="/journal-entry" element={<JournalEntry />} />
+          <Route path="/ledger" element={<Ledger />} />
+          <Route path="/trial-balance" element={<TrialBalance />} />
+          <Route path="/inventory-issue" element={<IssueInventory />} />
+          <Route path="/vouchers" element={<Vouchers />} />
+          <Route path="/payment-voucher" element={<PaymentVoucher />} />
+          <Route path="/receipt-voucher" element={<ReceiptVoucher />} />
+          <Route path="/contra-voucher" element={<ContraVoucher />} />
+          <Route path="/accounting" element={<AccountingHub />} />
+          <Route path="/vouchers/:id" element={<VoucherDetail />} />
+          <Route path="/balance-sheet" element={<BalanceSheet />} />
+          <Route path="/cash-book" element={<CashBook />} />
+          <Route path="/day-book" element={<DayBook />} />
+          <Route path="/aged-receivables" element={<AgedReceivables />} />
+          <Route path="/bank-reconciliation" element={<BankReconciliation />} />
+          <Route path="/budgets" element={<Budgets />} />
+          <Route path="/budget-vs-actual" element={<BudgetVsActual />} />
+          <Route path="/fixed-assets" element={<FixedAssets />} />
+          <Route path="/bill-wise" element={<BillWiseEntries />} />
+          <Route path="/gst-report" element={<GSTReport />} />
 
-        {/* Inventory Routes */}
-        <Route path="/inventory-items" element={<ProtectedRoute><InventoryItems /></ProtectedRoute>} />
-        <Route path="/inventory-transactions" element={<ProtectedRoute><InventoryTransactions /></ProtectedRoute>} />
-        <Route path="/add-stock" element={<ProtectedRoute><AddStock /></ProtectedRoute>} />
-        <Route path="/stock-dashboard" element={<ProtectedRoute><StockDashboard /></ProtectedRoute>} />
-        <Route path="/purchase-orders" element={<ProtectedRoute><PurchaseOrders /></ProtectedRoute>} />
-        <Route path="/purchase-orders/new" element={<ProtectedRoute><POForm /></ProtectedRoute>} />
-        <Route path="/purchase-orders/:id/edit" element={<ProtectedRoute><POForm /></ProtectedRoute>} />
-        <Route path="/purchase-orders/:id" element={<ProtectedRoute><PODetail /></ProtectedRoute>} />
+          {/* Inventory Routes */}
+          <Route path="/inventory-items" element={<InventoryItems />} />
+          <Route path="/inventory-transactions" element={<InventoryTransactions />} />
+          <Route path="/add-stock" element={<AddStock />} />
+          <Route path="/stock-dashboard" element={<StockDashboard />} />
+          <Route path="/purchase-orders" element={<PurchaseOrders />} />
+          <Route path="/purchase-orders/new" element={<POForm />} />
+          <Route path="/purchase-orders/:id/edit" element={<POForm />} />
+          <Route path="/purchase-orders/:id" element={<PODetail />} />
 
-        {/* Hub Routes */}
-        <Route path="/admissions-hub" element={<ProtectedRoute><AdmissionsHub /></ProtectedRoute>} />
-        <Route path="/academics-hub" element={<ProtectedRoute><AcademicsHub /></ProtectedRoute>} />
-        <Route path="/hr-hub" element={<ProtectedRoute><HRHub /></ProtectedRoute>} />
-        <Route path="/communication-hub" element={<ProtectedRoute><CommunicationHub /></ProtectedRoute>} />
-        <Route path="/settings-hub" element={<ProtectedRoute><SettingsHub /></ProtectedRoute>} />
+          {/* Hub Routes */}
+          <Route path="/admissions-hub" element={<AdmissionsHub />} />
+          <Route path="/academics-hub" element={<AcademicsHub />} />
+          <Route path="/hr-hub" element={<HRHub />} />
+          <Route path="/communication-hub" element={<CommunicationHub />} />
+          <Route path="/settings-hub" element={<SettingsHub />} />
 
-        {/* HR & Salary Routes */}
-        <Route path="/teachers/:id/salary" element={<ProtectedRoute><TeacherSalarySettings /></ProtectedRoute>} />
-        <Route path="/generate-salaries" element={<ProtectedRoute><GenerateSalaries /></ProtectedRoute>} />
-        <Route path="/salary-payments" element={<ProtectedRoute><SalaryPayments /></ProtectedRoute>} />
-        <Route path="/salary-setup" element={<ProtectedRoute><SalarySetup /></ProtectedRoute>} />
-        <Route path="/teacher-attendance" element={<ProtectedRoute><TeacherAttendance /></ProtectedRoute>} />
-        <Route path="/salary-report" element={<ProtectedRoute><SalaryReport /></ProtectedRoute>} />
+          {/* HR & Salary Routes */}
+          <Route path="/teachers/:id/salary" element={<TeacherSalarySettings />} />
+          <Route path="/generate-salaries" element={<GenerateSalaries />} />
+          <Route path="/salary-payments" element={<SalaryPayments />} />
+          <Route path="/salary-setup" element={<SalarySetup />} />
+          <Route path="/teacher-attendance" element={<TeacherAttendance />} />
+          <Route path="/salary-report" element={<SalaryReport />} />
 
-        {/* GST & Invoicing Routes */}
-        <Route path="/gst-settings" element={<ProtectedRoute><GSTSettings /></ProtectedRoute>} />
-        <Route path="/vendors" element={<ProtectedRoute><Vendors /></ProtectedRoute>} />
-        <Route path="/invoices" element={<ProtectedRoute><Invoices /></ProtectedRoute>} />
-        <Route path="/invoices/new" element={<ProtectedRoute><InvoiceForm /></ProtectedRoute>} />
-        <Route path="/invoices/:id" element={<ProtectedRoute><InvoiceView /></ProtectedRoute>} />
-        <Route path="/invoices/:id/edit" element={<ProtectedRoute><InvoiceForm /></ProtectedRoute>} />
-        <Route path="/gstr-3b-summary" element={<ProtectedRoute><GSTR3BSummary /></ProtectedRoute>} />
-        <Route path="/credit-notes" element={<ProtectedRoute><CreditNotes /></ProtectedRoute>} />
-        <Route path="/debit-notes" element={<ProtectedRoute><DebitNotes /></ProtectedRoute>} />
-        <Route path="/purchase-register" element={<ProtectedRoute><PurchaseRegister /></ProtectedRoute>} />
-        <Route path="/purchase-invoices" element={<ProtectedRoute><PurchaseInvoices /></ProtectedRoute>} />
-        <Route path="/purchase-invoices/new" element={<ProtectedRoute><PurchaseInvoiceForm /></ProtectedRoute>} />
-        <Route path="/purchase-invoices/:id" element={<ProtectedRoute><PurchaseInvoiceView /></ProtectedRoute>} />
-        <Route path="/purchase-invoices/:id/edit" element={<ProtectedRoute><PurchaseInvoiceForm /></ProtectedRoute>} />
+          {/* GST & Invoicing Routes */}
+          <Route path="/gst-settings" element={<GSTSettings />} />
+          <Route path="/vendors" element={<Vendors />} />
+          <Route path="/invoices" element={<Invoices />} />
+          <Route path="/invoices/new" element={<InvoiceForm />} />
+          <Route path="/invoices/:id" element={<InvoiceView />} />
+          <Route path="/invoices/:id/edit" element={<InvoiceForm />} />
+          <Route path="/gstr-3b-summary" element={<GSTR3BSummary />} />
+          <Route path="/credit-notes" element={<CreditNotes />} />
+          <Route path="/debit-notes" element={<DebitNotes />} />
+          <Route path="/purchase-register" element={<PurchaseRegister />} />
+          <Route path="/purchase-invoices" element={<PurchaseInvoices />} />
+          <Route path="/purchase-invoices/new" element={<PurchaseInvoiceForm />} />
+          <Route path="/purchase-invoices/:id" element={<PurchaseInvoiceView />} />
+          <Route path="/purchase-invoices/:id/edit" element={<PurchaseInvoiceForm />} />
 
-        <Route path="/teacher-attendance-report" element={<ProtectedRoute><TeacherAttendanceReport /></ProtectedRoute>} />
-        <Route path="/teacher-daily-attendance-report" element={<ProtectedRoute><TeacherDailyAttendanceReport /></ProtectedRoute>} />
-        <Route path="/teacher-lecture-report" element={<ProtectedRoute><TeacherLectureReport /></ProtectedRoute>} />
-        <Route path="/teacher-lecture-count" element={<ProtectedRoute><TeacherLectureCountReport /></ProtectedRoute>} />
+          <Route path="/teacher-attendance-report" element={<TeacherAttendanceReport />} />
+          <Route path="/teacher-daily-attendance-report" element={<TeacherDailyAttendanceReport />} />
+          <Route path="/teacher-lecture-report" element={<TeacherLectureReport />} />
+          <Route path="/teacher-lecture-count" element={<TeacherLectureCountReport />} />
 
-        {/* Theme Settings (NEW) */}
-        <Route path="/theme-settings" element={<ProtectedRoute><ThemeSettings /></ProtectedRoute>} />
+          <Route path="/activity-logs" element={<ActivityLogs />} />
+          <Route path="/branches" element={<Branches />} />
+          <Route path="/onboarding" element={<OnboardingWizard />} />
 
-        {/* ── Report Engine ── */}
-        <Route path="/reports" element={<ProtectedRoute><Reports /></ProtectedRoute>} />
-        <Route
-          path="/reports/:reportId"
-          element={
-            <ProtectedRoute>
+          {/* Theme Settings */}
+          <Route path="/theme-settings" element={<ThemeSettings />} />
+
+          {/* ── Report Engine ── */}
+          <Route path="/reports" element={<Reports />} />
+          <Route
+            path="/reports/:reportId"
+            element={
               <AdminLayout>
                 <ReportPageWrapper />
               </AdminLayout>
-            </ProtectedRoute>
-          }
-        />
+            }
+          />
 
-        {/* Admin Master Timetable */}
-        <Route path="/timetable" element={<ProtectedRoute><AdminTimetable /></ProtectedRoute>} />
+          {/* Admin Master Timetable */}
+          <Route path="/timetable" element={<AdminTimetable />} />
 
-        {/* Admin-only HR routes */}
-        <Route path="/leave-management" element={<ProtectedRoute><LeaveManagement /></ProtectedRoute>} />
+          {/* Admin-only HR routes */}
+          <Route path="/leave-management" element={<LeaveManagement />} />
 
-        {/* Online Classes */}
-        <Route path="/online-classes" element={<ProtectedRoute><OnlineClassList /></ProtectedRoute>} />
-        <Route path="/online-classes/create" element={<ProtectedRoute><CreateOnlineClass /></ProtectedRoute>} />
-        <Route path="/online-classes/join/:classId" element={<ProtectedRoute><JoinOnlineClass /></ProtectedRoute>} />
+          {/* Online Classes */}
+          <Route path="/online-classes" element={<OnlineClassList />} />
+          <Route path="/online-classes/create" element={<CreateOnlineClass />} />
+          <Route path="/online-classes/join/:classId" element={<JoinOnlineClass />} />
+        
 
         <Route path="*" element={<NotFound />} />
       </Routes>

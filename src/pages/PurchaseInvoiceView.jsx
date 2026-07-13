@@ -5,6 +5,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getPurchaseInvoice, finalizePurchaseInvoice, deletePurchaseInvoice } from "../services/purchaseInvoiceService";
 import { getOrganization } from "../services/organizationService";
 import { generateInvoicePDF, numberToWords } from "../utils/invoicePdf";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 import toast from "react-hot-toast";
 import AdminLayout from "../layouts/AdminLayout";
 import { ArrowLeft, Printer, Edit3, CheckCircle, Trash2, Loader, FileText } from "lucide-react";
@@ -16,9 +17,15 @@ export default function PurchaseInvoiceView() {
   const [printing, setPrinting] = useState(false);
   const [generatingPDF, setGeneratingPDF] = useState(false);
 
+  // ── Organisation, Branch, Financial Year from context ──
+  const { org: currentOrg, branch, selectedFinancialYear } = useOrg();
+  const ctx = { branchId: branch?.id, financialYearId: selectedFinancialYear?.id };
+
+  // Fetch organization details using current org id
   const { data: org } = useQuery({
-    queryKey: ["organization"],
-    queryFn: getOrganization,
+    queryKey: ["organization", currentOrg?.id],
+    queryFn: () => getOrganization(currentOrg?.id),
+    enabled: !!currentOrg?.id,
   });
 
   const { data: invoice, isLoading } = useQuery({
@@ -27,8 +34,9 @@ export default function PurchaseInvoiceView() {
     enabled: !!id,
   });
 
+  // Finalize mutation – now passes context
   const finalizeMutation = useMutation({
-    mutationFn: () => finalizePurchaseInvoice(id),
+    mutationFn: () => finalizePurchaseInvoice(id, ctx),
     onSuccess: () => {
       toast.success("Invoice finalized");
       queryClient.invalidateQueries(["purchase-invoice", id]);
@@ -38,7 +46,7 @@ export default function PurchaseInvoiceView() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: () => deletePurchaseInvoice(id),
+    mutationFn: () => deletePurchaseInvoice(id),   // no context needed
     onSuccess: () => {
       toast.success("Invoice deleted");
       navigate("/purchase-invoices");

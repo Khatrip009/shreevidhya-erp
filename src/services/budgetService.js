@@ -1,3 +1,4 @@
+// src/services/budgetService.js
 import { supabase } from "../api/supabase";
 
 // Get all budgets with account info
@@ -11,10 +12,16 @@ export async function getBudgets() {
 }
 
 // Create a budget
-export async function createBudget(payload) {
+// context: { branchId, financialYearId }
+export async function createBudget(payload, context) {
+  const { branchId, financialYearId } = context;
   const { data, error } = await supabase
     .from("budgets")
-    .insert(payload)
+    .insert({
+      ...payload,
+      branch_id: branchId,
+      financial_year_id: financialYearId,
+    })
     .select()
     .single();
   if (error) throw error;
@@ -22,10 +29,17 @@ export async function createBudget(payload) {
 }
 
 // Update a budget
-export async function updateBudget(id, payload) {
+// context: { branchId, financialYearId }
+export async function updateBudget(id, payload, context) {
+  const { branchId, financialYearId } = context;
   const { data, error } = await supabase
     .from("budgets")
-    .update({ ...payload, updated_at: new Date() })
+    .update({
+      ...payload,
+      updated_at: new Date(),
+      branch_id: branchId,
+      financial_year_id: financialYearId,
+    })
     .eq("id", id)
     .select()
     .single();
@@ -33,7 +47,7 @@ export async function updateBudget(id, payload) {
   return data;
 }
 
-// Delete a budget
+// Delete a budget (RLS protects)
 export async function deleteBudget(id) {
   const { error } = await supabase
     .from("budgets")

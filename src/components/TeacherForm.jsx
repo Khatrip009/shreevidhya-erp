@@ -13,23 +13,49 @@ import {
   Layers,
   GraduationCap,
   BookMarked,
+  Calendar,
+  Plus,
+  Trash2,
 } from "lucide-react";
 import {
   getCourseLevelOptions,
   getSubjectOptions,
 } from "../services/teacherService";
+import { useOrg } from "../context/OrganizationContext";
+
+// ─── Prefix mapping for staff types ──────────────────────
+const STAFF_PREFIX = {
+  teacher: "TCH",
+  admin: "ADM",
+  accountant: "ACC",
+  librarian: "LIB",
+  support: "SUP",
+  other: "STF",
+};
 
 export default function TeacherForm({ initialData = null, onSubmit, onClose }) {
   const isEdit = !!initialData;
+  const { branch, selectedFinancialYear } = useOrg();
 
-  // Build initial form state – ensure course_ids are derived from levels/subjects if needed
+  // Helper to derive course IDs from existing data
   const getInitialCourseIds = () => {
     if (initialData?.course_ids?.length) return initialData.course_ids;
-    // If no course_ids but we have levels/subjects, infer courses from them
     const levelCourseIds = (initialData?.course_levels || []).map(cl => cl.course_id).filter(Boolean);
     const subjectCourseIds = (initialData?.subjects || []).map(s => s.course_id).filter(Boolean);
     const all = [...levelCourseIds, ...subjectCourseIds];
     return [...new Set(all)];
+  };
+
+  // Parse initial bank accounts from JSON
+  const parseInitialBankAccounts = () => {
+    if (!initialData?.bank_account_details) return [{ bank_name: "", branch_name: "", ifsc_code: "", account_number: "" }];
+    try {
+      const parsed = typeof initialData.bank_account_details === 'string'
+        ? JSON.parse(initialData.bank_account_details)
+        : initialData.bank_account_details;
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    } catch (e) {}
+    return [{ bank_name: "", branch_name: "", ifsc_code: "", account_number: "" }];
   };
 
   const [form, setForm] = useState({
@@ -43,19 +69,66 @@ export default function TeacherForm({ initialData = null, onSubmit, onClose }) {
     joining_date: initialData?.joining_date || "",
     salary: initialData?.salary || "",
     status: initialData?.status || "active",
+    branch_id: initialData?.branch_id || branch?.id || "",
     medium_ids: initialData?.mediums?.map((m) => m.id) || [],
     course_ids: getInitialCourseIds(),
     course_level_ids: initialData?.course_levels?.map((cl) => cl.id) || [],
     subject_ids: initialData?.subjects?.map((s) => s.id) || [],
+
+    // Employee fields
+    staff_type: initialData?.staff_type || "teacher",
+    department: initialData?.department || "",
+    designation: initialData?.designation || "",
+    date_of_birth: initialData?.date_of_birth || "",
+    gender: initialData?.gender || "",
+    emergency_contact: initialData?.emergency_contact || "",
   });
 
+  const [bankAccounts, setBankAccounts] = useState(parseInitialBankAccounts());
   const [mediums, setMediums] = useState([]);
   const [courses, setCourses] = useState([]);
   const [allCourseLevels, setAllCourseLevels] = useState([]);
   const [allSubjects, setAllSubjects] = useState([]);
+  const [branches, setBranches] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [autoCodeLoading, setAutoCodeLoading] = useState(!isEdit && !initialData?.employee_code);
 
-  // Fetch dropdown options
+  // ─── Auto‑generate employee code ─────────
+  useEffect(() => {
+    if (isEdit || initialData?.employee_code) {
+      setAutoCodeLoading(false);
+      return;
+    }
+    async function generateCode() {
+      try {
+        const prefix = STAFF_PREFIX[form.staff_type] || "EMP";
+        const { data, error } = await supabase
+          .from("teachers")
+          .select("employee_code")
+          .ilike("employee_code", `${prefix}-%`)
+          .order("employee_code", { ascending: false })
+          .limit(1);
+
+        if (error) throw error;
+
+        let nextNum = 1;
+        if (data && data.length > 0) {
+          const lastCode = data[0].employee_code;
+          const numPart = lastCode.split("-")[1];
+          nextNum = (parseInt(numPart, 10) || 0) + 1;
+        }
+        const newCode = `${prefix}-${String(nextNum).padStart(4, "0")}`;
+        setForm(prev => ({ ...prev, employee_code: newCode }));
+      } catch (err) {
+        console.error("Failed to generate employee code", err);
+      } finally {
+        setAutoCodeLoading(false);
+      }
+    }
+    generateCode();
+  }, [isEdit, initialData?.employee_code, form.staff_type]);
+
+  // Fetch dropdown options: mediums, courses, levels, subjects, and branches
   useEffect(() => {
     const fetchData = async () => {
       const [mediumRes, courseRes, levelRes, subjectRes] = await Promise.all([
@@ -71,6 +144,26 @@ export default function TeacherForm({ initialData = null, onSubmit, onClose }) {
     };
     fetchData();
   }, []);
+
+  // Fetch branches for the current organization (when branch context is available)
+  useEffect(() => {
+    if (!branch?.organization_id) return;
+    const fetchBranches = async () => {
+      const { data, error } = await supabase
+        .from("branches")
+        .select("id, branch_name")
+        .eq("organization_id", branch.organization_id)
+        .order("branch_name");
+      if (!error && data) {
+        setBranches(data);
+        // If no branch is selected yet, default to the context branch
+        if (!form.branch_id && data.length > 0) {
+          setForm(prev => ({ ...prev, branch_id: branch.id || data[0].id }));
+        }
+      }
+    };
+    fetchBranches();
+  }, [branch?.organization_id]);
 
   // Filter levels and subjects based on selected courses
   const filteredCourseLevels = allCourseLevels.filter(
@@ -96,7 +189,6 @@ export default function TeacherForm({ initialData = null, onSubmit, onClose }) {
         subject_ids: prev.subject_ids.filter((id) => validSubjectIds.includes(id)),
       }));
     } else {
-      // No courses selected → clear levels and subjects
       setForm((prev) => ({
         ...prev,
         course_level_ids: [],
@@ -122,11 +214,56 @@ export default function TeacherForm({ initialData = null, onSubmit, onClose }) {
     }
   };
 
+  // Bank account handlers
+  const addBankAccount = () => {
+    setBankAccounts([...bankAccounts, { bank_name: "", branch_name: "", ifsc_code: "", account_number: "" }]);
+  };
+  const removeBankAccount = (index) => {
+    setBankAccounts(bankAccounts.filter((_, i) => i !== index));
+  };
+  const updateBankAccount = (index, field, value) => {
+    const updated = [...bankAccounts];
+    updated[index] = { ...updated[index], [field]: value };
+    setBankAccounts(updated);
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    // ─── Validation ──────────────────────
+    if (!form.branch_id) {
+      toast.error("Please select a branch");
+      return;
+    }
+    if (form.email && !form.email.includes('@')) {
+      toast.error('Please enter a valid email address');
+      return;
+    }
+    if (form.password && form.password.length < 6) {
+      toast.error('Password must be at least 6 characters');
+      return;
+    }
+    if (!selectedFinancialYear?.id) {
+      toast.error("No financial year selected. Please set up the current financial year.");
+      return;
+    }
+
     setLoading(true);
     try {
-      await onSubmit(form);
+      const validAccounts = bankAccounts.filter(acc => acc.bank_name || acc.account_number);
+      const bankJson = validAccounts.length > 0 ? JSON.stringify(validAccounts) : null;
+
+      const payload = {
+        ...form,
+        bank_account_details: bankJson,
+      };
+
+      const context = {
+        branchId: form.branch_id,
+        financialYearId: selectedFinancialYear.id,
+      };
+
+      await onSubmit(payload, context);
       onClose();
     } catch (err) {
       toast.error(err.message);
@@ -135,12 +272,14 @@ export default function TeacherForm({ initialData = null, onSubmit, onClose }) {
     }
   };
 
+  const staffLabel = form.staff_type === "teacher" ? "Teacher" : "Employee";
+
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-xl w-full max-w-2xl shadow-xl max-h-[90vh] overflow-y-auto">
         <div className="sticky top-0 bg-white border-b border-secondary-light px-6 py-4 flex items-center justify-between rounded-t-xl">
           <h2 className="text-xl font-righteous text-primary-dark">
-            {isEdit ? "Edit Teacher" : "Add New Teacher"}
+            {isEdit ? `Edit ${staffLabel}` : "Add New Employee"}
           </h2>
           <button onClick={onClose} className="p-2 hover:bg-secondary-bg rounded-lg">
             <X size={20} className="text-secondary-dark" />
@@ -148,7 +287,75 @@ export default function TeacherForm({ initialData = null, onSubmit, onClose }) {
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
-          {/* Basic fields (unchanged) */}
+          {/* STAFF TYPE */}
+          <div>
+            <label className="block text-sm font-montserrat text-secondary-dark mb-1">
+              <Briefcase size={14} className="inline mr-1" /> Staff Type *
+            </label>
+            <select
+              name="staff_type"
+              value={form.staff_type}
+              onChange={handleChange}
+              className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
+              required
+            >
+              <option value="teacher">Teacher</option>
+              <option value="admin">Administrator</option>
+              <option value="accountant">Accountant</option>
+              <option value="librarian">Librarian</option>
+              <option value="support">Support Staff</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+
+          {/* Branch Selection */}
+          <div>
+            <label className="block text-sm font-montserrat text-secondary-dark mb-1">
+              Branch *
+            </label>
+            <select
+              name="branch_id"
+              value={form.branch_id}
+              onChange={handleChange}
+              className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
+              required
+            >
+              <option value="">Select Branch</option>
+              {branches.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.branch_name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Employee Code */}
+          <div>
+            <label className="block text-sm font-montserrat text-secondary-dark mb-1">
+              <Briefcase size={14} className="inline mr-1" /> Employee Code
+            </label>
+            <div className="relative">
+              <input
+                type="text"
+                name="employee_code"
+                value={form.employee_code}
+                onChange={handleChange}
+                disabled={autoCodeLoading}
+                className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none disabled:bg-gray-100"
+                placeholder={autoCodeLoading ? "Generating…" : "Auto‑generated"}
+              />
+              {autoCodeLoading && (
+                <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                  <div className="animate-spin h-4 w-4 border-2 border-primary border-r-transparent rounded-full" />
+                </div>
+              )}
+            </div>
+            <p className="text-xs text-secondary-light mt-1">
+              {isEdit ? "Code cannot be changed after creation" : "Auto‑generated based on staff type"}
+            </p>
+          </div>
+
+          {/* Basic fields */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-montserrat text-secondary-dark mb-1">
@@ -175,19 +382,7 @@ export default function TeacherForm({ initialData = null, onSubmit, onClose }) {
             </div>
           </div>
 
-          <div>
-            <label className="block text-sm font-montserrat text-secondary-dark mb-1">
-              <Briefcase size={14} className="inline mr-1" /> Employee Code
-            </label>
-            <input
-              type="text"
-              name="employee_code"
-              value={form.employee_code}
-              onChange={handleChange}
-              className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
-            />
-          </div>
-
+          {/* Mobile */}
           <div>
             <label className="block text-sm font-montserrat text-secondary-dark mb-1">
               <Phone size={14} className="inline mr-1" /> Mobile
@@ -201,6 +396,7 @@ export default function TeacherForm({ initialData = null, onSubmit, onClose }) {
             />
           </div>
 
+          {/* Email & Password */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-montserrat text-secondary-dark mb-1">
@@ -229,6 +425,78 @@ export default function TeacherForm({ initialData = null, onSubmit, onClose }) {
             </div>
           </div>
 
+          {/* Department & Designation */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-montserrat text-secondary-dark mb-1">Department</label>
+              <input
+                type="text"
+                name="department"
+                value={form.department}
+                onChange={handleChange}
+                placeholder="e.g., Academics, Admin"
+                className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-montserrat text-secondary-dark mb-1">Designation</label>
+              <input
+                type="text"
+                name="designation"
+                value={form.designation}
+                onChange={handleChange}
+                placeholder="e.g., Senior Teacher"
+                className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
+              />
+            </div>
+          </div>
+
+          {/* DOB & Gender */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-montserrat text-secondary-dark mb-1">
+                <Calendar size={14} className="inline mr-1" /> Date of Birth
+              </label>
+              <input
+                type="date"
+                name="date_of_birth"
+                value={form.date_of_birth}
+                onChange={handleChange}
+                className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-montserrat text-secondary-dark mb-1">Gender</label>
+              <select
+                name="gender"
+                value={form.gender}
+                onChange={handleChange}
+                className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
+              >
+                <option value="">Select</option>
+                <option>Male</option>
+                <option>Female</option>
+                <option>Other</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Emergency Contact */}
+          <div>
+            <label className="block text-sm font-montserrat text-secondary-dark mb-1">
+              Emergency Contact
+            </label>
+            <input
+              type="text"
+              name="emergency_contact"
+              value={form.emergency_contact}
+              onChange={handleChange}
+              placeholder="Name and phone number"
+              className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
+            />
+          </div>
+
+          {/* Qualification */}
           <div>
             <label className="block text-sm font-montserrat text-secondary-dark mb-1">Qualification</label>
             <input
@@ -240,6 +508,7 @@ export default function TeacherForm({ initialData = null, onSubmit, onClose }) {
             />
           </div>
 
+          {/* Joining Date & Salary */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-montserrat text-secondary-dark mb-1">Joining Date</label>
@@ -263,6 +532,7 @@ export default function TeacherForm({ initialData = null, onSubmit, onClose }) {
             </div>
           </div>
 
+          {/* Status */}
           <div>
             <label className="block text-sm font-montserrat text-secondary-dark mb-1">Status</label>
             <select
@@ -276,113 +546,150 @@ export default function TeacherForm({ initialData = null, onSubmit, onClose }) {
             </select>
           </div>
 
-          {/* ===== MULTI‑SELECT: MEDIUMS ===== */}
+          {/* Bank Accounts */}
+          <div>
+            <label className="block text-sm font-montserrat text-secondary-dark mb-2">Bank Accounts</label>
+            <div className="space-y-3">
+              {bankAccounts.map((account, idx) => (
+                <div key={idx} className="grid grid-cols-12 gap-2 items-center">
+                  <input
+                    type="text"
+                    placeholder="Bank Name"
+                    value={account.bank_name}
+                    onChange={(e) => updateBankAccount(idx, "bank_name", e.target.value)}
+                    className="col-span-3 border border-secondary-light rounded p-2 text-sm focus:ring-1 focus:ring-primary outline-none"
+                  />
+                  <input
+                    type="text"
+                    placeholder="Branch"
+                    value={account.branch_name}
+                    onChange={(e) => updateBankAccount(idx, "branch_name", e.target.value)}
+                    className="col-span-3 border border-secondary-light rounded p-2 text-sm focus:ring-1 focus:ring-primary outline-none"
+                  />
+                  <input
+                    type="text"
+                    placeholder="IFSC Code"
+                    value={account.ifsc_code}
+                    onChange={(e) => updateBankAccount(idx, "ifsc_code", e.target.value)}
+                    className="col-span-2 border border-secondary-light rounded p-2 text-sm focus:ring-1 focus:ring-primary outline-none uppercase"
+                  />
+                  <input
+                    type="text"
+                    placeholder="Account No."
+                    value={account.account_number}
+                    onChange={(e) => updateBankAccount(idx, "account_number", e.target.value)}
+                    className="col-span-3 border border-secondary-light rounded p-2 text-sm focus:ring-1 focus:ring-primary outline-none"
+                  />
+                  <div className="col-span-1 flex justify-center">
+                    {bankAccounts.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => removeBankAccount(idx)}
+                        className="text-red-500 hover:text-red-700"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={addBankAccount}
+              className="mt-2 text-primary text-sm flex items-center gap-1 hover:underline"
+            >
+              <Plus size={16} /> Add Bank Account
+            </button>
+          </div>
+
+          {/* Mediums */}
           <div>
             <label className="block text-sm font-montserrat text-secondary-dark mb-2">
-              <Layers size={14} className="inline mr-1" /> Assigned Mediums
+              <BookOpen size={14} className="inline mr-1" /> Mediums
             </label>
-            <div className="flex flex-wrap gap-3 p-3 border border-secondary-light rounded-lg bg-gray-50">
+            <div className="flex flex-wrap gap-3">
               {mediums.map((m) => (
-                <label key={m.id} className="flex items-center gap-2 text-sm cursor-pointer">
+                <label key={m.id} className="flex items-center gap-1 text-sm">
                   <input
                     type="checkbox"
                     name="medium_ids"
                     value={m.id}
-                    checked={form.medium_ids?.includes(m.id)}
+                    checked={form.medium_ids.includes(m.id)}
                     onChange={handleChange}
-                    className="rounded accent-primary h-4 w-4"
                   />
                   {m.name}
                 </label>
               ))}
-              {mediums.length === 0 && (
-                <span className="text-sm text-secondary">No mediums available</span>
-              )}
             </div>
           </div>
 
-          {/* ===== MULTI‑SELECT: COURSES ===== */}
+          {/* Courses */}
           <div>
             <label className="block text-sm font-montserrat text-secondary-dark mb-2">
-              <BookOpen size={14} className="inline mr-1" /> Assigned Courses
+              <BookMarked size={14} className="inline mr-1" /> Courses
             </label>
-            <div className="flex flex-wrap gap-3 p-3 border border-secondary-light rounded-lg bg-gray-50">
+            <div className="flex flex-wrap gap-3">
               {courses.map((c) => (
-                <label key={c.id} className="flex items-center gap-2 text-sm cursor-pointer">
+                <label key={c.id} className="flex items-center gap-1 text-sm">
                   <input
                     type="checkbox"
                     name="course_ids"
                     value={c.id}
-                    checked={form.course_ids?.includes(c.id)}
+                    checked={form.course_ids.includes(c.id)}
                     onChange={handleChange}
-                    className="rounded accent-primary h-4 w-4"
                   />
                   {c.course_name}
                 </label>
               ))}
-              {courses.length === 0 && (
-                <span className="text-sm text-secondary">No courses available</span>
-              )}
             </div>
           </div>
 
-          {/* ===== MULTI‑SELECT: COURSE LEVELS (filtered) ===== */}
+          {/* Course Levels */}
           <div>
             <label className="block text-sm font-montserrat text-secondary-dark mb-2">
-              <GraduationCap size={14} className="inline mr-1" /> Assigned Course Levels
+              <Layers size={14} className="inline mr-1" /> Course Levels
             </label>
-            <div className="flex flex-wrap gap-3 p-3 border border-secondary-light rounded-lg bg-gray-50">
-              {form.course_ids && form.course_ids.length > 0 ? (
-                filteredCourseLevels.length > 0 ? (
-                  filteredCourseLevels.map((cl) => (
-                    <label key={cl.id} className="flex items-center gap-2 text-sm cursor-pointer">
-                      <input
-                        type="checkbox"
-                        name="course_level_ids"
-                        value={cl.id}
-                        checked={form.course_level_ids?.includes(cl.id)}
-                        onChange={handleChange}
-                        className="rounded accent-primary h-4 w-4"
-                      />
-                      {cl.level_name}
-                    </label>
-                  ))
-                ) : (
-                  <span className="text-sm text-secondary">No levels found for selected courses</span>
-                )
-              ) : (
-                <span className="text-sm text-secondary">Select a course first</span>
+            <div className="flex flex-wrap gap-3">
+              {filteredCourseLevels.length === 0 && (
+                <p className="text-xs text-secondary-light">Select a course first</p>
               )}
+              {filteredCourseLevels.map((cl) => (
+                <label key={cl.id} className="flex items-center gap-1 text-sm">
+                  <input
+                    type="checkbox"
+                    name="course_level_ids"
+                    value={cl.id}
+                    checked={form.course_level_ids.includes(cl.id)}
+                    onChange={handleChange}
+                  />
+                  {cl.level_name}
+                </label>
+              ))}
             </div>
           </div>
 
-          {/* ===== MULTI‑SELECT: SUBJECTS (filtered) ===== */}
+          {/* Subjects */}
           <div>
             <label className="block text-sm font-montserrat text-secondary-dark mb-2">
-              <BookMarked size={14} className="inline mr-1" /> Assigned Subjects
+              <GraduationCap size={14} className="inline mr-1" /> Subjects
             </label>
-            <div className="flex flex-wrap gap-3 p-3 border border-secondary-light rounded-lg bg-gray-50">
-              {form.course_ids && form.course_ids.length > 0 ? (
-                filteredSubjects.length > 0 ? (
-                  filteredSubjects.map((s) => (
-                    <label key={s.id} className="flex items-center gap-2 text-sm cursor-pointer">
-                      <input
-                        type="checkbox"
-                        name="subject_ids"
-                        value={s.id}
-                        checked={form.subject_ids?.includes(s.id)}
-                        onChange={handleChange}
-                        className="rounded accent-primary h-4 w-4"
-                      />
-                      {s.subject_name}
-                    </label>
-                  ))
-                ) : (
-                  <span className="text-sm text-secondary">No subjects found for selected courses</span>
-                )
-              ) : (
-                <span className="text-sm text-secondary">Select a course first</span>
+            <div className="flex flex-wrap gap-3">
+              {filteredSubjects.length === 0 && (
+                <p className="text-xs text-secondary-light">Select a course first</p>
               )}
+              {filteredSubjects.map((s) => (
+                <label key={s.id} className="flex items-center gap-1 text-sm">
+                  <input
+                    type="checkbox"
+                    name="subject_ids"
+                    value={s.id}
+                    checked={form.subject_ids.includes(s.id)}
+                    onChange={handleChange}
+                  />
+                  {s.subject_name}
+                </label>
+              ))}
             </div>
           </div>
 
@@ -392,7 +699,7 @@ export default function TeacherForm({ initialData = null, onSubmit, onClose }) {
               disabled={loading}
               className="w-full sm:w-auto bg-primary hover:bg-primary-light text-white px-6 py-2.5 rounded-lg font-montserrat transition disabled:opacity-60"
             >
-              {loading ? "Saving..." : isEdit ? "Update Teacher" : "Create Teacher"}
+              {loading ? "Saving..." : isEdit ? `Update ${staffLabel}` : "Create Employee"}
             </button>
             <button
               type="button"

@@ -6,6 +6,7 @@ import { Link } from "react-router-dom";
 import AdminLayout from "../layouts/AdminLayout";
 import { getBudgetVsActual } from "../services/budgetService";
 import { getOrganization } from "../services/organizationService";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 
 export default function BudgetVsActual() {
   const today = new Date().toISOString().split("T")[0];
@@ -15,7 +16,15 @@ export default function BudgetVsActual() {
 
   const [startDate, setStartDate] = useState(firstOfMonth);
   const [endDate, setEndDate] = useState(today);
-  const { data: org } = useQuery({ queryKey: ["organization"], queryFn: getOrganization });
+
+  // ── Get current organisation from context ──
+  const { org: currentOrg } = useOrg();
+
+  const { data: org } = useQuery({
+    queryKey: ["organization", currentOrg?.id],
+    queryFn: () => getOrganization(currentOrg?.id),
+    enabled: !!currentOrg?.id,
+  });
 
   const { data: report = [], isLoading } = useQuery({
     queryKey: ["budget-vs-actual", startDate, endDate],

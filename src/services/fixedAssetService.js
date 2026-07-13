@@ -1,6 +1,7 @@
+// src/services/fixedAssetService.js
 import { supabase } from "../api/supabase";
 
-// Get all assets
+// Get all assets (read – RLS filters)
 export async function getFixedAssets() {
   const { data, error } = await supabase
     .from("fixed_assets")
@@ -11,12 +12,19 @@ export async function getFixedAssets() {
 }
 
 // Create asset
-export async function createFixedAsset(payload) {
+// context: { branchId, financialYearId }
+export async function createFixedAsset(payload, context) {
+  const { branchId, financialYearId } = context;
   // Calculate initial book value (cost)
-  payload.current_book_value = payload.purchase_cost;
+  const enrichedPayload = {
+    ...payload,
+    current_book_value: payload.purchase_cost,
+    branch_id: branchId,
+    financial_year_id: financialYearId,
+  };
   const { data, error } = await supabase
     .from("fixed_assets")
-    .insert(payload)
+    .insert(enrichedPayload)
     .select()
     .single();
   if (error) throw error;
@@ -24,10 +32,17 @@ export async function createFixedAsset(payload) {
 }
 
 // Update asset
-export async function updateFixedAsset(id, payload) {
+// context: { branchId, financialYearId }
+export async function updateFixedAsset(id, payload, context) {
+  const { branchId, financialYearId } = context;
   const { data, error } = await supabase
     .from("fixed_assets")
-    .update({ ...payload, updated_at: new Date() })
+    .update({
+      ...payload,
+      updated_at: new Date(),
+      branch_id: branchId,
+      financial_year_id: financialYearId,
+    })
     .eq("id", id)
     .select()
     .single();
@@ -35,15 +50,14 @@ export async function updateFixedAsset(id, payload) {
   return data;
 }
 
-// Delete asset
+// Delete asset (hard delete – RLS protects)
 export async function deleteFixedAsset(id) {
   const { error } = await supabase.from("fixed_assets").delete().eq("id", id);
   if (error) throw error;
 }
 
-// Calculate monthly depreciation for all active assets
+// Calculate monthly depreciation for all active assets (read only – RLS filters)
 export async function calculateMonthlyDepreciation() {
-  // 1. Fetch all active assets
   const { data: assets } = await supabase
     .from("fixed_assets")
     .select("*")
@@ -53,7 +67,6 @@ export async function calculateMonthlyDepreciation() {
   const results = [];
   const now = new Date();
   for (const asset of assets) {
-    // months since purchase
     const purchaseDate = new Date(asset.purchase_date);
     const monthsElapsed = (now.getFullYear() - purchaseDate.getFullYear()) * 12 +
                           (now.getMonth() - purchaseDate.getMonth());
@@ -64,11 +77,9 @@ export async function calculateMonthlyDepreciation() {
       const depreciableAmount = asset.purchase_cost - asset.salvage_value;
       monthlyDep = depreciableAmount / asset.useful_life_months;
     } else {
-      // Declining balance (10% of current book value per month)
       monthlyDep = (asset.current_book_value * 0.1);
     }
 
-    // Ensure we don't drop below salvage value
     const newBookValue = asset.current_book_value - monthlyDep;
     if (newBookValue < asset.salvage_value) {
       monthlyDep = asset.current_book_value - asset.salvage_value;
@@ -81,16 +92,15 @@ export async function calculateMonthlyDepreciation() {
         monthly_depreciation: monthlyDep,
         new_book_value: asset.current_book_value - monthlyDep,
       });
-
-      // Update book value in DB (optional – we'll do it on posting)
     }
   }
-
   return results;
 }
 
-// Post depreciation as journal entry (Debit Depreciation Expense, Credit Accumulated Depreciation)
-export async function postDepreciation(monthlyDepList) {
+// Post depreciation as journal entry + update asset book values
+// context: { branchId, financialYearId }
+export async function postDepreciation(monthlyDepList, context) {
+  const { branchId, financialYearId } = context;
   const totalDep = monthlyDepList.reduce((s, a) => s + a.monthly_depreciation, 0);
   if (totalDep === 0) return;
 
@@ -102,32 +112,36 @@ export async function postDepreciation(monthlyDepList) {
       reference: "Monthly Depreciation",
       description: "Auto‑calculated depreciation",
       is_posted: true,
+      branch_id: branchId,
+      financial_year_id: financialYearId,
     })
     .select()
     .single();
 
-  // 2. Debit Depreciation Expense (5004)
+  // 2. Get Depreciation Expense account (5004)
   const { data: depExpAccount } = await supabase
     .from("chart_of_accounts")
     .select("id")
     .eq("account_code", "5004")
-    .single();
+    .maybeSingle();
 
-  // 3. Credit Accumulated Depreciation (we need to create this account if not exists)
+  // 3. Get/Create Accumulated Depreciation account (1009)
   let accDepAccount = await supabase
     .from("chart_of_accounts")
     .select("id")
     .eq("account_code", "1009")
-    .single();
+    .maybeSingle();
 
   if (!accDepAccount.data) {
-    // Create Accumulated Depreciation account
+    // Create Accumulated Depreciation account under the current branch & FY
     const { data: newAcc } = await supabase
       .from("chart_of_accounts")
       .insert({
         account_code: "1009",
         account_name: "Accumulated Depreciation",
         account_type: "asset",
+        branch_id: branchId,
+        financial_year_id: financialYearId,
       })
       .select()
       .single();
@@ -142,6 +156,8 @@ export async function postDepreciation(monthlyDepList) {
       debit: totalDep,
       credit: 0,
       description: "Depreciation expense",
+      branch_id: branchId,
+      financial_year_id: financialYearId,
     },
     {
       journal_entry_id: journal.id,
@@ -149,6 +165,8 @@ export async function postDepreciation(monthlyDepList) {
       debit: 0,
       credit: totalDep,
       description: "Accumulated depreciation",
+      branch_id: branchId,
+      financial_year_id: financialYearId,
     },
   ];
   await supabase.from("journal_entry_lines").insert(lines);
@@ -157,7 +175,12 @@ export async function postDepreciation(monthlyDepList) {
   for (const item of monthlyDepList) {
     await supabase
       .from("fixed_assets")
-      .update({ current_book_value: item.new_book_value, updated_at: new Date() })
+      .update({
+        current_book_value: item.new_book_value,
+        updated_at: new Date(),
+        branch_id: branchId,
+        financial_year_id: financialYearId,
+      })
       .eq("id", item.id);
   }
 

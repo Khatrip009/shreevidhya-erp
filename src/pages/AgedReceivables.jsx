@@ -5,6 +5,7 @@ import { Printer, Filter } from "lucide-react";
 import AdminLayout from "../layouts/AdminLayout";
 import { supabase } from "../api/supabase";
 import { getOrganization } from "../services/organizationService";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 
 const AGE_BUCKETS = [
   { label: "0‑30 days", min: 0, max: 30 },
@@ -14,7 +15,14 @@ const AGE_BUCKETS = [
 ];
 
 export default function AgedReceivables() {
-  const { data: org } = useQuery({ queryKey: ["organization"], queryFn: getOrganization });
+  const { org: currentOrg } = useOrg();                  // NEW
+
+  // Pass current org id to getOrganization
+  const { data: org } = useQuery({
+    queryKey: ["organization", currentOrg?.id],
+    queryFn: () => getOrganization(currentOrg?.id),
+    enabled: !!currentOrg?.id,
+  });
 
   const [courseFilter, setCourseFilter] = useState("");
   const [batchFilter, setBatchFilter] = useState("");
@@ -73,7 +81,7 @@ export default function AgedReceivables() {
         if (studentIdSet.size === 0) return [];
       }
 
-      // 2. Fetch all student_fees (select *)
+      // 2. Fetch all student_fees (RLS will filter by current org/branch/FY)
       let feeQuery = supabase.from("student_fees").select("*");
       const { data: allFees, error } = await feeQuery;
       if (error) throw error;
@@ -163,11 +171,9 @@ export default function AgedReceivables() {
           const s = studentMap[fee.student_id] || {};
           const paid = paymentMap[fee.id] || 0;
           const balance = Number(fee.final_fee) - paid;
-          // Ensure balance is a valid number
           const safeBalance = isNaN(balance) ? 0 : balance;
           if (safeBalance <= 0) return null;
 
-          // Safe age calculation
           let ageDays = 0;
           if (fee.created_at) {
             const created = new Date(fee.created_at);
@@ -207,7 +213,6 @@ export default function AgedReceivables() {
     receivables.forEach((r) => {
       if (t[r.bucket]) {
         t[r.bucket].count += 1;
-        // Add safe amount
         const amt = Number(r.balance);
         t[r.bucket].amount += isNaN(amt) ? 0 : amt;
       }

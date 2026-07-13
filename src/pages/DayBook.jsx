@@ -6,12 +6,21 @@ import { Printer, Calendar, ChevronDown, ChevronRight } from "lucide-react";
 import AdminLayout from "../layouts/AdminLayout";
 import { supabase } from "../api/supabase";
 import { getOrganization } from "../services/organizationService";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 
 export default function DayBook() {
   const today = new Date().toISOString().split("T")[0];
   const [selectedDate, setSelectedDate] = useState(today);
   const [expandedVoucher, setExpandedVoucher] = useState(null);
-  const { data: org } = useQuery({ queryKey: ["organization"], queryFn: getOrganization });
+
+  // ── Current organisation from context ──
+  const { org: currentOrg } = useOrg();
+
+  const { data: org } = useQuery({
+    queryKey: ["organization", currentOrg?.id],
+    queryFn: () => getOrganization(currentOrg?.id),
+    enabled: !!currentOrg?.id,
+  });
 
   // Fetch vouchers for the selected date with journal entry lines
   const { data: vouchers = [], isLoading } = useQuery({
@@ -63,7 +72,7 @@ export default function DayBook() {
     return s + (v.journal_entries?.journal_entry_lines || []).reduce((sum, l) => sum + (parseFloat(l.credit) || 0), 0);
   }, 0);
 
-  // Print
+  // Print – uses org data from updated query
   const handlePrint = () => {
     const logoUrl = org?.logo_dark_url || "/ShreeVidhyaDark.png";
     const orgName = org?.company_name || "ShreeVidhya Academy";

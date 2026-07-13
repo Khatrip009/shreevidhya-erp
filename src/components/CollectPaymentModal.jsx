@@ -8,9 +8,12 @@ import {
 import { collectPayment } from "../services/feeService";
 import { supabase } from "../api/supabase";
 import { useOrgDarkLogo } from "../hooks/useOrgDarkLogo";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 
 export default function CollectPaymentModal({ fee, onClose, onSuccess }) {
   const darkLogo = useOrgDarkLogo();
+  const { branch, selectedFinancialYear } = useOrg();      // NEW
+
   const [form, setForm] = useState({
     payment_date: new Date().toISOString().split("T")[0],
     amount: "",
@@ -137,7 +140,14 @@ export default function CollectPaymentModal({ fee, onClose, onSuccess }) {
         installment_id: form.installment_id || null,
       };
 
-      await collectPayment(paymentPayload, fee.student_id);
+      // Build context for branch & financial year
+      const context = {
+        branchId: branch?.id,
+        financialYearId: selectedFinancialYear?.id,
+      };
+
+      // collectPayment signature: (paymentPayload, studentId, invoiceId, context)
+      await collectPayment(paymentPayload, fee.student_id, null, context);
       toast.success("Payment collected, receipt generated");
       if (onSuccess) onSuccess();
     } catch (err) {

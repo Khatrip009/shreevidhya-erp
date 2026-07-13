@@ -1,3 +1,4 @@
+// src/services/examService.js
 import { supabase } from "../api/supabase";
 
 // ============================
@@ -100,21 +101,23 @@ export async function getAllExamsForExport(filters = {}) {
   }));
 }
 
-// CRUD – unchanged (medium is inferred from the batch, not stored on exam)
-export async function createExam(payload) {
+// CRUD – context = { branchId, financialYearId }
+export async function createExam(payload, context) {
+  const { branchId, financialYearId } = context;
   const { data, error } = await supabase
     .from("exams")
-    .insert([payload])
+    .insert([{ ...payload, branch_id: branchId, financial_year_id: financialYearId }])
     .select()
     .single();
   if (error) throw error;
   return data;
 }
 
-export async function updateExam(id, payload) {
+export async function updateExam(id, payload, context) {
+  const { branchId, financialYearId } = context;
   const { data, error } = await supabase
     .from("exams")
-    .update(payload)
+    .update({ ...payload, branch_id: branchId, financial_year_id: financialYearId })
     .eq("id", id)
     .select()
     .single();
@@ -122,16 +125,22 @@ export async function updateExam(id, payload) {
   return data;
 }
 
-export async function deleteExam(id) {
+// Soft delete – context required for RLS on update
+export async function deleteExam(id, context) {
+  const { branchId, financialYearId } = context;
   const { error } = await supabase
     .from("exams")
-    .update({ deleted_at: new Date().toISOString() })
+    .update({
+      deleted_at: new Date().toISOString(),
+      branch_id: branchId,
+      financial_year_id: financialYearId,
+    })
     .eq("id", id);
   if (error) throw error;
 }
 
 // ============================
-// RESULTS & MARKING HELPERS – unchanged
+// RESULTS & MARKING HELPERS
 // ============================
 
 export async function getBatchStudents(batchId) {
@@ -155,7 +164,11 @@ export async function getResultsByExam(examId) {
   return data || [];
 }
 
-export async function saveResults(examId, resultsPayload) {
+// Save results – context for inserting student_results
+export async function saveResults(examId, resultsPayload, context) {
+  const { branchId, financialYearId } = context;
+
+  // Delete existing marks for this exam
   const { error: deleteError } = await supabase
     .from("student_results")
     .delete()
@@ -164,16 +177,18 @@ export async function saveResults(examId, resultsPayload) {
 
   if (resultsPayload.length === 0) return;
 
+  const enrichedPayload = resultsPayload.map((r) => ({
+    exam_id: examId,
+    student_id: r.student_id,
+    marks_obtained: r.marks_obtained,
+    remarks: r.remarks || "",
+    branch_id: branchId,
+    financial_year_id: financialYearId,
+  }));
+
   const { error: insertError } = await supabase
     .from("student_results")
-    .insert(
-      resultsPayload.map((r) => ({
-        exam_id: examId,
-        student_id: r.student_id,
-        marks_obtained: r.marks_obtained,
-        remarks: r.remarks || "",
-      }))
-    );
+    .insert(enrichedPayload);
   if (insertError) throw insertError;
 }
 

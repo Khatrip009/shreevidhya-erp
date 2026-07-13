@@ -13,6 +13,7 @@ import {
 } from "../services/voucherService";
 import { getOrganization } from "../services/organizationService";
 import { getChartOfAccounts } from "../services/accountingService";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 
 export default function VoucherDetail() {
   const { id } = useParams();
@@ -20,10 +21,17 @@ export default function VoucherDetail() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
+  // ── Organisation / Branch / Financial Year context ──
+  const { org: currentOrg, branch, selectedFinancialYear } = useOrg();   // NEW
+  const ctx = { branchId: branch?.id, financialYearId: selectedFinancialYear?.id };
+
+  // Fetch organization with current org id
   const { data: org } = useQuery({
-    queryKey: ["organization"],
-    queryFn: getOrganization,
+    queryKey: ["organization", currentOrg?.id],
+    queryFn: () => getOrganization(currentOrg?.id),
+    enabled: !!currentOrg?.id,
   });
+
   const { data: accounts = [] } = useQuery({
     queryKey: ["chart-of-accounts"],
     queryFn: getChartOfAccounts,
@@ -67,15 +75,16 @@ export default function VoucherDetail() {
     }
   }, [voucher]);
 
-  // Save mutation
+  // Save mutation – now passes context
   const saveMutation = useMutation({
     mutationFn: (payload) =>
-      isNew ? createVoucher(payload) : updateVoucher(id, payload),
+      isNew
+        ? createVoucher(payload, ctx)
+        : updateVoucher(id, payload, ctx),
     onSuccess: (data) => {
       toast.success(isNew ? "Voucher created" : "Voucher updated");
       queryClient.invalidateQueries(["vouchers"]);
       if (isNew) {
-        // data may be the voucher object from createVoucher, which contains id
         navigate(`/vouchers/${data?.id || data?.voucher?.id || ""}`);
       } else {
         setEditing(false);
@@ -87,7 +96,6 @@ export default function VoucherDetail() {
   // Toggle edit mode
   const handleEditToggle = () => {
     if (editing) {
-      // Reset form to original voucher data
       setForm({
         entry_date: voucher.entry_date,
         reference: voucher.reference || "",
@@ -148,18 +156,16 @@ export default function VoucherDetail() {
     setForm({ ...form, lines: updated });
   };
 
-  // ── UPDATED PRINT FUNCTION FOR COMPACT VOUCHER (190 x 83 mm) ──
+  // Print function (unchanged, uses org data which is now correctly scoped)
   const handlePrint = () => {
     if (isNew || !voucher) return;
 
-    // ── Org details ──
     const orgName = org?.company_name || "ShreeVidhya Academy";
     const orgAddr = org?.address || "";
     const orgPhone = org?.phone || "";
     const orgEmail = org?.email || "";
     const logoUrl = org?.logo_dark_url || "/ShreeVidhyaDark.png";
 
-    // ── Voucher data ──
     const lines = voucher.journal_entries?.journal_entry_lines || [];
     const totalDebit = lines.reduce((s, l) => s + (Number(l.debit) || 0), 0);
     const totalCredit = lines.reduce((s, l) => s + (Number(l.credit) || 0), 0);
@@ -292,7 +298,6 @@ export default function VoucherDetail() {
   </head>
   <body>
     <div class="voucher-container">
-      <!-- Header -->
       <div class="header">
         <div class="header-left">
           <img src="${logoUrl}" alt="Logo" onerror="this.style.display='none'" />
@@ -302,18 +307,12 @@ export default function VoucherDetail() {
           </div>
         </div>
       </div>
-
-      <!-- Title -->
       <div class="voucher-title">${voucher.voucher_types?.name || ""} Voucher</div>
-
-      <!-- Meta info -->
       <div class="voucher-meta">
         <span><strong>No:</strong> ${voucher.voucher_no}</span>
         <span><strong>Date:</strong> ${voucher.entry_date}</span>
         <span><strong>Ref:</strong> ${voucher.reference || "—"}</span>
       </div>
-
-      <!-- Table -->
       <table>
         <thead>
           <tr>
@@ -327,8 +326,6 @@ export default function VoucherDetail() {
           ${rows}
         </tbody>
       </table>
-
-      <!-- Totals -->
       <table class="totals">
         <tr>
           <td class="text-right">Total Debit:</td>
@@ -339,8 +336,6 @@ export default function VoucherDetail() {
           <td class="text-right">₹${totalCredit.toLocaleString()}</td>
         </tr>
       </table>
-
-      <!-- Footer -->
       <div class="footer">
         This is a computer‑generated voucher. For queries, contact ${orgName}.
       </div>

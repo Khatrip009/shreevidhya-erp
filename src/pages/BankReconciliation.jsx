@@ -1,11 +1,10 @@
 // src/pages/BankReconciliation.jsx
-import { useState, useRef, useMemo } from "react";
+import { useState, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
-import { Printer, Upload, Check, X, Download } from "lucide-react";
+import { Upload, Check, X } from "lucide-react";
 import Papa from "papaparse";
 import AdminLayout from "../layouts/AdminLayout";
-import { supabase } from "../api/supabase";
 import { getOrganization } from "../services/organizationService";
 import {
   getBankAccounts,
@@ -17,10 +16,24 @@ import {
   clearStatementLines,
   importStatementLines,
 } from "../services/bankReconciliationService";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 
 export default function BankReconciliation() {
   const queryClient = useQueryClient();
-  const { data: org } = useQuery({ queryKey: ["organization"], queryFn: getOrganization });
+
+  // ── Organization, Branch & Financial Year context ──
+  const { org: currentOrg, branch, selectedFinancialYear } = useOrg();   // NEW
+  const context = {
+    branchId: branch?.id,
+    financialYearId: selectedFinancialYear?.id,
+  };
+
+  // Fetch organization details (pass org id)
+  const { data: org } = useQuery({
+    queryKey: ["organization", currentOrg?.id],
+    queryFn: () => getOrganization(currentOrg?.id),
+    enabled: !!currentOrg?.id,
+  });
 
   const [selectedAccountId, setSelectedAccountId] = useState("");
   const [startDate, setStartDate] = useState(new Date(new Date().getFullYear(), 0, 1).toISOString().split("T")[0]);
@@ -54,8 +67,9 @@ export default function BankReconciliation() {
 
   const reconciledSet = new Set(reconciledIds);
 
+  // Mutations now pass context
   const reconcileMut = useMutation({
-    mutationFn: ({ lineId, statementId }) => reconcileLine(lineId, statementId),
+    mutationFn: ({ lineId, statementId }) => reconcileLine(lineId, statementId, context),
     onSuccess: () => {
       queryClient.invalidateQueries(["reconciled-ids"]);
       toast.success("Line reconciled");
@@ -63,14 +77,14 @@ export default function BankReconciliation() {
   });
 
   const unreconcileMut = useMutation({
-    mutationFn: ({ lineId, statementId }) => unreconcileLine(lineId, statementId),
+    mutationFn: ({ lineId, statementId }) => unreconcileLine(lineId, statementId), // no context needed for delete
     onSuccess: () => {
       queryClient.invalidateQueries(["reconciled-ids"]);
       toast.success("Line un‑reconciled");
     },
   });
 
-  // CSV upload
+  // CSV upload – pass context to importStatementLines
   const handleFileUpload = async (e) => {
     const file = e.target.files[0];
     if (!file || !selectedAccountId) return;
@@ -88,7 +102,7 @@ export default function BankReconciliation() {
         }));
         try {
           await clearStatementLines(selectedAccountId);
-          await importStatementLines(rows);
+          await importStatementLines(rows, context);   // pass context
           queryClient.invalidateQueries(["statement-lines"]);
           toast.success(`${rows.length} statement lines imported`);
         } catch (err) {
@@ -99,13 +113,11 @@ export default function BankReconciliation() {
     });
   };
 
-  // Calculate totals for the reconciliation report
+  // Calculate totals
   const stmtTotal = statementLines.reduce((s, l) => s + (l.debit || 0) - (l.credit || 0), 0);
   const unreconciledTotal = unreconciled
     .filter((u) => !reconciledSet.has(u.id))
     .reduce((s, u) => s + (u.debit || 0) - (u.credit || 0), 0);
-
-  const accountName = accounts.find((a) => a.id == selectedAccountId)?.account_name || "";
 
   return (
     <AdminLayout>

@@ -5,9 +5,13 @@ import { Plus, Trash2 } from "lucide-react";
 import AdminLayout from "../layouts/AdminLayout";
 import { getChartOfAccounts } from "../services/accountingService";
 import { createVoucher } from "../services/voucherService";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 
 export default function ReceiptVoucher() {
   const queryClient = useQueryClient();
+  const { branch, selectedFinancialYear } = useOrg();      // NEW
+  const context = { branchId: branch?.id, financialYearId: selectedFinancialYear?.id };
+
   const { data: accounts = [] } = useQuery({ queryKey: ["chart-of-accounts"], queryFn: getChartOfAccounts });
   const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
   const [reference, setReference] = useState("");
@@ -30,7 +34,10 @@ export default function ReceiptVoucher() {
         { account_id: parseInt(cashBankAccount), debit: totalAmount, credit: 0, description: "Cash/Bank receipt" },
         ...lines.map(l => ({ account_id: parseInt(l.account_id), debit: 0, credit: parseFloat(l.amount) || 0, description: l.description })),
       ];
-      await createVoucher({ voucher_type_code: "receipt", entry_date: date, reference, description, lines: journalLines });
+      await createVoucher(
+        { voucher_type_code: "receipt", entry_date: date, reference, description, lines: journalLines },
+        context   // pass branch & FY context
+      );
     },
     onSuccess: () => { toast.success("Receipt voucher created"); queryClient.invalidateQueries(["vouchers"]); setLines([{ account_id: "", amount: "", description: "" }]); },
     onError: () => toast.error("Failed to create voucher"),

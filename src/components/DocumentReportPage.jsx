@@ -5,6 +5,7 @@ import { ArrowLeft, ArrowRight, Printer, Download, List, RotateCcw } from 'lucid
 import { getReportConfig } from '../utils/reportConfig';
 import { getOrganization } from '../services/organizationService';
 import { supabase } from '../api/supabase';
+import { useOrg } from '../context/OrganizationContext';  // NEW
 
 // PDF generators
 import { generateAdmissionPdf } from '../utils/admissionPdf';
@@ -26,7 +27,14 @@ function FilterDropdown({ field, filters, onChange }) { /* same as before */ }
 
 export default function DocumentReportPage({ reportId }) {
   const config = useMemo(() => getReportConfig(reportId), [reportId]);
-  const { data: org } = useQuery({ queryKey: ['organization'], queryFn: getOrganization });
+  const { org: currentOrg } = useOrg();   // NEW – get current organization
+
+  // Pass org.id to getOrganization (updated service)
+  const { data: org } = useQuery({
+    queryKey: ['organization', currentOrg?.id],
+    queryFn: () => getOrganization(currentOrg?.id),
+    enabled: !!currentOrg?.id,
+  });
 
   const [records, setRecords] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -59,7 +67,6 @@ export default function DocumentReportPage({ reportId }) {
   const handlePrev = () => goTo(currentIndex - 1);
   const handleNext = () => goTo(currentIndex + 1);
 
-  // ── Print: opens a new window with only the document content ──
   const handlePrint = () => {
     if (!currentRecord) return;
     const previewEl = document.querySelector('.document-preview');
@@ -87,7 +94,6 @@ export default function DocumentReportPage({ reportId }) {
     printWindow.print();
   };
 
-  // ── PDF: uses dedicated generator, or falls back to print window ──
   const handlePDF = async () => {
     if (!currentRecord) return;
     const generatePdf = PDF_GENERATORS[reportId];
@@ -99,7 +105,6 @@ export default function DocumentReportPage({ reportId }) {
         console.error('PDF generation failed:', err);
       }
     }
-    // Fallback: use the same print window (user can save as PDF from print dialog)
     handlePrint();
   };
 
@@ -199,7 +204,7 @@ export default function DocumentReportPage({ reportId }) {
             </div>
           </div>
 
-          {/* Document Preview – this is what gets printed / PDF'd */}
+          {/* Document Preview */}
           <div className="document-preview bg-white shadow-xl rounded-2xl p-6 md:p-10 border">
             {currentRecord && <DocumentComponent data={currentRecord} org={org} />}
           </div>

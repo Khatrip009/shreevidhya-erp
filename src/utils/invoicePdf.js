@@ -66,74 +66,44 @@ export function numberToWords(num) {
 // ─── Main export ─────────────────────────────────────────
 export async function generateInvoicePDF(invoice, org, type = 'sales') {
   const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
-  const pageWidth = doc.internal.pageSize.getWidth();
-  const pageHeight = doc.internal.pageSize.getHeight();
+  const pageWidth = doc.internal.pageSize.getWidth();   // 210 mm
+  const pageHeight = doc.internal.pageSize.getHeight(); // 297 mm
   const margin = 14;
-  let y = 16;
+  const topMargin = 85;   // space for letterhead header
 
-  // ── Organisation Header ──
-  const orgName = org?.company_name || 'ShreeVidhya Academy';
-  const address = org?.address || '';
-  const phone = org?.phone || '';
-  const email = org?.email || '';
-  const gstin = org?.gstin || '';
-
-  let logoBase64 = null;
-  try {
-    const logoUrl = org?.logo_dark_url || '/ShreeVidhyaDark.png';
-    const response = await fetch(logoUrl);
-    const blob = await response.blob();
-    logoBase64 = await new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onloadend = () => resolve(reader.result);
-      reader.onerror = reject;
-      reader.readAsDataURL(blob);
-    });
-  } catch (_) {}
-
-  if (logoBase64) {
-    doc.addImage(logoBase64, 'PNG', margin, y, 30, 30);
-    doc.setFontSize(18);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor('#0D47A1');
-    doc.text(orgName, margin + 36, y + 10);
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor('#555');
-    let lY = y + 16;
-    if (address) { doc.text(address, margin + 36, lY); lY += 5; }
-    const contact = `Phone: ${phone} | Email: ${email}`;
-    doc.text(contact, margin + 36, lY);
-    lY += 5;
-    if (gstin) doc.text(`GSTIN: ${gstin}`, margin + 36, lY);
-    y = Math.max(lY + 4, 48);
-  } else {
-    doc.setFontSize(20);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor('#0D47A1');
-    doc.text(orgName, pageWidth / 2, y, { align: 'center' });
-    y += 8;
-    doc.setFontSize(10);
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor('#555');
-    if (address) doc.text(address, pageWidth / 2, y, { align: 'center' });
-    y += 6;
-    const contact = `Phone: ${phone} | Email: ${email}`;
-    doc.text(contact, pageWidth / 2, y, { align: 'center' });
-    y += 6;
-    if (gstin) doc.text(`GSTIN: ${gstin}`, pageWidth / 2, y, { align: 'center' });
-    y += 10;
+  // ── Load & draw letterhead background ──
+  let letterheadBase64 = null;
+  if (org?.letterhead_url) {
+    try {
+      const response = await fetch(org.letterhead_url);
+      const blob = await response.blob();
+      letterheadBase64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+    } catch (_) { /* ignore */ }
   }
+
+  const addLetterhead = () => {
+    if (letterheadBase64) {
+      doc.addImage(letterheadBase64, "PNG", 0, 0, pageWidth, pageHeight);
+    }
+  };
+  addLetterhead();
+
+  let y = topMargin;
 
   // ── Title ──
   const title = type === 'sales' ? 'TAX INVOICE' : 'PURCHASE INVOICE';
-  doc.setFontSize(16);
+  doc.setFontSize(22);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor('#0D47A1');
   doc.text(title, pageWidth / 2, y, { align: 'center' });
-  y += 8;
+  y += 12;
 
-  // ── Two‑column details (Invoice Details at right corner) ──
+  // ── Two‑column party & invoice details ──
   const isSales = type === 'sales';
   const partyName = isSales
     ? `${invoice.students?.first_name || ''} ${invoice.students?.last_name || ''}`.trim() || 'N/A'
@@ -147,65 +117,64 @@ export async function generateInvoicePDF(invoice, org, type = 'sales') {
   const dueDate = invoice.due_date || '';
   const status = invoice.status || 'Draft';
 
-  const detailsY = y;
-  // Left side
-  doc.setFontSize(9);
+  // Left column
+  doc.setFontSize(11);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor('#0D47A1');
-  doc.text(isSales ? 'Billed To:' : 'Vendor:', margin, detailsY);
-
+  doc.text(isSales ? 'Billed To:' : 'Vendor:', margin, y);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor('#333');
-  let leftY = detailsY + 5;
+  let leftY = y + 6;
+  doc.setFontSize(10);
   doc.text(partyName, margin, leftY);
-  leftY += 5;
+  leftY += 6;
   if (isSales && invoice.students?.admission_no) {
     doc.text(`Admission: ${invoice.students.admission_no}`, margin, leftY);
-    leftY += 5;
+    leftY += 6;
   }
   if (partyGstin) {
     doc.text(`GSTIN: ${partyGstin}`, margin, leftY);
-    leftY += 5;
+    leftY += 6;
   }
   if (partyAddress) {
-    const addrLines = doc.splitTextToSize(partyAddress, 90);
+    const addrLines = doc.splitTextToSize(partyAddress, 80);
     doc.text(addrLines, margin, leftY);
-    leftY += addrLines.length * 4.5;
+    leftY += addrLines.length * 5;
   }
   if (!isSales && invoice.vendors?.state_code) {
     doc.text(`State Code: ${invoice.vendors.state_code}`, margin, leftY);
-    leftY += 5;
+    leftY += 6;
   }
   if (isSales && placeOfSupply) {
     doc.text(`Place of Supply: ${placeOfSupply}`, margin, leftY);
-    leftY += 5;
+    leftY += 6;
   }
   doc.text(`Payment Terms: ${paymentTerms}`, margin, leftY);
-  const leftBottom = leftY + 2;
+  const leftBottom = leftY + 4;
 
-  // Right side – aligned to the right margin
-  let rightY = detailsY;
+  // Right column – aligned to the right margin
+  let rightY = y;
+  doc.setFontSize(11);
   doc.setFont('helvetica', 'bold');
-  doc.setTextColor('#0D47A1');
   doc.text('Invoice Details', pageWidth - margin, rightY, { align: 'right' });
-  rightY += 5;
+  rightY += 6;
   doc.setFont('helvetica', 'normal');
-  doc.setTextColor('#333');
+  doc.setFontSize(10);
   doc.text(`No: ${invNo}`, pageWidth - margin, rightY, { align: 'right' });
-  rightY += 5;
+  rightY += 6;
   doc.text(`Date: ${invDate}`, pageWidth - margin, rightY, { align: 'right' });
-  rightY += 5;
+  rightY += 6;
   doc.text(`Status: ${status}`, pageWidth - margin, rightY, { align: 'right' });
-  rightY += 5;
+  rightY += 6;
   if (dueDate) {
     doc.text(`Due Date: ${dueDate}`, pageWidth - margin, rightY, { align: 'right' });
-    rightY += 5;
+    rightY += 6;
   }
   const rightBottom = rightY;
 
-  y = Math.max(leftBottom, rightBottom) + 4;
+  y = Math.max(leftBottom, rightBottom) + 6;
 
-  // ── Items Table (with CGST, SGST, IGST) ──
+  // ── Items Table ──
   const items = type === 'sales' ? invoice.invoice_items || [] : invoice.purchase_invoice_items || [];
   const tableRows = items.map((item, idx) => {
     let desc;
@@ -227,7 +196,6 @@ export async function generateInvoicePDF(invoice, org, type = 'sales') {
     return [idx + 1, desc, hsn, qty, unitPrice, taxable, cgst, sgst, igst, total];
   });
 
-  // Compute totals from original items (not tableRows) to avoid zero values
   const totals = {
     taxable: items.reduce((sum, item) => sum + Number(item.taxable_amount || 0), 0),
     cgst: items.reduce((sum, item) => sum + Number(item.cgst_amount || 0), 0),
@@ -243,11 +211,11 @@ export async function generateInvoicePDF(invoice, org, type = 'sales') {
     head: [['#', 'Description', 'HSN/SAC', 'Qty', 'Unit Price', 'Taxable', 'CGST', 'SGST', 'IGST', 'Total']],
     body: tableRows,
     theme: 'grid',
-    styles: { fontSize: 7, cellPadding: 1.5 },
-    headStyles: { fillColor: '#0D47A1', textColor: '#FFFFFF', fontSize: 7.5, fontStyle: 'bold' },
+    styles: { fontSize: 8, cellPadding: 2 },
+    headStyles: { fillColor: '#0D47A1', textColor: '#FFFFFF', fontSize: 8, fontStyle: 'bold' },
     columnStyles: {
       0: { cellWidth: 7, halign: 'center' },
-      1: { cellWidth: 32 },
+      1: { cellWidth: 34 },
       2: { cellWidth: 16, halign: 'center' },
       3: { cellWidth: 8, halign: 'center' },
       4: { cellWidth: 18, halign: 'right' },
@@ -258,74 +226,73 @@ export async function generateInvoicePDF(invoice, org, type = 'sales') {
       9: { cellWidth: 18, halign: 'right' },
     },
     margin: { left: margin, right: margin },
+    didDrawPage: () => addLetterhead(), // draw letterhead on every page
     willDrawCell: (data) => {
       if ([4,5,6,7,8,9].includes(data.column.index) && typeof data.cell.raw === 'number') {
-        data.cell.text = []; // remove default number to avoid overlap
+        data.cell.text = [];
       }
     },
     didDrawCell: (data) => {
       if ([4,5,6,7,8,9].includes(data.column.index) && typeof data.cell.raw === 'number') {
         const x = data.cell.x + 1.5;
         const yPos = data.cell.y + data.cell.height / 2 + 1.5;
-        drawCurrency(doc, data.cell.raw, x, yPos, 7, 'left', '#333');
+        drawCurrency(doc, data.cell.raw, x, yPos, 8, 'left', '#333');
       }
     },
   });
 
   y = doc.lastAutoTable.finalY + 6;
 
-  // ── Totals (with tax breakup) ──
-  const colX = pageWidth - margin - 55;
+  // ── Totals ──
+  const colX = pageWidth - margin - 65;
   const rightEdge = pageWidth - margin - 6;
-  doc.setFontSize(9);
+  doc.setFontSize(10);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor('#333');
   doc.text('Taxable Amount:', colX, y);
-  drawCurrency(doc, totals.taxable, rightEdge, y, 9, 'right', '#333');
-  y += 5;
+  drawCurrency(doc, totals.taxable, rightEdge, y, 10, 'right', '#333');
+  y += 6;
   doc.text('CGST:', colX, y);
-  drawCurrency(doc, totals.cgst, rightEdge, y, 9, 'right', '#333');
-  y += 5;
+  drawCurrency(doc, totals.cgst, rightEdge, y, 10, 'right', '#333');
+  y += 6;
   doc.text('SGST:', colX, y);
-  drawCurrency(doc, totals.sgst, rightEdge, y, 9, 'right', '#333');
-  y += 5;
+  drawCurrency(doc, totals.sgst, rightEdge, y, 10, 'right', '#333');
+  y += 6;
   doc.text('IGST:', colX, y);
-  drawCurrency(doc, totals.igst, rightEdge, y, 9, 'right', '#333');
-  y += 5;
+  drawCurrency(doc, totals.igst, rightEdge, y, 10, 'right', '#333');
+  y += 6;
   if (roundOff !== 0) {
     doc.text('Round Off:', colX, y);
-    drawCurrency(doc, roundOff, rightEdge, y, 9, 'right', '#333');
-    y += 5;
+    drawCurrency(doc, roundOff, rightEdge, y, 10, 'right', '#333');
+    y += 6;
   }
   doc.setFont('helvetica', 'bold');
   doc.setTextColor('#0D47A1');
-  doc.setFontSize(12);
+  doc.setFontSize(14);
   doc.text('Grand Total:', colX, y);
-  drawCurrency(doc, grandTotal, rightEdge, y, 12, 'right', '#0D47A1');
-  y += 8;
+  drawCurrency(doc, grandTotal, rightEdge, y, 14, 'right', '#0D47A1');
+  y += 10;
 
-  // ── Reverse Charge Note (if applicable) ──
+  // ── Reverse Charge Note ──
   if (invoice.reverse_charge) {
-    doc.setFontSize(8);
+    doc.setFontSize(9);
     doc.setTextColor('#CC0000');
     doc.text('** Reverse Charge Applicable – Tax payable by recipient **', margin, y);
-    y += 6;
+    y += 7;
   }
 
   // ── Amount in Words ──
-  doc.setFontSize(9);
+  doc.setFontSize(10);
   doc.setTextColor('#333');
   doc.setFont('helvetica', 'normal');
   const words = numberToWords(grandTotal);
   doc.text(`Amount in words: ${words}`, margin, y);
-  y += 10;
-
-  // ── Thin divider before terms ──
-  doc.setDrawColor('#cccccc');
-  doc.line(margin, y, pageWidth - margin, y);
-  y += 5;
+  y += 12;
 
   // ── Terms & Conditions ──
+  doc.setDrawColor('#cccccc');
+  doc.line(margin, y, pageWidth - margin, y);
+  y += 6;
   const terms = [
     '1. Payment is due within 15 days from invoice date.',
     '2. Late payment will attract interest @18% p.a.',
@@ -333,20 +300,15 @@ export async function generateInvoicePDF(invoice, org, type = 'sales') {
     '4. This is a system‑generated invoice, no signature required.',
     '5. Any dispute shall be subject to local jurisdiction.',
   ];
-  doc.setFontSize(7);
+  doc.setFontSize(7.5);
   doc.setTextColor('#555');
   terms.forEach((line) => {
     doc.text(line, margin, y);
-    y += 4;
+    y += 4.5;
   });
 
-  // ── Footer ──
-  const footerY = pageHeight - 8;
-  doc.setFontSize(6);
-  doc.setTextColor('#999');
-  doc.setFont('helvetica', 'italic');
-  doc.text(`Generated on ${new Date().toLocaleString()}`, margin, footerY);
-  doc.text(`© ${orgName}`, pageWidth / 2, footerY, { align: 'center' });
+  // ── Footer (no extra branding, letterhead covers it) ──
+  // Only a tiny page number if needed, but we can omit footer.
 
   return doc;
 }

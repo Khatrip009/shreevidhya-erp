@@ -1,3 +1,4 @@
+// src/pages/SalaryPayments.jsx
 import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { getSalaryPayments } from "../services/salaryService";
@@ -7,8 +8,12 @@ import BackButton from "../components/BackButton";
 import { Search, Download, Filter, X } from "lucide-react";
 import Papa from "papaparse";
 import toast from "react-hot-toast";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 
 export default function SalaryPayments() {
+  // ── Context for potential future writes – not currently used ──
+  useOrg();   // just to have it available, no mutations here
+
   const [search, setSearch] = useState("");
   const [teacherFilter, setTeacherFilter] = useState("");
   const [startDate, setStartDate] = useState("");

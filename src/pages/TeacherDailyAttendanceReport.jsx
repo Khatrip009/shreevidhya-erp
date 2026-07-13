@@ -7,10 +7,14 @@ import { generateDailyTeacherAttendancePDF } from "../utils/teacherDailyAttendan
 import toast from "react-hot-toast";
 import AdminLayout from "../layouts/AdminLayout";
 import { Calendar, Download } from "lucide-react";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 
 export default function TeacherDailyAttendanceReport() {
   const { profile } = useAuth();
   const isAdmin = profile?.role === "admin" || profile?.role === "super_admin";
+
+  // ── Get current organization from context ──
+  const { org: currentOrg } = useOrg();   // NEW
 
   const today = new Date().toISOString().split("T")[0];
   const [startDate, setStartDate] = useState(today);
@@ -87,11 +91,11 @@ export default function TeacherDailyAttendanceReport() {
       toast.error("No data to export");
       return;
     }
-    // Fetch organisation info for PDF header
+    // Fetch organisation info for PDF header – now uses current org id
     const { data: org } = await supabase
       .from("organization")
       .select("*")
-      .eq("id", 1)
+      .eq("id", currentOrg?.id)   // use current org id
       .single();
 
     const doc = await generateDailyTeacherAttendancePDF(reportData, startDate, endDate, org || {});

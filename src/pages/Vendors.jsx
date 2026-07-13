@@ -1,3 +1,4 @@
+// src/pages/Vendors.jsx
 import { useState, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getVendors, createVendor, updateVendor, deleteVendor } from "../services/vendorService";
@@ -6,6 +7,7 @@ import toast from "react-hot-toast";
 import AdminLayout from "../layouts/AdminLayout";
 import { Search, Plus, Edit3, Trash2, X, Save, Loader } from "lucide-react";
 import GSTLookup from "../components/GSTLookup";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 
 export default function Vendors() {
   const queryClient = useQueryClient();
@@ -26,6 +28,10 @@ export default function Vendors() {
     ifsc_code: "",
   });
 
+  // ── Organisation / Branch / Financial Year context ──
+  const { branch, selectedFinancialYear } = useOrg();   // NEW
+  const ctx = { branchId: branch?.id, financialYearId: selectedFinancialYear?.id };
+
   // Fetch vendors with optional search
   const { data: vendors = [], isLoading } = useQuery({
     queryKey: ["vendors", search],
@@ -43,9 +49,9 @@ export default function Vendors() {
     staleTime: 10 * 60 * 1000,
   });
 
-  // Mutations
+  // Mutations – now pass context
   const createMutation = useMutation({
-    mutationFn: createVendor,
+    mutationFn: (payload) => createVendor(payload, ctx),
     onSuccess: () => {
       toast.success("Vendor created");
       queryClient.invalidateQueries(["vendors"]);
@@ -55,7 +61,7 @@ export default function Vendors() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, payload }) => updateVendor(id, payload),
+    mutationFn: ({ id, payload }) => updateVendor(id, payload, ctx),
     onSuccess: () => {
       toast.success("Vendor updated");
       queryClient.invalidateQueries(["vendors"]);
@@ -65,7 +71,7 @@ export default function Vendors() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: deleteVendor,
+    mutationFn: deleteVendor,   // no context needed
     onSuccess: () => {
       toast.success("Vendor deleted");
       queryClient.invalidateQueries(["vendors"]);
@@ -127,7 +133,6 @@ export default function Vendors() {
       vendor_name: data.legal_name || prev.vendor_name,
       address: data.address || prev.address,
       state_code: data.state_code || prev.state_code,
-      // We could also set gstin if needed
     }));
     toast.success("Vendor details auto‑filled from GSTIN");
   };

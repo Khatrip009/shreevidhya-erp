@@ -4,6 +4,7 @@ import { X, User, Phone, Mail, Briefcase, MapPin, Users, Unlink } from "lucide-r
 import { supabase } from "../api/supabase";
 import { useOrgDarkLogo } from "../hooks/useOrgDarkLogo";
 import { createParent, updateParent, linkStudentToParent } from "../services/parentService";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 
 export default function ParentForm({
   onSubmit,          // callback({ form, studentId }) for create, (form) for update
@@ -12,6 +13,9 @@ export default function ParentForm({
   studentId = null,  // only used for create from student profile
 }) {
   const darkLogo = useOrgDarkLogo();
+  const { branch, selectedFinancialYear } = useOrg();      // NEW
+  const context = { branchId: branch?.id, financialYearId: selectedFinancialYear?.id }; // NEW
+
   const isEditing = !!initialData.id;
 
   const [form, setForm] = useState({
@@ -94,57 +98,75 @@ export default function ParentForm({
   }
 
   async function handleSubmit(e) {
-    e.preventDefault();
-    if (!form.father_name && !form.mother_name) {
-      toast.error("At least one parent name is required");
-      return;
-    }
-    if (!form.mobile) {
-      toast.error("Mobile number is required");
-      return;
-    }
-
-    try {
-      if (isEditing) {
-        // Update parent fields
-        await updateParent(initialData.id, form);
-        toast.success("Parent updated");
-
-        // If a student is selected, link them (additional link)
-        if (selectedStudentId) {
-          await linkStudentToParent(initialData.id, selectedStudentId);
-          toast.success("Student linked successfully");
-          // Refresh linked students
-          const { data } = await supabase
-            .from("student_parents")
-            .select("student_id, students(first_name, last_name, standard, admission_no)")
-            .eq("parent_id", initialData.id);
-          const mapped = data.map((link) => ({
-            student_id: link.student_id,
-            name: `${link.students.first_name} ${link.students.last_name}`,
-            standard: link.students.standard,
-            admission_no: link.students.admission_no,
-          }));
-          setLinkedStudents(mapped);
-          setSelectedStudentId(null);
-        }
-
-        onSubmit(form);
-      } else {
-        // Create new parent – must select a student
-        if (!studentId && !selectedStudentId) {
-          toast.error("Please select a student to link this parent");
-          return;
-        }
-        const idToLink = studentId || selectedStudentId;
-        const createdParent = await createParent(form, idToLink);
-        toast.success("Parent created and linked");
-        onSubmit({ form, studentId: idToLink, parent: createdParent });
-      }
-    } catch (err) {
-      toast.error(err.message || "Failed to save parent");
-    }
+  e.preventDefault();
+  if (!form.father_name && !form.mother_name) {
+    toast.error("At least one parent name is required");
+    return;
   }
+  if (!form.mobile) {
+    toast.error("Mobile number is required");
+    return;
+  }
+
+  try {
+    if (isEditing) {
+      // Update parent fields
+      await updateParent(initialData.id, form, context);
+      toast.success("Parent updated");
+
+      // If a student is selected, link them (additional link)
+      if (selectedStudentId) {
+        await linkStudentToParent(initialData.id, selectedStudentId, context);
+        toast.success("Student linked successfully");
+        // Refresh linked students
+        const { data } = await supabase
+          .from("student_parents")
+          .select("student_id, students(first_name, last_name, standard, admission_no)")
+          .eq("parent_id", initialData.id);
+        const mapped = data.map((link) => ({
+          student_id: link.student_id,
+          name: `${link.students.first_name} ${link.students.last_name}`,
+          standard: link.students.standard,
+          admission_no: link.students.admission_no,
+        }));
+        setLinkedStudents(mapped);
+        setSelectedStudentId(null);
+      }
+
+      onSubmit(form);
+    } else {
+      // ── Create new parent – check for duplicate mobile first ──
+      const { data: existing } = await supabase
+        .from("parents")
+        .select("*")
+        .eq("mobile", form.mobile.trim())
+        .maybeSingle();
+
+      if (existing) {
+        // Mobile already exists → use the existing parent
+        const idToLink = studentId || selectedStudentId;
+        if (idToLink) {
+          await linkStudentToParent(existing.id, idToLink, context);
+          toast.success("Parent already exists – linked successfully");
+        }
+        onSubmit({ form, studentId: idToLink, parent: existing });
+        return;
+      }
+
+      // No duplicate → create new parent
+      if (!studentId && !selectedStudentId) {
+        toast.error("Please select a student to link this parent");
+        return;
+      }
+      const idToLink = studentId || selectedStudentId;
+      const createdParent = await createParent(form, idToLink, context);
+      toast.success("Parent created and linked");
+      onSubmit({ form, studentId: idToLink, parent: createdParent });
+    }
+  } catch (err) {
+    toast.error(err.message || "Failed to save parent");
+  }
+}
 
   // Filter out already linked students from the dropdown in edit mode
   const availableStudents = isEditing
@@ -175,7 +197,7 @@ export default function ParentForm({
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-5">
-          {/* Student selector – shown in both modes (except when studentId is fixed) */}
+          {/* Student selector */}
           {!studentId && (
             <div>
               <label className="block text-sm font-montserrat text-secondary-dark mb-1">

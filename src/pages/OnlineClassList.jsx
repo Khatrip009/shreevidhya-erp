@@ -3,6 +3,7 @@ import React, { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "../api/supabase";
 import { useAuth } from "../context/AuthContext";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 import AdminLayout from "../layouts/AdminLayout";
 import BackButton from "../components/BackButton";
 
@@ -26,6 +27,9 @@ export default function OnlineClassList() {
   const [filterStatus, setFilterStatus] = useState("all");
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingClass, setEditingClass] = useState(null);
+
+  // ── Organisation / Branch / Financial Year context ──
+  const { branch, selectedFinancialYear } = useOrg();   // NEW
 
   const userRole = profile?.role?.toLowerCase() || "student";
   const isAdmin = userRole === "admin" || userRole === "super_admin";
@@ -74,7 +78,7 @@ export default function OnlineClassList() {
             .select("id")
             .eq("user_id", profile.id)
             .maybeSingle();
-          if (teacherError) throw teacherError;  // ✅ fixed: teacherError is defined
+          if (teacherError) throw teacherError;
           if (!teacher) return [];
           query = query.eq("teacher_id", teacher.id);
         } catch (err) {
@@ -114,12 +118,16 @@ export default function OnlineClassList() {
     onError: (err) => toast.error(err.message),
   });
 
-  // ---------- Start mutation ----------
+  // ---------- Start mutation – now includes branch & FY ----------
   const startClassMutation = useMutation({
     mutationFn: async (classId) => {
       const { error } = await supabase
         .from("online_classes")
-        .update({ status: "live" })
+        .update({
+          status: "live",
+          branch_id: branch?.id,                         // NEW
+          financial_year_id: selectedFinancialYear?.id,  // NEW
+        })
         .eq("id", classId);
       if (error) throw error;
     },

@@ -22,8 +22,15 @@ export async function getStatementLines(accountId) {
 }
 
 // Insert statement lines (after CSV upload or manual entry)
-export async function importStatementLines(rows) {
-  const { error } = await supabase.from("bank_statements").insert(rows);
+// `context` should contain { branchId, financialYearId }
+export async function importStatementLines(rows, context) {
+  const { branchId, financialYearId } = context;
+  const enrichedRows = rows.map(row => ({
+    ...row,
+    branch_id: branchId,
+    financial_year_id: financialYearId,
+  }));
+  const { error } = await supabase.from("bank_statements").insert(enrichedRows);
   if (error) throw error;
 }
 
@@ -73,10 +80,17 @@ export async function getReconciledLineIds(accountId) {
 }
 
 // Mark a line as reconciled
-export async function reconcileLine(journalLineId, statementId) {
+// `context` should contain { branchId, financialYearId }
+export async function reconcileLine(journalLineId, statementId, context) {
+  const { branchId, financialYearId } = context;
   const { error } = await supabase
     .from("bank_reconciliation")
-    .insert({ journal_entry_line_id: journalLineId, statement_id: statementId });
+    .insert({
+      journal_entry_line_id: journalLineId,
+      statement_id: statementId,
+      branch_id: branchId,
+      financial_year_id: financialYearId,
+    });
   if (error) throw error;
 }
 

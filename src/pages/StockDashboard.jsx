@@ -4,8 +4,12 @@ import { AlertTriangle, Package, TrendingDown, TrendingUp } from "lucide-react";
 import { Link } from "react-router-dom";
 import AdminLayout from "../layouts/AdminLayout";
 import { supabase } from "../api/supabase";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 
 export default function StockDashboard() {
+  // ── Context for consistency (read‑only page) ──
+  useOrg();   // included for any potential future need, no writes
+
   // Fetch all items with category
   const { data: items = [], isLoading } = useQuery({
     queryKey: ["inventory-items"],

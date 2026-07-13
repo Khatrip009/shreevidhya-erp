@@ -10,9 +10,12 @@ import {
 } from "lucide-react";
 import { getBatchOptions, getMediumOptions } from "../services/examService";
 import { useOrgDarkLogo } from "../hooks/useOrgDarkLogo";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 
 export default function ExamForm({ onSubmit, onClose, initialData = {} }) {
   const darkLogo = useOrgDarkLogo();
+  const { branch, selectedFinancialYear } = useOrg();      // NEW
+
   const [batches, setBatches] = useState([]);
   const [mediums, setMediums] = useState([]);
   const [selectedMediumId, setSelectedMediumId] = useState("");
@@ -56,10 +59,17 @@ export default function ExamForm({ onSubmit, onClose, initialData = {} }) {
       return;
     }
     try {
-      await onSubmit({
+      const payload = {
         ...form,
         total_marks: form.total_marks ? Number(form.total_marks) : null,
-      });
+      };
+
+      const context = {
+        branchId: branch?.id,
+        financialYearId: selectedFinancialYear?.id,
+      };
+
+      await onSubmit(payload, context);
     } catch (err) {
       toast.error(err.message);
     }
@@ -105,7 +115,7 @@ export default function ExamForm({ onSubmit, onClose, initialData = {} }) {
             />
           </div>
 
-          {/* Medium Filter – NEW */}
+          {/* Medium Filter */}
           <div>
             <label className="block text-sm font-montserrat text-secondary-dark mb-1">
               <Filter size={14} className="inline mr-1" />

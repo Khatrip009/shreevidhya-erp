@@ -11,10 +11,12 @@ import {
 import AdminLayout from "../layouts/AdminLayout";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../api/supabase";
+import { useOrg } from "../context/OrganizationContext";   // NEW (for consistency)
 
 export default function TeacherDashboard() {
   const { user, profile } = useAuth();
-
+  // Context import – no writes on this page, included for consistency
+  useOrg();
   // 1. Teacher record
   const { data: teacherId, isLoading: teacherLoading } = useQuery({
     queryKey: ["teacher-id", user?.id],

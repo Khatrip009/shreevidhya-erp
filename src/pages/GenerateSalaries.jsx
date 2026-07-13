@@ -1,9 +1,23 @@
 import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getTeachersForSalary, getExistingSalaryPayments, generateTeacherSalary } from "../services/salaryService";
+import {
+  getTeachersForSalary,
+  getExistingSalaryPayments,
+  generateTeacherSalary,
+} from "../services/salaryService";
 import toast from "react-hot-toast";
 import AdminLayout from "../layouts/AdminLayout";
-import { Calendar, TrendingUp, Loader, CheckSquare, Square, ChevronDown, ChevronUp } from "lucide-react";
+import {
+  Calendar,
+  TrendingUp,
+  Loader,
+  CheckSquare,
+  Square,
+  ChevronDown,
+  ChevronUp,
+} from "lucide-react";
+import { supabase } from "../api/supabase";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 
 export default function GenerateSalaries() {
   const qc = useQueryClient();
@@ -15,6 +29,10 @@ export default function GenerateSalaries() {
   const [generating, setGenerating] = useState(false);
   const [results, setResults] = useState(null);
 
+  // ── Organisation / Branch / Financial Year context ──
+  const { branch, selectedFinancialYear } = useOrg();   // NEW
+  const ctx = { branchId: branch?.id, financialYearId: selectedFinancialYear?.id };
+
   // Fetch all active teachers with salary settings
   const { data: teachers = [], isLoading: loadingTeachers } = useQuery({
     queryKey: ["teachers-for-salary"],
@@ -25,7 +43,30 @@ export default function GenerateSalaries() {
   const { data: existingPayments = [] } = useQuery({
     queryKey: ["existing-salary-payments", month, year],
     queryFn: () => getExistingSalaryPayments(month, year),
-    enabled: () => month > 0 && year > 0
+    enabled: month > 0 && year > 0,
+  });
+
+  // ---------- NEW: Fetch lecture counts for the month ----------
+  const startDate = `${year}-${String(month).padStart(2, "0")}-01`;
+  const endDate = `${year}-${String(month).padStart(2, "0")}-${new Date(year, month, 0).getDate()}`;
+
+  const { data: lectureCounts = {} } = useQuery({
+    queryKey: ["teacher-lecture-counts", startDate, endDate],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("attendance_sessions")
+        .select("teacher_id")
+        .gte("attendance_date", startDate)
+        .lte("attendance_date", endDate)
+        .not("teacher_id", "is", null);
+
+      const counts = {};
+      (data || []).forEach((s) => {
+        counts[s.teacher_id] = (counts[s.teacher_id] || 0) + 1;
+      });
+      return counts;
+    },
+    enabled: month > 0 && year > 0,
   });
 
   // Map teacher ID to paid status
@@ -37,21 +78,25 @@ export default function GenerateSalaries() {
     return map;
   }, [existingPayments]);
 
-  // Compute gross, TDS, net for each teacher (for display)
+  // Compute gross, TDS, net for each teacher (with lecture counts)
   const teacherCalculations = useMemo(() => {
     return teachers.map((t) => {
       let gross = 0;
+      let lectureCount = 0;
+
       if (t.salary_type === "fixed") {
         gross = t.monthly_salary || 0;
       } else if (t.salary_type === "lecture_based") {
-        gross = t.per_lecture_rate || 0; // placeholder, will be computed on generation
+        lectureCount = lectureCounts[t.id] || 0;
+        gross = (t.per_lecture_rate || 0) * lectureCount;
       }
+
       const tdsPercent = t.tds_percentage || 10;
       const tdsAmount = (gross * tdsPercent) / 100;
       const net = gross - tdsAmount;
-      return { ...t, estimatedGross: gross, tdsPercent, tdsAmount, net };
+      return { ...t, estimatedGross: gross, tdsPercent, tdsAmount, net, lectureCount };
     });
-  }, [teachers]);
+  }, [teachers, lectureCounts]);
 
   // Check if a teacher is already paid for the selected month
   const isAlreadyPaid = (teacherId) => {
@@ -83,14 +128,17 @@ export default function GenerateSalaries() {
     setSelectAll(false);
   }, [teachers]);
 
-  // Generate mutation
+  // Generate mutation – now passes context (branch & financial year)
   const generateMutation = useMutation({
     mutationFn: async () => {
       setGenerating(true);
       const results = [];
       for (const teacherId of selectedTeachers) {
         try {
-          const result = await generateTeacherSalary(teacherId, month, year);
+          const calc = teacherCalculations.find((tc) => tc.id === teacherId);
+          const grossAmount = calc?.estimatedGross || 0;
+          // Pass context as fifth argument
+          const result = await generateTeacherSalary(teacherId, month, year, grossAmount, ctx);
           results.push(result);
         } catch (err) {
           console.error(`Failed for teacher ${teacherId}:`, err);
@@ -118,11 +166,15 @@ export default function GenerateSalaries() {
       toast.error("Please select at least one teacher");
       return;
     }
-    if (!window.confirm(`Generate salaries for ${selectedTeachers.length} teacher(s)?`)) return;
+    if (
+      !window.confirm(
+        `Generate salaries for ${selectedTeachers.length} teacher(s)?`
+      )
+    )
+      return;
     generateMutation.mutate();
   };
 
-  // Toggle expand for teacher details (shows lecture count breakdown if available)
   const toggleExpand = (teacherId) => {
     setExpandedTeacher(expandedTeacher === teacherId ? null : teacherId);
   };
@@ -134,7 +186,9 @@ export default function GenerateSalaries() {
     <AdminLayout>
       <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6">
         <div>
-          <h1 className="text-3xl font-righteous text-primary-dark">Generate Salaries</h1>
+          <h1 className="text-3xl font-righteous text-primary-dark">
+            Generate Salaries
+          </h1>
           <p className="text-secondary-dark text-sm mt-1">
             Select teachers and generate salary for the chosen month
           </p>
@@ -182,7 +236,7 @@ export default function GenerateSalaries() {
         </div>
       </div>
 
-      {/* Teacher Table */}
+      {/* Teacher Table (unchanged) */}
       <div className="bg-white rounded-xl shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
@@ -200,23 +254,44 @@ export default function GenerateSalaries() {
                     )}
                   </button>
                 </th>
-                <th className="px-4 py-3 text-left text-sm font-medium text-secondary-dark">Teacher</th>
-                <th className="px-4 py-3 text-left text-sm font-medium text-secondary-dark">Type</th>
-                <th className="px-4 py-3 text-right text-sm font-medium text-secondary-dark">Rate</th>
-                <th className="px-4 py-3 text-right text-sm font-medium text-secondary-dark">Est. Gross</th>
-                <th className="px-4 py-3 text-right text-sm font-medium text-secondary-dark">TDS %</th>
-                <th className="px-4 py-3 text-center text-sm font-medium text-secondary-dark">Status</th>
-                <th className="px-4 py-3 text-center text-sm font-medium text-secondary-dark">Details</th>
+                <th className="px-4 py-3 text-left text-sm font-medium text-secondary-dark">
+                  Teacher
+                </th>
+                <th className="px-4 py-3 text-left text-sm font-medium text-secondary-dark">
+                  Type
+                </th>
+                <th className="px-4 py-3 text-right text-sm font-medium text-secondary-dark">
+                  Rate
+                </th>
+                <th className="px-4 py-3 text-right text-sm font-medium text-secondary-dark">
+                  Lectures
+                </th>
+                <th className="px-4 py-3 text-right text-sm font-medium text-secondary-dark">
+                  Est. Gross
+                </th>
+                <th className="px-4 py-3 text-right text-sm font-medium text-secondary-dark">
+                  TDS %
+                </th>
+                <th className="px-4 py-3 text-center text-sm font-medium text-secondary-dark">
+                  Status
+                </th>
+                <th className="px-4 py-3 text-center text-sm font-medium text-secondary-dark">
+                  Details
+                </th>
               </tr>
             </thead>
             <tbody>
               {loadingTeachers ? (
                 <tr>
-                  <td colSpan={8} className="text-center py-8 text-secondary">Loading teachers...</td>
+                  <td colSpan={9} className="text-center py-8 text-secondary">
+                    Loading teachers...
+                  </td>
                 </tr>
               ) : teachers.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="text-center py-8 text-secondary">No active teachers found.</td>
+                  <td colSpan={9} className="text-center py-8 text-secondary">
+                    No active teachers found.
+                  </td>
                 </tr>
               ) : (
                 teachers.map((t) => {
@@ -226,7 +301,10 @@ export default function GenerateSalaries() {
                   const isExpanded = expandedTeacher === t.id;
 
                   return (
-                    <tr key={t.id} className="border-t hover:bg-gray-50 transition">
+                    <tr
+                      key={t.id}
+                      className="border-t hover:bg-gray-50 transition"
+                    >
                       <td className="px-4 py-3">
                         <button
                           onClick={() => toggleSelect(t.id)}
@@ -246,9 +324,13 @@ export default function GenerateSalaries() {
                         {t.first_name} {t.last_name}
                       </td>
                       <td className="px-4 py-3 text-sm">
-                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                          t.salary_type === "fixed" ? "bg-blue-100 text-blue-700" : "bg-purple-100 text-purple-700"
-                        }`}>
+                        <span
+                          className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                            t.salary_type === "fixed"
+                              ? "bg-blue-100 text-blue-700"
+                              : "bg-purple-100 text-purple-700"
+                          }`}
+                        >
                           {t.salary_type === "fixed" ? "Fixed" : "Lecture"}
                         </span>
                       </td>
@@ -258,7 +340,12 @@ export default function GenerateSalaries() {
                           : `₹ ${t.per_lecture_rate?.toLocaleString("en-IN")} / lecture`}
                       </td>
                       <td className="px-4 py-3 text-right text-sm">
-                        {calc?.estimatedGross ? `₹ ${calc.estimatedGross.toLocaleString("en-IN")}` : "—"}
+                        {t.salary_type === "lecture_based" ? calc?.lectureCount || 0 : "—"}
+                      </td>
+                      <td className="px-4 py-3 text-right text-sm">
+                        {calc?.estimatedGross
+                          ? `₹ ${calc.estimatedGross.toLocaleString("en-IN")}`
+                          : "—"}
                       </td>
                       <td className="px-4 py-3 text-right text-sm">
                         {t.tds_percentage || 10}%
@@ -279,7 +366,11 @@ export default function GenerateSalaries() {
                           onClick={() => toggleExpand(t.id)}
                           className="text-secondary-light hover:text-primary transition"
                         >
-                          {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                          {isExpanded ? (
+                            <ChevronUp className="w-4 h-4" />
+                          ) : (
+                            <ChevronDown className="w-4 h-4" />
+                          )}
                         </button>
                       </td>
                     </tr>
@@ -297,7 +388,8 @@ export default function GenerateSalaries() {
           </span>
           <div className="flex gap-4 text-xs">
             <span className="text-green-600">
-              {teachers.filter((t) => isAlreadyPaid(t.id)).length} paid this month
+              {teachers.filter((t) => isAlreadyPaid(t.id)).length} paid this
+              month
             </span>
             <span className="text-yellow-600">
               {teachers.filter((t) => !isAlreadyPaid(t.id)).length} pending
@@ -306,10 +398,12 @@ export default function GenerateSalaries() {
         </div>
       </div>
 
-      {/* Results summary (shows after generation) */}
+      {/* Results summary */}
       {results && (
         <div className="mt-6 bg-white rounded-xl shadow-sm p-4 border">
-          <h3 className="font-medium text-primary-dark mb-2">Generation Results</h3>
+          <h3 className="font-medium text-primary-dark mb-2">
+            Generation Results
+          </h3>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-sm">
             <div>Total: {results.length}</div>
             <div className="text-green-600">
@@ -319,7 +413,8 @@ export default function GenerateSalaries() {
               Failed: {results.filter((r) => r.error).length}
             </div>
             <div>
-              Total Amount: ₹ {results
+              Total Amount: ₹{" "}
+              {results
                 .filter((r) => !r.error)
                 .reduce((sum, r) => sum + (r.amount || 0), 0)
                 .toLocaleString("en-IN")}
@@ -327,11 +422,13 @@ export default function GenerateSalaries() {
           </div>
           {results.some((r) => r.error) && (
             <div className="mt-2 text-xs text-red-600">
-              {results.filter((r) => r.error).map((r) => (
-                <div key={r.teacher_id}>
-                  Teacher ID {r.teacher_id}: {r.error}
-                </div>
-              ))}
+              {results
+                .filter((r) => r.error)
+                .map((r) => (
+                  <div key={r.teacher_id}>
+                    Teacher ID {r.teacher_id}: {r.error}
+                  </div>
+                ))}
             </div>
           )}
         </div>
