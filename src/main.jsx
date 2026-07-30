@@ -5,13 +5,11 @@ import { HashRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ThemeProvider } from "./context/ThemeContext";
 import { OrganizationProvider } from "./context/OrganizationContext";
-import { ScopeProvider } from "./context/ScopeContext";
+import { ScopeProvider } from "./context/ScopeContext";   // ← new
 import { Toaster } from "react-hot-toast";
 import "./index.css";
 import App from "./App";
 import { AuthProvider } from "./context/AuthContext";
-import AntThemeWrapper from "./components/AntThemeWrapper";   // ← new import
-import { App as AntApp } from 'antd';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -29,14 +27,10 @@ ReactDOM.createRoot(document.getElementById("root")).render(
       <HashRouter>
         <AuthProvider>
           <OrganizationProvider>
-            <ScopeProvider>
+            <ScopeProvider>               {/* ← new – watches branch/FY changes */}
               <ThemeProvider>
-                <AntThemeWrapper>  
-                   <AntApp>      {/* ← wraps ConfigProvider around the app */}
-                  <Toaster position="top-right" />
-                  <App />
-                  </AntApp>
-                </AntThemeWrapper>
+                <Toaster position="top-right" />
+                <App />
               </ThemeProvider>
             </ScopeProvider>
           </OrganizationProvider>
