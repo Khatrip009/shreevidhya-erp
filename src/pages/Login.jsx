@@ -1,306 +1,168 @@
 import { useState } from "react";
-import { Navigate, Link } from "react-router-dom";
+import { Navigate } from "react-router-dom";
 import toast from "react-hot-toast";
-import { Mail, Lock, LogIn, ArrowLeft, KeyRound, CheckCircle } from "lucide-react";
+import { Mail, Lock, LogIn } from "lucide-react";
 import { supabase } from "../api/supabase";
 import { useAuth } from "../context/AuthContext";
 import { useOrgDarkLogo } from "../hooks/useOrgDarkLogo";
+import { useOrg } from "../context/OrganizationContext";
+import { Card, Input, Button, Typography, Form, Space } from "antd";
+
+const { Title, Text } = Typography;
 
 export default function Login() {
   const darkLogo = useOrgDarkLogo();
-  const { user, profile, loading: authLoading } = useAuth();
+  const { org } = useOrg();
+  const orgName = org?.company_name || "Ahead in Learning, Ahead in Life";
+  const { user, profile, loading: authLoading, orgAccessDenied } = useAuth();
 
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  const [useOtp, setUseOtp] = useState(false);
-  const [otpSent, setOtpSent] = useState(false);
-  const [otp, setOtp] = useState("");
 
-  // -------- Redirect once auth is fully loaded --------
   if (user && profile) {
     return <Navigate to="/" replace />;
+  }
+
+  if (user && orgAccessDenied) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-secondary-bg px-4">
+        <Card className="w-full max-w-md text-center shadow-xl" variant="borderless">
+          <Title level={2} className="text-red-600">Access Denied</Title>
+          <Text className="text-secondary block mb-4">
+            You are not authorized to access this system.
+          </Text>
+          <Button
+            type="primary"
+            danger
+            onClick={() => supabase.auth.signOut()}
+          >
+            Sign Out
+          </Button>
+        </Card>
+      </div>
+    );
   }
 
   if (authLoading || (user && !profile)) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-secondary-bg">
-        <p className="text-secondary font-montserrat">Loading your account…</p>
+        <Text className="text-secondary font-montserrat">Loading your account…</Text>
       </div>
     );
   }
 
-  // -------- Password login --------
-  async function handlePasswordLogin(e) {
-    e.preventDefault();
+  const onFinish = async (values) => {
     setLoading(true);
     try {
       const { error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
+        email: values.email,
+        password: values.password,
       });
       if (error) {
         toast.error(error.message);
         setLoading(false);
         return;
       }
+      // AuthContext will fetch profile and enforce org=3
     } catch (err) {
       console.error(err);
       toast.error("Login failed");
       setLoading(false);
     }
-  }
+  };
 
-  // -------- Send OTP --------
-  async function handleSendOtp(e) {
-    e.preventDefault();
-    if (!email) {
-      toast.error("Please enter your email address");
-      return;
-    }
-    setLoading(true);
-    try {
-      const { error } = await supabase.auth.signInWithOtp({
-        email,
-        options: {
-          shouldCreateUser: false,
-          emailRedirectTo: window.location.origin + "/#/login",
-        },
-      });
-      if (error) {
-        toast.error(error.message);
-        setLoading(false);
-        return;
-      }
-      toast.success("OTP sent – check your inbox");
-      setOtpSent(true);
-    } catch (err) {
-      console.error(err);
-      toast.error("Failed to send OTP");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  // -------- Forgot password --------
-  async function handleForgotPassword() {
+  const handleForgotPassword = (email) => {
     if (!email) {
       toast.error("Enter your email first");
       return;
     }
-    try {
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: window.location.origin + "/#/login",
-      });
-      if (error) throw error;
-      toast.success("Password reset link sent");
-    } catch (err) {
-      toast.error(err.message || "Failed to send reset link");
-    }
-  }
-
-  // -------- Verify OTP --------
-  async function handleVerifyOtp(e) {
-    e.preventDefault();
-    if (!otp.trim()) {
-      toast.error("Enter the OTP from your email");
-      return;
-    }
-    setLoading(true);
-    try {
-      const { error } = await supabase.auth.verifyOtp({
-        email,
-        token: otp.trim(),
-        type: "email",
-      });
-      if (error) {
-        toast.error(error.message);
-        setLoading(false);
-        return;
-      }
-    } catch (err) {
-      console.error(err);
-      toast.error("Verification failed");
-      setLoading(false);
-    }
-  }
-
-  // -------- Switch back to password mode --------
-  function switchToPassword() {
-    setUseOtp(false);
-    setOtpSent(false);
-  }
+    supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: window.location.origin + "/#/login",
+    })
+      .then(() => toast.success("Password reset link sent"))
+      .catch((err) => toast.error(err.message));
+  };
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-secondary-bg px-4">
-      <div className="bg-white shadow-xl rounded-2xl p-8 w-full max-w-md border border-secondary-light">
-        <div className="flex justify-center mb-6">
-          <img src={darkLogo} alt="ShreeVidhya Academy" className="h-20 w-auto" />
-        </div>
-        <h1 className="text-2xl font-righteous text-primary-dark text-center mb-1">
-          ShreeVidhya Academy
-        </h1>
-        <p className="text-sm text-secondary text-center font-montserrat mb-8">
-          {useOtp ? "Sign in with a one‑time code" : "Sign in to your account"}
-        </p>
+      <Card className="w-full max-w-md shadow-xl" variant="borderless">
+        <Space orientation="vertical" size="large" className="w-full">
+          <div className="flex justify-center">
+            <img src={darkLogo} alt={orgName} className="h-20 w-auto" />
+          </div>
 
-        {/* Password form */}
-        {!useOtp && (
-          <form onSubmit={handlePasswordLogin} className="space-y-5">
-            <div>
-              <label className="block text-sm font-montserrat text-secondary-dark mb-1">
-                <Mail size={14} className="inline mr-1" /> Email
-              </label>
-              <input
-                type="email"
+          <Title level={1} className="text-center font-righteous text-primary-dark" style={{ fontSize: '1rem' }}>
+            {orgName}
+          </Title>
+          <Text className="text-center text-secondary block font-montserrat">
+            Sign in to your account
+          </Text>
+
+          <Form
+            name="login"
+            onFinish={onFinish}
+            layout="vertical"
+            requiredMark={false}
+            className="mt-4"
+          >
+            <Form.Item
+              name="email"
+              label="Email"
+              rules={[{ required: true, message: 'Please enter your email' }]}
+            >
+              <Input
+                prefix={<Mail size={16} className="text-secondary-light" />}
                 placeholder="you@example.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full border border-secondary-light rounded-lg p-3 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light"
-                required
+                size="large"
+                className="rounded-lg"
               />
-            </div>
-            <div>
-              <label className="block text-sm font-montserrat text-secondary-dark mb-1">
-                <Lock size={14} className="inline mr-1" /> Password
-              </label>
-              <input
-                type="password"
+            </Form.Item>
+
+            <Form.Item
+              name="password"
+              label="Password"
+              rules={[{ required: true, message: 'Please enter your password' }]}
+            >
+              <Input.Password
+                prefix={<Lock size={16} className="text-secondary-light" />}
                 placeholder="Your password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full border border-secondary-light rounded-lg p-3 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light"
-                required
+                size="large"
+                className="rounded-lg"
               />
-              <button
-                type="button"
-                onClick={handleForgotPassword}
-                className="text-xs text-secondary hover:text-primary font-montserrat mt-1"
+            </Form.Item>
+
+            <div className="flex justify-end mb-2">
+              <Button
+                type="link"
+                className="text-xs p-0 h-auto"
+                onClick={() => {
+                  const email = document.querySelector('input[name="email"]')?.value;
+                  handleForgotPassword(email);
+                }}
               >
                 Forgot password?
-              </button>
+              </Button>
             </div>
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full bg-primary hover:bg-primary-light text-white rounded-lg p-3 font-montserrat transition disabled:opacity-50 flex items-center justify-center gap-2"
-            >
-              <LogIn size={18} />
-              {loading ? "Signing In..." : "Sign In"}
-            </button>
-            <div className="text-center">
-              <button
-                type="button"
-                onClick={() => setUseOtp(true)}
-                className="text-sm text-primary hover:underline font-montserrat"
+
+            <Form.Item>
+              <Button
+                type="primary"
+                htmlType="submit"
+                loading={loading}
+                block
+                size="large"
+                icon={<LogIn size={18} />}
+                className="font-montserrat"
               >
-                Sign in with a one‑time code
-              </button>
-            </div>
-          </form>
-        )}
+                {loading ? "Signing In..." : "Sign In"}
+              </Button>
+            </Form.Item>
+          </Form>
 
-        {/* OTP form */}
-        {useOtp && (
-          <>
-            {!otpSent && (
-              <div className="mb-4">
-                <button
-                  type="button"
-                  onClick={switchToPassword}
-                  className="text-sm text-secondary hover:text-primary-dark font-montserrat flex items-center gap-1"
-                >
-                  <ArrowLeft size={16} />
-                  Back to password login
-                </button>
-              </div>
-            )}
-            {!otpSent ? (
-              <form onSubmit={handleSendOtp} className="space-y-5">
-                <div>
-                  <label className="block text-sm font-montserrat text-secondary-dark mb-1">
-                    <Mail size={14} className="inline mr-1" /> Email
-                  </label>
-                  <input
-                    type="email"
-                    placeholder="you@example.com"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className="w-full border border-secondary-light rounded-lg p-3 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light"
-                    required
-                  />
-                </div>
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="w-full bg-accent hover:bg-accent-light text-white rounded-lg p-3 font-montserrat transition disabled:opacity-50 flex items-center justify-center gap-2"
-                >
-                  <KeyRound size={18} />
-                  {loading ? "Sending..." : "Send One‑Time Code"}
-                </button>
-                <div className="text-center">
-                  <button
-                    type="button"
-                    onClick={switchToPassword}
-                    className="text-sm text-primary hover:underline font-montserrat"
-                  >
-                    Back to password login
-                  </button>
-                </div>
-              </form>
-            ) : (
-              <form onSubmit={handleVerifyOtp} className="space-y-5">
-                <p className="text-sm text-green-600 font-montserrat flex items-center gap-1">
-                  <CheckCircle size={16} /> OTP sent to {email}
-                </p>
-                <div>
-                  <label className="block text-sm font-montserrat text-secondary-dark mb-1">
-                    <KeyRound size={14} className="inline mr-1" /> Enter OTP
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="6-digit code"
-                    value={otp}
-                    onChange={(e) => setOtp(e.target.value)}
-                    className="w-full border border-secondary-light rounded-lg p-3 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light tracking-widest text-center text-lg"
-                    maxLength={6}
-                    required
-                  />
-                </div>
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="w-full bg-primary hover:bg-primary-light text-white rounded-lg p-3 font-montserrat transition disabled:opacity-50 flex items-center justify-center gap-2"
-                >
-                  <LogIn size={18} />
-                  {loading ? "Verifying..." : "Verify & Sign In"}
-                </button>
-                <div className="text-center">
-                  <button
-                    type="button"
-                    onClick={() => { setOtpSent(false); setOtp(""); }}
-                    className="text-sm text-secondary hover:text-primary font-montserrat"
-                  >
-                    Resend OTP
-                  </button>
-                </div>
-              </form>
-            )}
-          </>
-        )}
-
-        {/* ─── SIGN‑UP LINK ─── */}
-        <p className="mt-6 text-center text-sm text-gray-500">
-          Don't have an academy?{" "}
-          <Link to="/signup" className="text-primary hover:underline font-medium">
-            Create one
-          </Link>
-        </p>
-
-        <p className="text-xs text-secondary-light text-center mt-4 font-montserrat">
-          © {new Date().getFullYear()} ShreeVidhya Academy. All rights reserved.
-        </p>
-      </div>
+          <Text className="text-xs text-secondary-light text-center block font-montserrat">
+            © {new Date().getFullYear()} {orgName}. All rights reserved.
+          </Text>
+        </Space>
+      </Card>
     </div>
   );
 }

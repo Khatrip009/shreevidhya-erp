@@ -2,13 +2,28 @@
 import { useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getPurchaseInvoice, finalizePurchaseInvoice, deletePurchaseInvoice } from "../services/purchaseInvoiceService";
-import { getOrganization } from "../services/organizationService";
+import {
+  getPurchaseInvoice,
+  finalizePurchaseInvoice,
+  deletePurchaseInvoice,
+} from "../services/purchaseInvoiceService";
 import { generateInvoicePDF, numberToWords } from "../utils/invoicePdf";
-import { useOrg } from "../context/OrganizationContext";   // NEW
+import { useOrg } from "../context/OrganizationContext";
+import { useTheme } from "../context/ThemeContext";               // ✅ dynamic theme
+import { supabase } from "../api/supabase";
+import { sendEmail } from "../services/emailService";
 import toast from "react-hot-toast";
-import AdminLayout from "../layouts/AdminLayout";
-import { ArrowLeft, Printer, Edit3, CheckCircle, Trash2, Loader, FileText } from "lucide-react";
+
+import {
+  ArrowLeft,
+  Printer,
+  Edit3,
+  CheckCircle,
+  Trash2,
+  Loader,
+  FileText,
+  Mail,
+} from "lucide-react";
 
 export default function PurchaseInvoiceView() {
   const { id } = useParams();
@@ -16,25 +31,171 @@ export default function PurchaseInvoiceView() {
   const queryClient = useQueryClient();
   const [printing, setPrinting] = useState(false);
   const [generatingPDF, setGeneratingPDF] = useState(false);
+  const [sendingEmail, setSendingEmail] = useState(false);
 
-  // ── Organisation, Branch, Financial Year from context ──
-  const { org: currentOrg, branch, selectedFinancialYear } = useOrg();
-  const ctx = { branchId: branch?.id, financialYearId: selectedFinancialYear?.id };
+  // ✅ Use org from context directly
+  const { org, branch, selectedFinancialYear } = useOrg();
+  const theme = useTheme();                                     // ✅ theme hook
+  const branchId = branch?.id;
+  const financialYearId = selectedFinancialYear?.id;
+  const ctx = { branchId, financialYearId };
 
-  // Fetch organization details using current org id
-  const { data: org } = useQuery({
-    queryKey: ["organization", currentOrg?.id],
-    queryFn: () => getOrganization(currentOrg?.id),
-    enabled: !!currentOrg?.id,
-  });
+  const primaryColor = theme?.primary_color || "#0D47A1";
+  const headingFont = theme?.font_heading || "Righteous";
+  const bodyFont = theme?.font_body || "Montserrat";
 
+  // Purchase invoice (scoped)
   const { data: invoice, isLoading } = useQuery({
-    queryKey: ["purchase-invoice", id],
-    queryFn: () => getPurchaseInvoice(id),
-    enabled: !!id,
+    queryKey: ["purchase-invoice", id, branchId, financialYearId],
+    queryFn: () => getPurchaseInvoice(id, branchId, financialYearId),
+    enabled: !!id && !!branchId && !!financialYearId,
   });
 
-  // Finalize mutation – now passes context
+  // ─── Helper: get admin emails ──────────────────────────────────────
+  const getAdminEmails = async () => {
+    if (!org?.id) return [];
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("email")
+      .eq("organization_id", org.id)
+      .in("role", ["admin", "super_admin", "organization_admin"])
+      .eq("is_active", true);
+    if (error) {
+      console.error("Failed to fetch admin emails:", error);
+      return [];
+    }
+    return data?.map(p => p.email).filter(Boolean) || [];
+  };
+
+  // ─── Send invoice email ────────────────────────────────────────────
+  const sendInvoiceEmail = async () => {
+    if (!invoice) return;
+
+    setSendingEmail(true);
+    try {
+      const vendorEmail = invoice.vendors?.email;
+      let recipients = [];
+      if (vendorEmail) {
+        recipients = [vendorEmail];
+      } else {
+        const admins = await getAdminEmails();
+        if (admins.length === 0) {
+          toast.error("No vendor email or admin emails found.");
+          setSendingEmail(false);
+          return;
+        }
+        recipients = admins;
+      }
+
+      // Build HTML email content (using org from context)
+      const formatCurrency = (amount) =>
+        `₹ ${Number(amount).toLocaleString("en-IN", {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        })}`;
+
+      const items = invoice.purchase_invoice_items || [];
+      const totals = {
+        taxable: items.reduce((sum, item) => sum + Number(item.taxable_amount || 0), 0),
+        cgst: items.reduce((sum, item) => sum + Number(item.cgst_amount || 0), 0),
+        sgst: items.reduce((sum, item) => sum + Number(item.sgst_amount || 0), 0),
+        igst: items.reduce((sum, item) => sum + Number(item.igst_amount || 0), 0),
+        total: items.reduce((sum, item) => sum + Number(item.total_amount || 0), 0),
+      };
+      const roundOff = Number(invoice.round_off || 0);
+      const grandTotal = totals.total + roundOff;
+      const words = numberToWords(grandTotal);
+
+      const vendor = invoice.vendors || {};
+      const vendorName = vendor.vendor_name || "N/A";
+      const orgName = org?.company_name || "Academy";
+
+      let itemsRows = items.map((item, idx) => {
+        const itemName = item.inventory_items?.item_name || item.description || "—";
+        return `
+          <tr>
+            <td style="padding:4px 8px;border:1px solid #ddd;text-align:center;">${idx + 1}</td>
+            <td style="padding:4px 8px;border:1px solid #ddd;">${itemName}</td>
+            <td style="padding:4px 8px;border:1px solid #ddd;text-align:center;">${item.quantity}</td>
+            <td style="padding:4px 8px;border:1px solid #ddd;text-align:right;">${formatCurrency(item.unit_price)}</td>
+            <td style="padding:4px 8px;border:1px solid #ddd;text-align:right;">${formatCurrency(item.taxable_amount)}</td>
+            <td style="padding:4px 8px;border:1px solid #ddd;text-align:right;">${formatCurrency(item.cgst_amount)}</td>
+            <td style="padding:4px 8px;border:1px solid #ddd;text-align:right;">${formatCurrency(item.sgst_amount)}</td>
+            <td style="padding:4px 8px;border:1px solid #ddd;text-align:right;">${formatCurrency(item.igst_amount)}</td>
+            <td style="padding:4px 8px;border:1px solid #ddd;text-align:right;font-weight:bold;">${formatCurrency(item.total_amount)}</td>
+          </tr>`;
+      }).join('');
+
+      const htmlBody = `
+        <div style="font-family:Arial,sans-serif;max-width:800px;margin:0 auto;padding:20px;border:1px solid #ddd;">
+          <h2 style="text-align:center;color:${primaryColor};">PURCHASE INVOICE</h2>
+          <div style="display:flex;justify-content:space-between;margin-bottom:16px;">
+            <div>
+              <strong>Vendor:</strong> ${vendorName}<br/>
+              ${vendor.gstin ? `<strong>GSTIN:</strong> ${vendor.gstin}<br/>` : ''}
+              ${vendor.address ? `<strong>Address:</strong> ${vendor.address}<br/>` : ''}
+              ${vendor.state_code ? `<strong>State Code:</strong> ${vendor.state_code}` : ''}
+            </div>
+            <div style="text-align:right;">
+              <strong>Invoice Details</strong><br/>
+              No: ${invoice.invoice_number}<br/>
+              Date: ${invoice.invoice_date}<br/>
+              Status: ${invoice.status}
+              ${invoice.due_date ? `<br/>Due Date: ${invoice.due_date}` : ''}
+            </div>
+          </div>
+          <table style="width:100%;border-collapse:collapse;margin-bottom:16px;font-size:11px;">
+            <thead>
+              <tr style="background:${primaryColor};color:#fff;">
+                <th style="padding:4px 8px;border:1px solid #ccc;text-align:center;">#</th>
+                <th style="padding:4px 8px;border:1px solid #ccc;text-align:left;">Item</th>
+                <th style="padding:4px 8px;border:1px solid #ccc;text-align:center;">Qty</th>
+                <th style="padding:4px 8px;border:1px solid #ccc;text-align:right;">Unit Price</th>
+                <th style="padding:4px 8px;border:1px solid #ccc;text-align:right;">Taxable</th>
+                <th style="padding:4px 8px;border:1px solid #ccc;text-align:right;">CGST</th>
+                <th style="padding:4px 8px;border:1px solid #ccc;text-align:right;">SGST</th>
+                <th style="padding:4px 8px;border:1px solid #ccc;text-align:right;">IGST</th>
+                <th style="padding:4px 8px;border:1px solid #ccc;text-align:right;">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${itemsRows}
+            </tbody>
+          </table>
+          <div style="display:flex;justify-content:flex-end;margin-bottom:8px;">
+            <div style="width:250px;">
+              <div style="display:flex;justify-content:space-between;"><span>Taxable:</span><span>${formatCurrency(totals.taxable)}</span></div>
+              <div style="display:flex;justify-content:space-between;"><span>CGST:</span><span>${formatCurrency(totals.cgst)}</span></div>
+              <div style="display:flex;justify-content:space-between;"><span>SGST:</span><span>${formatCurrency(totals.sgst)}</span></div>
+              <div style="display:flex;justify-content:space-between;"><span>IGST:</span><span>${formatCurrency(totals.igst)}</span></div>
+              ${roundOff !== 0 ? `<div style="display:flex;justify-content:space-between;"><span>Round Off:</span><span>${formatCurrency(roundOff)}</span></div>` : ''}
+              <div style="display:flex;justify-content:space-between;font-weight:bold;font-size:1.2em;border-top:2px solid ${primaryColor};margin-top:4px;padding-top:4px;">
+                <span>Grand Total:</span>
+                <span style="color:${primaryColor};">${formatCurrency(grandTotal)}</span>
+              </div>
+            </div>
+          </div>
+          <div style="margin-bottom:8px;"><strong>Amount in words:</strong> ${words}</div>
+          ${invoice.reverse_charge ? `<div style="color:#CC0000;font-weight:bold;margin-bottom:8px;">** Reverse Charge Applicable – Tax payable by recipient **</div>` : ''}
+          <p style="color:#888;font-size:10px;margin-top:20px;">This is a computer‑generated purchase invoice from ${orgName}.</p>
+        </div>`;
+
+      await sendEmail({
+        to: recipients,
+        subject: `Purchase Invoice ${invoice.invoice_number} from ${orgName}`,
+        html: htmlBody,
+      });
+
+      toast.success(`Invoice sent to ${recipients.length} recipient(s).`);
+    } catch (err) {
+      console.error("Email error:", err);
+      toast.error("Failed to send invoice email.");
+    } finally {
+      setSendingEmail(false);
+    }
+  };
+
+  // ─── Mutations ──────────────────────────────────────────────────────
   const finalizeMutation = useMutation({
     mutationFn: () => finalizePurchaseInvoice(id, ctx),
     onSuccess: () => {
@@ -46,7 +207,7 @@ export default function PurchaseInvoiceView() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: () => deletePurchaseInvoice(id),   // no context needed
+    mutationFn: () => deletePurchaseInvoice(id, branchId, financialYearId),
     onSuccess: () => {
       toast.success("Invoice deleted");
       navigate("/purchase-invoices");
@@ -54,6 +215,7 @@ export default function PurchaseInvoiceView() {
     onError: (err) => toast.error(err.message),
   });
 
+  // ─── Print and PDF handlers ──────────────────────────────────────
   const handlePrint = () => {
     const printContent = document.getElementById("invoice-print");
     if (!printContent) return;
@@ -98,7 +260,7 @@ export default function PurchaseInvoiceView() {
             .org-name {
               font-size: 18pt;
               font-weight: bold;
-              color: #0D47A1;
+              color: ${primaryColor};
             }
             .org-details {
               font-size: 9pt;
@@ -108,7 +270,7 @@ export default function PurchaseInvoiceView() {
               text-align: center;
               font-size: 16pt;
               font-weight: bold;
-              color: #0D47A1;
+              color: ${primaryColor};
               margin-bottom: 12px;
             }
             .details-table {
@@ -123,7 +285,7 @@ export default function PurchaseInvoiceView() {
             }
             .details-table .label {
               font-weight: bold;
-              color: #0D47A1;
+              color: ${primaryColor};
             }
             .items-table {
               width: 100%;
@@ -132,12 +294,12 @@ export default function PurchaseInvoiceView() {
               margin-bottom: 12px;
             }
             .items-table th {
-              background-color: #0D47A1;
+              background-color: ${primaryColor};
               color: #ffffff;
               font-weight: bold;
               font-size: 7.5pt;
               padding: 4px 6px;
-              border: 1px solid #0D47A1;
+              border: 1px solid ${primaryColor};
               text-align: left;
             }
             .items-table td {
@@ -157,7 +319,7 @@ export default function PurchaseInvoiceView() {
             .totals .total-value { text-align: right; }
             .grand-total {
               font-weight: bold;
-              color: #0D47A1;
+              color: ${primaryColor};
               font-size: 12pt;
             }
             .amount-words {
@@ -217,21 +379,21 @@ export default function PurchaseInvoiceView() {
 
   if (isLoading) {
     return (
-      <AdminLayout>
-        <div className="p-8 text-center">Loading invoice…</div>
-      </AdminLayout>
+      <div className="p-8 text-center text-primary-dark/60" style={{ fontFamily: bodyFont }}>
+        Loading invoice…
+      </div>
     );
   }
 
   if (!invoice) {
     return (
-      <AdminLayout>
-        <div className="p-8 text-center text-red-600">Invoice not found</div>
-      </AdminLayout>
+      <div className="p-8 text-center text-accent-dark" style={{ fontFamily: bodyFont }}>
+        Invoice not found
+      </div>
     );
   }
 
-  const orgName = org?.company_name || "ShreeVidhya Academy";
+  const orgName = org?.company_name || "Academy";
   const orgAddress = org?.address || "";
   const orgPhone = org?.phone || "";
   const orgEmail = org?.email || "";
@@ -249,7 +411,6 @@ export default function PurchaseInvoiceView() {
 
   const items = invoice.purchase_invoice_items || [];
 
-  // Compute totals from items (matching PDF)
   const totals = {
     taxable: items.reduce((sum, item) => sum + Number(item.taxable_amount || 0), 0),
     cgst: items.reduce((sum, item) => sum + Number(item.cgst_amount || 0), 0),
@@ -263,27 +424,37 @@ export default function PurchaseInvoiceView() {
   const reverseCharge = invoice.reverse_charge;
 
   return (
-    <AdminLayout>
-      {/* Action buttons – hidden during print */}
+    <>
       <div className="no-print flex justify-between items-center mb-6">
         <button
           onClick={() => navigate("/purchase-invoices")}
-          className="inline-flex items-center gap-2 text-secondary hover:text-primary-dark text-sm"
+          className="inline-flex items-center gap-2 text-primary-dark hover:text-primary text-sm"
+          style={{ fontFamily: bodyFont }}
         >
           <ArrowLeft size={18} /> Back to Purchase Invoices
         </button>
         <div className="flex gap-2">
           <button
+            onClick={sendInvoiceEmail}
+            disabled={sendingEmail}
+            className="bg-accent hover:bg-accent-dark text-white px-4 py-2 rounded-lg text-sm flex items-center gap-2 disabled:opacity-50"
+            style={{ fontFamily: bodyFont }}
+          >
+            <Mail size={16} /> {sendingEmail ? "Sending..." : "Email Invoice"}
+          </button>
+          <button
             onClick={handleDownloadPDF}
             disabled={generatingPDF}
-            className="border px-4 py-2 rounded-lg text-sm flex items-center gap-2"
+            className="border border-primary-bg text-primary-dark hover:bg-primary-bg px-4 py-2 rounded-lg text-sm flex items-center gap-2"
+            style={{ fontFamily: bodyFont }}
           >
             <FileText size={16} /> {generatingPDF ? "Generating..." : "Download PDF"}
           </button>
           <button
             onClick={handlePrint}
             disabled={printing}
-            className="bg-primary text-white px-4 py-2 rounded-lg text-sm flex items-center gap-2"
+            className="bg-primary hover:bg-accent text-white px-4 py-2 rounded-lg text-sm flex items-center gap-2"
+            style={{ fontFamily: bodyFont }}
           >
             <Printer size={16} /> {printing ? "Printing…" : "Print"}
           </button>
@@ -291,14 +462,16 @@ export default function PurchaseInvoiceView() {
             <>
               <button
                 onClick={() => navigate(`/purchase-invoices/${id}/edit`)}
-                className="border px-4 py-2 rounded-lg text-sm flex items-center gap-2"
+                className="border border-primary-bg text-primary-dark hover:bg-primary-bg px-4 py-2 rounded-lg text-sm flex items-center gap-2"
+                style={{ fontFamily: bodyFont }}
               >
                 <Edit3 size={16} /> Edit
               </button>
               <button
                 onClick={() => finalizeMutation.mutate()}
                 disabled={finalizeMutation.isPending}
-                className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm flex items-center gap-2"
+                className="bg-accent hover:bg-accent-dark text-white px-4 py-2 rounded-lg text-sm flex items-center gap-2"
+                style={{ fontFamily: bodyFont }}
               >
                 {finalizeMutation.isPending ? (
                   <Loader className="w-4 h-4 animate-spin" />
@@ -314,7 +487,8 @@ export default function PurchaseInvoiceView() {
               onClick={() => {
                 if (window.confirm("Delete this invoice?")) deleteMutation.mutate();
               }}
-              className="bg-red-600 text-white px-4 py-2 rounded-lg text-sm flex items-center gap-2"
+              className="bg-accent-dark hover:bg-accent text-white px-4 py-2 rounded-lg text-sm flex items-center gap-2"
+              style={{ fontFamily: bodyFont }}
             >
               <Trash2 size={16} /> Delete
             </button>
@@ -322,11 +496,11 @@ export default function PurchaseInvoiceView() {
         </div>
       </div>
 
-      {/* Invoice Content – exactly matches PDF */}
+      {/* Invoice Content (preserved professional styling with dynamic primary color) */}
       <div
         id="invoice-print"
         style={{
-          fontFamily: "Helvetica, Arial, sans-serif",
+          fontFamily: bodyFont,
           fontSize: "9pt",
           color: "#333",
           padding: "0",
@@ -343,7 +517,7 @@ export default function PurchaseInvoiceView() {
             />
           )}
           <div>
-            <div className="org-name" style={{ fontSize: "18pt", fontWeight: "bold", color: "#0D47A1" }}>
+            <div className="org-name" style={{ fontSize: "18pt", fontWeight: "bold", color: primaryColor }}>
               {orgName}
             </div>
             <div className="org-details" style={{ fontSize: "9pt", color: "#555" }}>
@@ -355,16 +529,16 @@ export default function PurchaseInvoiceView() {
         </div>
 
         {/* Title */}
-        <div className="title" style={{ textAlign: "center", fontSize: "16pt", fontWeight: "bold", color: "#0D47A1", marginBottom: "12px" }}>
+        <div className="title" style={{ textAlign: "center", fontSize: "16pt", fontWeight: "bold", color: primaryColor, marginBottom: "12px" }}>
           PURCHASE INVOICE
         </div>
 
-        {/* Two-column details (right-aligned Invoice Details) */}
+        {/* Two-column details */}
         <table className="details-table" style={{ width: "100%", borderCollapse: "collapse", marginBottom: "12px", fontSize: "9pt" }}>
           <tbody>
             <tr>
               <td style={{ verticalAlign: "top", padding: "2px 0", width: "50%" }}>
-                <div className="label" style={{ fontWeight: "bold", color: "#0D47A1", marginBottom: "2px" }}>Vendor:</div>
+                <div className="label" style={{ fontWeight: "bold", color: primaryColor, marginBottom: "2px" }}>Vendor:</div>
                 <div>{vendorName}</div>
                 {vendor.gstin && <div>GSTIN: {vendor.gstin}</div>}
                 {vendor.address && <div>Address: {vendor.address}</div>}
@@ -372,7 +546,7 @@ export default function PurchaseInvoiceView() {
                 <div>Payment Terms: {invoice.payment_terms || "Standard"}</div>
               </td>
               <td style={{ verticalAlign: "top", padding: "2px 0", width: "50%", textAlign: "right" }}>
-                <div className="label" style={{ fontWeight: "bold", color: "#0D47A1", marginBottom: "2px" }}>Invoice Details</div>
+                <div className="label" style={{ fontWeight: "bold", color: primaryColor, marginBottom: "2px" }}>Invoice Details</div>
                 <div>No: {invoice.invoice_number}</div>
                 <div>Date: {invoice.invoice_date}</div>
                 <div>Status: {invoice.status}</div>
@@ -382,20 +556,20 @@ export default function PurchaseInvoiceView() {
           </tbody>
         </table>
 
-        {/* Items table with CGST, SGST, IGST */}
+        {/* Items table */}
         <table className="items-table" style={{ width: "100%", borderCollapse: "collapse", fontSize: "7pt", marginBottom: "12px" }}>
           <thead>
-            <tr>
-              <th style={{ backgroundColor: "#0D47A1", color: "#fff", fontWeight: "bold", fontSize: "7.5pt", padding: "4px 4px", border: "1px solid #0D47A1", width: "4%" }}>#</th>
-              <th style={{ backgroundColor: "#0D47A1", color: "#fff", fontWeight: "bold", fontSize: "7.5pt", padding: "4px 4px", border: "1px solid #0D47A1", width: "25%" }}>Item</th>
-              <th style={{ backgroundColor: "#0D47A1", color: "#fff", fontWeight: "bold", fontSize: "7.5pt", padding: "4px 4px", border: "1px solid #0D47A1", width: "13%" }}>HSN/SAC</th>
-              <th style={{ backgroundColor: "#0D47A1", color: "#fff", fontWeight: "bold", fontSize: "7.5pt", padding: "4px 4px", border: "1px solid #0D47A1", width: "6%", textAlign: "center" }}>Qty</th>
-              <th style={{ backgroundColor: "#0D47A1", color: "#fff", fontWeight: "bold", fontSize: "7.5pt", padding: "4px 4px", border: "1px solid #0D47A1", width: "10%", textAlign: "right" }}>Unit Price</th>
-              <th style={{ backgroundColor: "#0D47A1", color: "#fff", fontWeight: "bold", fontSize: "7.5pt", padding: "4px 4px", border: "1px solid #0D47A1", width: "10%", textAlign: "right" }}>Taxable</th>
-              <th style={{ backgroundColor: "#0D47A1", color: "#fff", fontWeight: "bold", fontSize: "7.5pt", padding: "4px 4px", border: "1px solid #0D47A1", width: "9%", textAlign: "right" }}>CGST</th>
-              <th style={{ backgroundColor: "#0D47A1", color: "#fff", fontWeight: "bold", fontSize: "7.5pt", padding: "4px 4px", border: "1px solid #0D47A1", width: "9%", textAlign: "right" }}>SGST</th>
-              <th style={{ backgroundColor: "#0D47A1", color: "#fff", fontWeight: "bold", fontSize: "7.5pt", padding: "4px 4px", border: "1px solid #0D47A1", width: "9%", textAlign: "right" }}>IGST</th>
-              <th style={{ backgroundColor: "#0D47A1", color: "#fff", fontWeight: "bold", fontSize: "7.5pt", padding: "4px 4px", border: "1px solid #0D47A1", width: "10%", textAlign: "right" }}>Total</th>
+            <tr style={{ backgroundColor: primaryColor }}>
+              <th style={{ width: "4%", color: "#fff" }}>#</th>
+              <th style={{ width: "25%", color: "#fff" }}>Item</th>
+              <th style={{ width: "13%", color: "#fff" }}>HSN/SAC</th>
+              <th style={{ width: "6%", textAlign: "center", color: "#fff" }}>Qty</th>
+              <th style={{ width: "10%", textAlign: "right", color: "#fff" }}>Unit Price</th>
+              <th style={{ width: "10%", textAlign: "right", color: "#fff" }}>Taxable</th>
+              <th style={{ width: "9%", textAlign: "right", color: "#fff" }}>CGST</th>
+              <th style={{ width: "9%", textAlign: "right", color: "#fff" }}>SGST</th>
+              <th style={{ width: "9%", textAlign: "right", color: "#fff" }}>IGST</th>
+              <th style={{ width: "10%", textAlign: "right", color: "#fff" }}>Total</th>
             </tr>
           </thead>
           <tbody>
@@ -404,72 +578,48 @@ export default function PurchaseInvoiceView() {
               const desc = item.description && item.description !== itemName ? ` (${item.description})` : "";
               return (
                 <tr key={item.id || idx}>
-                  <td style={{ padding: "4px 4px", border: "1px solid #d1d5db" }}>{idx + 1}</td>
-                  <td style={{ padding: "4px 4px", border: "1px solid #d1d5db" }}>{itemName}{desc}</td>
-                  <td style={{ padding: "4px 4px", border: "1px solid #d1d5db" }}>{item.hsn_sac_code || "—"}</td>
-                  <td style={{ padding: "4px 4px", border: "1px solid #d1d5db", textAlign: "center" }}>{item.quantity}</td>
-                  <td style={{ padding: "4px 4px", border: "1px solid #d1d5db", textAlign: "right" }}>{formatCurrency(item.unit_price)}</td>
-                  <td style={{ padding: "4px 4px", border: "1px solid #d1d5db", textAlign: "right" }}>{formatCurrency(item.taxable_amount)}</td>
-                  <td style={{ padding: "4px 4px", border: "1px solid #d1d5db", textAlign: "right" }}>{formatCurrency(item.cgst_amount)}</td>
-                  <td style={{ padding: "4px 4px", border: "1px solid #d1d5db", textAlign: "right" }}>{formatCurrency(item.sgst_amount)}</td>
-                  <td style={{ padding: "4px 4px", border: "1px solid #d1d5db", textAlign: "right" }}>{formatCurrency(item.igst_amount)}</td>
-                  <td style={{ padding: "4px 4px", border: "1px solid #d1d5db", textAlign: "right", fontWeight: "500" }}>{formatCurrency(item.total_amount)}</td>
+                  <td>{idx + 1}</td>
+                  <td>{itemName}{desc}</td>
+                  <td>{item.hsn_sac_code || "—"}</td>
+                  <td style={{ textAlign: "center" }}>{item.quantity}</td>
+                  <td style={{ textAlign: "right" }}>{formatCurrency(item.unit_price)}</td>
+                  <td style={{ textAlign: "right" }}>{formatCurrency(item.taxable_amount)}</td>
+                  <td style={{ textAlign: "right" }}>{formatCurrency(item.cgst_amount)}</td>
+                  <td style={{ textAlign: "right" }}>{formatCurrency(item.sgst_amount)}</td>
+                  <td style={{ textAlign: "right" }}>{formatCurrency(item.igst_amount)}</td>
+                  <td style={{ textAlign: "right", fontWeight: "500" }}>{formatCurrency(item.total_amount)}</td>
                 </tr>
               );
             })}
           </tbody>
         </table>
 
-        {/* Totals with tax breakup */}
+        {/* Totals */}
         <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "8px" }}>
           <table className="totals" style={{ width: "250px", fontSize: "9pt", borderCollapse: "collapse" }}>
             <tbody>
-              <tr>
-                <td className="total-label" style={{ textAlign: "right", paddingRight: "8px" }}>Taxable Amount:</td>
-                <td className="total-value" style={{ textAlign: "right" }}>{formatCurrency(totals.taxable)}</td>
-              </tr>
-              <tr>
-                <td className="total-label" style={{ textAlign: "right", paddingRight: "8px" }}>CGST:</td>
-                <td className="total-value" style={{ textAlign: "right" }}>{formatCurrency(totals.cgst)}</td>
-              </tr>
-              <tr>
-                <td className="total-label" style={{ textAlign: "right", paddingRight: "8px" }}>SGST:</td>
-                <td className="total-value" style={{ textAlign: "right" }}>{formatCurrency(totals.sgst)}</td>
-              </tr>
-              <tr>
-                <td className="total-label" style={{ textAlign: "right", paddingRight: "8px" }}>IGST:</td>
-                <td className="total-value" style={{ textAlign: "right" }}>{formatCurrency(totals.igst)}</td>
-              </tr>
-              {roundOff !== 0 && (
-                <tr>
-                  <td className="total-label" style={{ textAlign: "right", paddingRight: "8px" }}>Round Off:</td>
-                  <td className="total-value" style={{ textAlign: "right" }}>{formatCurrency(roundOff)}</td>
-                </tr>
-              )}
-              <tr>
-                <td className="total-label grand-total" style={{ fontWeight: "bold", color: "#0D47A1", fontSize: "12pt", textAlign: "right", paddingRight: "8px" }}>Grand Total:</td>
-                <td className="total-value grand-total" style={{ fontWeight: "bold", color: "#0D47A1", fontSize: "12pt", textAlign: "right" }}>{formatCurrency(grandTotal)}</td>
-              </tr>
+              <tr><td className="total-label" style={{ textAlign: "right", paddingRight: "8px" }}>Taxable Amount:</td><td className="total-value" style={{ textAlign: "right" }}>{formatCurrency(totals.taxable)}</td></tr>
+              <tr><td className="total-label" style={{ textAlign: "right", paddingRight: "8px" }}>CGST:</td><td className="total-value" style={{ textAlign: "right" }}>{formatCurrency(totals.cgst)}</td></tr>
+              <tr><td className="total-label" style={{ textAlign: "right", paddingRight: "8px" }}>SGST:</td><td className="total-value" style={{ textAlign: "right" }}>{formatCurrency(totals.sgst)}</td></tr>
+              <tr><td className="total-label" style={{ textAlign: "right", paddingRight: "8px" }}>IGST:</td><td className="total-value" style={{ textAlign: "right" }}>{formatCurrency(totals.igst)}</td></tr>
+              {roundOff !== 0 && <tr><td className="total-label" style={{ textAlign: "right", paddingRight: "8px" }}>Round Off:</td><td className="total-value" style={{ textAlign: "right" }}>{formatCurrency(roundOff)}</td></tr>}
+              <tr><td className="total-label grand-total" style={{ fontWeight: "bold", color: primaryColor, fontSize: "12pt", textAlign: "right", paddingRight: "8px" }}>Grand Total:</td><td className="total-value grand-total" style={{ fontWeight: "bold", color: primaryColor, fontSize: "12pt", textAlign: "right" }}>{formatCurrency(grandTotal)}</td></tr>
             </tbody>
           </table>
         </div>
 
-        {/* Reverse Charge Note */}
         {reverseCharge && (
           <div className="reverse-charge" style={{ fontSize: "8pt", color: "#CC0000", fontWeight: "bold", marginBottom: "6px" }}>
             ** Reverse Charge Applicable – Tax payable by recipient **
           </div>
         )}
 
-        {/* Amount in words */}
         <div className="amount-words" style={{ fontSize: "9pt", marginBottom: "10px" }}>
           <span style={{ fontWeight: "bold" }}>Amount in words:</span> {words}
         </div>
 
-        {/* Divider */}
         <hr className="divider" style={{ borderTop: "1px solid #cccccc", margin: "10px 0" }} />
 
-        {/* Terms */}
         <div className="terms" style={{ fontSize: "7pt", color: "#555", marginBottom: "10px" }}>
           <p>1. Payment is due within 15 days from invoice date.</p>
           <p>2. Late payment will attract interest @18% p.a.</p>
@@ -478,7 +628,6 @@ export default function PurchaseInvoiceView() {
           <p>5. Any dispute shall be subject to local jurisdiction.</p>
         </div>
 
-        {/* Footer */}
         <div className="footer" style={{ fontSize: "6pt", color: "#999", fontStyle: "italic", display: "flex", justifyContent: "space-between" }}>
           <span>Generated on {new Date().toLocaleString()}</span>
           <span>© {orgName}</span>
@@ -491,6 +640,6 @@ export default function PurchaseInvoiceView() {
           body { background: white; }
         }
       `}</style>
-    </AdminLayout>
+    </>
   );
 }

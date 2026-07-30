@@ -18,7 +18,7 @@ import {
   X,
 } from "lucide-react";
 import Papa from "papaparse";
-import AdminLayout from "../layouts/AdminLayout";
+
 import {
   getSubjects,
   getCoursesForDropdown,
@@ -27,14 +27,16 @@ import {
   deleteSubject,
   getAllSubjectsForExport,
 } from "../services/subjectService";
-import { useOrg } from "../context/OrganizationContext";   // NEW
+import { useOrg } from "../context/OrganizationContext";
 
 export default function Subjects() {
   const queryClient = useQueryClient();
 
   // ── Organisation / Branch / Financial Year context ──
   const { branch, selectedFinancialYear } = useOrg();
-  const ctx = { branchId: branch?.id, financialYearId: selectedFinancialYear?.id };
+  const branchId = branch?.id;
+  const financialYearId = selectedFinancialYear?.id;
+  const ctx = { branchId, financialYearId };
 
   // Search
   const [search, setSearch] = useState("");
@@ -46,7 +48,7 @@ export default function Subjects() {
   const [form, setForm] = useState({ course_id: "", subject_name: "" });
   const fileInputRef = useRef(null);
 
-  // Infinite query for subjects
+  // Infinite query for subjects – scoped with branch & FY
   const {
     data,
     isLoading,
@@ -54,8 +56,9 @@ export default function Subjects() {
     hasNextPage,
     isFetchingNextPage,
   } = useInfiniteQuery({
-    queryKey: ["subjects", filters],
-    queryFn: ({ pageParam = 0 }) => getSubjects({ pageParam, filters }),
+    queryKey: ["subjects", filters, branchId, financialYearId],
+    queryFn: ({ pageParam = 0 }) =>
+      getSubjects({ pageParam, filters, branchId, financialYearId }),
     getNextPageParam: (lastPage, allPages) => {
       const totalFetched = allPages.reduce((sum, page) => sum + page.data.length, 0);
       if (lastPage.count && totalFetched < lastPage.count) {
@@ -64,19 +67,20 @@ export default function Subjects() {
       return undefined;
     },
     initialPageParam: 0,
+    enabled: !!branchId && !!financialYearId,
     staleTime: 5 * 60 * 1000,
   });
 
   const subjects = data?.pages.flatMap((page) => page.data) || [];
 
-  // Course dropdown
+  // Course dropdown (organisation‑wide, no scoping needed)
   const { data: courses = [] } = useQuery({
     queryKey: ["courses-dropdown"],
     queryFn: getCoursesForDropdown,
     staleTime: 10 * 60 * 1000,
   });
 
-  // Mutations – now pass context
+  // Mutations
   const createMutation = useMutation({
     mutationFn: (payload) => createSubject(payload, ctx),
     onSuccess: () => {
@@ -98,7 +102,7 @@ export default function Subjects() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: deleteSubject,   // hard delete, RLS protects
+    mutationFn: (id) => deleteSubject(id, branchId, financialYearId),
     onSuccess: () => {
       toast.success("Subject deleted");
       queryClient.invalidateQueries({ queryKey: ["subjects"] });
@@ -106,7 +110,7 @@ export default function Subjects() {
     onError: () => toast.error("Delete failed"),
   });
 
-  // CSV Import – now passes context to createSubject
+  // CSV Import
   async function handleCSVImport(event) {
     const file = event.target.files[0];
     if (!file) return;
@@ -134,10 +138,14 @@ export default function Subjects() {
     });
   }
 
-  // CSV Export (unchanged)
+  // CSV Export
   async function handleCSVExport() {
     try {
-      const allData = await getAllSubjectsForExport(filters);
+      const allData = await getAllSubjectsForExport(
+        filters,
+        branchId,
+        financialYearId
+      );
       const csv = Papa.unparse(
         allData.map((s) => ({
           course: s.courses?.course_name,
@@ -194,31 +202,33 @@ export default function Subjects() {
   }, {});
 
   return (
-    <AdminLayout>
+    <div className="space-y-6 px-4 sm:px-6 lg:px-0">
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
         <div>
-          <h1 className="text-3xl font-righteous text-primary-dark">Subjects</h1>
-          <p className="text-sm text-secondary-dark font-montserrat mt-1">
+          <h1 className="text-3xl font-heading text-primary-dark">
+            Subjects
+          </h1>
+          <p className="text-sm text-gray-600 dark:text-gray-400 font-body mt-1">
             Manage subjects for each course
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <button
             onClick={openCreate}
-            className="bg-primary hover:bg-primary-light text-white px-5 py-2.5 rounded-lg transition font-montserrat text-sm flex items-center gap-2"
+            className="bg-primary hover:bg-primary-light text-white px-5 py-2.5 rounded-lg transition font-body text-sm flex items-center gap-2"
           >
             <BookOpen size={18} /> Add Subject
           </button>
           <button
             onClick={handleCSVExport}
-            className="border border-secondary-light px-4 py-2.5 rounded-lg text-secondary-dark hover:bg-secondary-bg font-montserrat text-sm flex items-center gap-2"
+            className="border border-gray-300 dark:border-gray-600 bg-white dark:bg-accent text-gray-700 dark:text-gray-200 px-4 py-2.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition font-body text-sm flex items-center gap-2"
           >
             <Download size={18} /> Export
           </button>
           <button
             onClick={() => fileInputRef.current?.click()}
-            className="border border-secondary-light px-4 py-2.5 rounded-lg text-secondary-dark hover:bg-secondary-bg font-montserrat text-sm flex items-center gap-2"
+            className="border border-gray-300 dark:border-gray-600 bg-white dark:bg-accent text-gray-700 dark:text-gray-200 px-4 py-2.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition font-body text-sm flex items-center gap-2"
           >
             <Upload size={18} /> Import
           </button>
@@ -236,47 +246,49 @@ export default function Subjects() {
       <div className="relative mb-6 max-w-md">
         <Search
           size={18}
-          className="absolute left-3 top-1/2 -translate-y-1/2 text-secondary"
+          className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500"
         />
         <input
           type="text"
           placeholder="Search by subject or course name..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="w-full border border-secondary-light rounded-lg pl-10 pr-4 py-2.5 text-sm focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light"
+          className="w-full border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded-lg pl-10 pr-4 py-2.5 text-sm focus:ring-2 focus:ring-primary focus:border-primary outline-none placeholder-gray-400 dark:placeholder-gray-500"
         />
       </div>
 
       {/* Subjects grouped by course */}
       {isLoading ? (
-        <div className="text-center p-6 text-secondary">Loading subjects…</div>
+        <div className="text-center p-6 text-gray-500 dark:text-gray-400">
+          Loading subjects…
+        </div>
       ) : Object.keys(grouped).length === 0 ? (
-        <div className="text-center p-6 text-secondary bg-white rounded-xl shadow-sm">
-          <BookOpen size={32} className="mx-auto text-secondary-light mb-2" />
+        <div className="text-center p-6 text-gray-500 dark:text-gray-400 bg-white dark:bg-accent rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
+          <BookOpen size={32} className="mx-auto text-gray-400 dark:text-gray-500 mb-2" />
           <span>No subjects found</span>
-          <span className="text-xs text-secondary-light block">
+          <span className="text-xs text-gray-400 dark:text-gray-500 block">
             {search ? "Try adjusting your search" : "Add a new subject to get started"}
           </span>
         </div>
       ) : (
         Object.entries(grouped).map(([course, subs]) => (
           <div key={course} className="mb-8">
-            <h2 className="text-lg font-righteous text-primary-dark mb-3 border-b border-secondary-light pb-2">
+            <h2 className="text-lg font-heading text-primary-dark mb-3 border-b border-gray-200 dark:border-gray-700 pb-2">
               {course}
             </h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {subs.map((sub) => (
                 <div
                   key={sub.id}
-                  className="bg-white rounded-xl p-4 shadow-sm border border-secondary-light hover:border-primary transition flex justify-between items-center"
+                  className="bg-white dark:bg-accent rounded-xl p-4 shadow-sm border border-gray-200 dark:border-gray-700 hover:border-primary transition flex justify-between items-center"
                 >
-                  <span className="font-medium text-secondary-dark text-sm">
+                  <span className="font-medium text-gray-700 dark:text-gray-200 text-sm">
                     {sub.subject_name}
                   </span>
                   <div className="flex gap-2">
                     <button
                       onClick={() => openEdit(sub)}
-                      className="text-blue-600 hover:underline"
+                      className="text-blue-600 dark:text-blue-400 hover:underline"
                       title="Edit"
                     >
                       <Edit3 size={15} />
@@ -286,7 +298,7 @@ export default function Subjects() {
                         if (!window.confirm("Delete this subject?")) return;
                         deleteMutation.mutate(sub.id);
                       }}
-                      className="text-red-600 hover:underline"
+                      className="text-red-600 dark:text-red-400 hover:underline"
                       title="Delete"
                     >
                       <Trash2 size={15} />
@@ -305,38 +317,38 @@ export default function Subjects() {
           <button
             onClick={() => fetchNextPage()}
             disabled={isFetchingNextPage}
-            className="bg-primary hover:bg-primary-light text-white px-6 py-2.5 rounded-lg font-montserrat text-sm transition disabled:opacity-60"
+            className="bg-primary hover:bg-primary-light text-white px-6 py-2.5 rounded-lg font-body text-sm transition disabled:opacity-60"
           >
             {isFetchingNextPage ? "Loading more…" : "Load More"}
           </button>
         </div>
       )}
 
-      {/* Subject Form Modal (branded) */}
+      {/* Subject Form Modal */}
       {showForm && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl w-full max-w-md shadow-xl">
-            <div className="sticky top-0 bg-white border-b border-secondary-light px-6 py-4 flex items-center justify-between rounded-t-xl">
+          <div className="bg-white dark:bg-accent rounded-xl w-full max-w-md shadow-xl border border-gray-200 dark:border-gray-700">
+            <div className="sticky top-0 bg-white dark:bg-accent border-b border-gray-200 dark:border-gray-700 px-6 py-4 flex items-center justify-between rounded-t-xl">
               <div className="flex items-center gap-3">
                 <img
                   src="/ShreeVidhyaDark.png"
                   alt="ShreeVidhya Academy"
                   className="h-10 w-auto"
                 />
-                <h2 className="text-xl font-righteous text-primary-dark">
+                <h2 className="text-xl font-heading text-primary-dark">
                   {editing ? "Edit Subject" : "Add Subject"}
                 </h2>
               </div>
               <button
                 onClick={() => setShowForm(false)}
-                className="p-2 hover:bg-secondary-bg rounded-lg"
+                className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
               >
-                <X size={20} className="text-secondary-dark" />
+                <X size={20} className="text-gray-600 dark:text-gray-400" />
               </button>
             </div>
             <form onSubmit={handleSubmit} className="p-6 space-y-4">
               <div>
-                <label className="block text-sm font-montserrat text-secondary-dark mb-1">
+                <label className="block text-sm font-body text-gray-700 dark:text-gray-300 mb-1">
                   <BookOpen size={14} className="inline mr-1" /> Course *
                 </label>
                 <select
@@ -344,7 +356,7 @@ export default function Subjects() {
                   onChange={(e) =>
                     setForm({ ...form, course_id: e.target.value })
                   }
-                  className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
+                  className="w-full border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-primary outline-none"
                   required
                 >
                   <option value="">Select Course</option>
@@ -356,7 +368,7 @@ export default function Subjects() {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-montserrat text-secondary-dark mb-1">
+                <label className="block text-sm font-body text-gray-700 dark:text-gray-300 mb-1">
                   Subject Name *
                 </label>
                 <input
@@ -366,21 +378,21 @@ export default function Subjects() {
                   onChange={(e) =>
                     setForm({ ...form, subject_name: e.target.value })
                   }
-                  className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light"
+                  className="w-full border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-primary outline-none placeholder-gray-400 dark:placeholder-gray-500"
                   required
                 />
               </div>
               <div className="flex flex-col sm:flex-row-reverse gap-3 pt-2">
                 <button
                   type="submit"
-                  className="w-full sm:w-auto bg-primary hover:bg-primary-light text-white px-6 py-2.5 rounded-lg font-montserrat transition"
+                  className="w-full sm:w-auto bg-primary hover:bg-primary-light text-white px-6 py-2.5 rounded-lg font-body transition"
                 >
                   {editing ? "Update" : "Create"}
                 </button>
                 <button
                   type="button"
                   onClick={() => setShowForm(false)}
-                  className="w-full sm:w-auto border border-secondary-light text-secondary-dark hover:bg-secondary-bg px-6 py-2.5 rounded-lg font-montserrat transition"
+                  className="w-full sm:w-auto border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 px-6 py-2.5 rounded-lg font-body transition"
                 >
                   Cancel
                 </button>
@@ -389,6 +401,6 @@ export default function Subjects() {
           </div>
         </div>
       )}
-    </AdminLayout>
+    </div>
   );
 }

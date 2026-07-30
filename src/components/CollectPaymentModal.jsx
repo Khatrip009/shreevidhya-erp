@@ -1,387 +1,652 @@
 // src/components/CollectPaymentModal.jsx
 import { useState, useEffect } from "react";
-import toast from "react-hot-toast";
 import {
-  X, Calendar, IndianRupee, CreditCard, Hash, FileText, User,
-  ChevronDown, List, Receipt,
-} from "lucide-react";
-import { collectPayment } from "../services/feeService";
+  Modal,
+  Form,
+  InputNumber,
+  Select,
+  DatePicker,
+  Input,
+  Button,
+  Space,
+  message,
+  Descriptions,
+  Divider,
+  Result,
+  Table,
+  Typography,
+} from "antd";
+import { FileTextOutlined, FilePdfOutlined } from "@ant-design/icons";
+import dayjs from "dayjs";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  collectPaymentWithAllocation,
+  getStudentFeeComponents,
+} from "../services/feeService";
+import { createInvoice, getInvoices } from "../services/invoiceService";
 import { supabase } from "../api/supabase";
-import { useOrgDarkLogo } from "../hooks/useOrgDarkLogo";
-import { useOrg } from "../context/OrganizationContext";   // NEW
+import { useAuth } from "../context/AuthContext";
+import { useOrg } from "../context/OrganizationContext";
+import { useTheme } from "../context/ThemeContext";
+import { generateReceiptPdf } from "../utils/receiptPdf";
+import { generateInvoicePDF } from "../utils/invoicePdf";
+import { sendFeeReceiptEmail } from "../services/emailService";
+
+const { Text } = Typography;
 
 export default function CollectPaymentModal({ fee, onClose, onSuccess }) {
-  const darkLogo = useOrgDarkLogo();
-  const { branch, selectedFinancialYear } = useOrg();      // NEW
+  const [form] = Form.useForm();
+  const queryClient = useQueryClient();
+  const { profile } = useAuth();
+  const { org, branch, selectedFinancialYear } = useOrg();
+  const { theme } = useTheme();
+  const branchId = branch?.id;
+  const financialYearId = selectedFinancialYear?.id;
+  const ctx = { branchId, financialYearId };
 
-  const [form, setForm] = useState({
-    payment_date: new Date().toISOString().split("T")[0],
-    amount: "",
-    payment_mode: "Cash",
-    transaction_no: "",
-    remarks: "",
-    installment_id: "",
-  });
   const [installments, setInstallments] = useState([]);
   const [loadingInstallments, setLoadingInstallments] = useState(true);
-  const [taxInfo, setTaxInfo] = useState(null);
+  const [creatingInvoice, setCreatingInvoice] = useState(false);
 
-  // Fetch installments and tax info for this fee
+  const [components, setComponents] = useState([]);
+  const [loadingComponents, setLoadingComponents] = useState(true);
+  const [componentAllocations, setComponentAllocations] = useState({});
+
+  const [step, setStep] = useState("form");
+  const [receiptData, setReceiptData] = useState(null);
+  const [invoiceId, setInvoiceId] = useState(null);
+  const [paymentAmount, setPaymentAmount] = useState(0);
+  const [studentName, setStudentName] = useState("");
+
+  // ── Fetch existing invoices for this student (info only) ──
+  const { data: existingInvoices = [] } = useQuery({
+    queryKey: ["student-invoices", fee.student_id, branchId, financialYearId],
+    queryFn: () => getInvoices({ student_id: fee.student_id }, branchId, financialYearId),
+    enabled: !!fee.student_id && !!branchId && !!financialYearId,
+    staleTime: 2 * 60 * 1000,
+  });
+
+  // ── Fetch installments ──
   useEffect(() => {
-    async function loadData() {
-      // 1. Fetch installments
-      const { data: instData, error: instError } = await supabase
+    if (!branchId || !financialYearId) return;
+    async function loadInstallments() {
+      const { data: instData } = await supabase
         .from("fee_installments")
         .select("*")
         .eq("student_fee_id", fee.id)
+        .eq("branch_id", branchId)
+        .eq("financial_year_id", financialYearId)
         .order("installment_number");
-      if (instError) {
-        toast.error("Could not load installments");
-      } else {
-        setInstallments(instData || []);
-      }
+      setInstallments(instData || []);
       setLoadingInstallments(false);
+    }
+    loadInstallments();
+  }, [fee, branchId, financialYearId]);
 
-      // 2. Fetch tax info from fee structure
-      if (fee.fee_structures?.tax_rate_id) {
-        const taxRateId = fee.fee_structures.tax_rate_id;
-        const taxInclusive = fee.fee_structures.tax_inclusive !== undefined
-          ? fee.fee_structures.tax_inclusive
-          : true;
-        const taxRate = fee.fee_structures.tax_rates; // already populated from join
-
-        if (taxRate) {
-          setTaxInfo({
-            rate: Number(taxRate.rate),
-            name: taxRate.name,
-            taxInclusive: taxInclusive,
-            baseAmount: Number(fee.base_amount || 0),
-            taxAmount: Number(fee.tax_amount || 0),
-            finalFee: Number(fee.final_fee),
-          });
-        } else {
-          // Fetch tax rate separately if not populated
-          const { data: taxRateData } = await supabase
-            .from("tax_rates")
-            .select("rate, name")
-            .eq("id", taxRateId)
-            .single();
-          if (taxRateData) {
-            setTaxInfo({
-              rate: Number(taxRateData.rate),
-              name: taxRateData.name,
-              taxInclusive: taxInclusive,
-              baseAmount: Number(fee.base_amount || 0),
-              taxAmount: Number(fee.tax_amount || 0),
-              finalFee: Number(fee.final_fee),
-            });
-          }
-        }
+  // ── Fetch student fee components ──
+  useEffect(() => {
+    if (!branchId || !financialYearId || !fee.id) return;
+    async function loadComponents() {
+      setLoadingComponents(true);
+      try {
+        const data = await getStudentFeeComponents(fee.id, branchId, financialYearId);
+        setComponents(data);
+        const allocs = {};
+        data.forEach(comp => {
+          const pending = Math.max(Number(comp.due_amount) - Number(comp.paid_amount), 0);
+          allocs[comp.id] = pending > 0 ? pending : 0;
+        });
+        setComponentAllocations(allocs);
+      } catch (err) {
+        console.error("Failed to load fee components:", err);
+        message.error("Could not load fee breakdown");
+      } finally {
+        setLoadingComponents(false);
       }
     }
-    loadData();
-  }, [fee]);
+    loadComponents();
+  }, [fee, branchId, financialYearId]);
 
-  // When an installment is selected, auto-fill the amount
-  const selectedInstallment = installments.find(
-    (inst) => inst.id === Number(form.installment_id)
-  );
+  // ── Compute inclusive totals for the summary ──
+  const totalInclusiveFee = components.reduce((sum, c) => sum + Number(c.due_amount), 0);
+  const totalInclusivePaid = components.reduce((sum, c) => sum + Number(c.paid_amount), 0);
+  const inclusiveBalance = Math.max(totalInclusiveFee - totalInclusivePaid, 0);
+
+  // ── Compute totals (base, tax, total) for the current allocation ──
+  const computeTotals = () => {
+    let totalBase = 0;
+    let totalTax = 0;
+    let totalPayable = 0;
+    const breakdown = [];
+
+    components.forEach(comp => {
+      const entered = Number(componentAllocations[comp.id] || 0);
+      if (entered <= 0) return;
+
+      const taxRate = comp.fee_structure_components?.tax_rates?.rate || 0;
+      const rate = taxRate / 100;
+      const taxInclusive = comp.fee_structure_components?.tax_inclusive !== undefined
+        ? comp.fee_structure_components.tax_inclusive
+        : false;
+
+      let base, tax, total;
+      if (taxInclusive) {
+        total = entered;
+        if (rate > 0) {
+          base = entered / (1 + rate);
+          tax = entered - base;
+        } else {
+          base = entered;
+          tax = 0;
+        }
+      } else {
+        base = entered;
+        tax = entered * rate;
+        total = base + tax;
+      }
+
+      base = Math.round(base * 100) / 100;
+      tax = Math.round(tax * 100) / 100;
+      total = Math.round(total * 100) / 100;
+
+      totalBase += base;
+      totalTax += tax;
+      totalPayable += total;
+
+      breakdown.push({
+        componentId: comp.id,
+        componentName: comp.fee_structure_components?.component_name || "Component",
+        entered,
+        base,
+        tax,
+        total,
+        rate: taxRate,
+        taxInclusive,
+        taxRateId: comp.fee_structure_components?.tax_rate_id || null,
+      });
+    });
+
+    return {
+      totalBase: Math.round(totalBase * 100) / 100,
+      totalTax: Math.round(totalTax * 100) / 100,
+      totalPayable: Math.round(totalPayable * 100) / 100,
+      breakdown,
+    };
+  };
+
+  const totals = computeTotals();
 
   useEffect(() => {
-    if (selectedInstallment) {
-      setForm((prev) => ({ ...prev, amount: selectedInstallment.amount.toString() }));
+    form.setFieldValue("amount", totals.totalPayable);
+  }, [totals.totalPayable, form]);
+
+  // ── Print handlers ──
+  const handlePrintReceipt = async () => {
+    if (!receiptData) {
+      message.error("Receipt data not available");
+      return;
     }
-  }, [selectedInstallment]);
+    try {
+      const { data: fullReceipt, error } = await supabase
+        .from("receipts")
+        .select(`*, students (*), fee_payments (*)`)
+        .eq("id", receiptData.id)
+        .eq("branch_id", branchId)
+        .eq("financial_year_id", financialYearId)
+        .single();
+      if (error) throw error;
+      await generateReceiptPdf(fullReceipt, { theme });
+      message.success("Receipt PDF downloaded");
+    } catch (err) {
+      console.error(err);
+      message.error("Failed to generate receipt PDF");
+    }
+  };
 
-  function handleChange(e) {
-    const { name, value } = e.target;
-    setForm((prev) => ({ ...prev, [name]: value }));
-  }
+  const handlePrintInvoice = async () => {
+    if (!invoiceId) {
+      message.error("Invoice ID not available");
+      return;
+    }
+    try {
+      const { data: invoice, error } = await supabase
+        .from("invoices")
+        .select("*, invoice_items(*), students(*), receipt_id")
+        .eq("id", invoiceId)
+        .eq("branch_id", branchId)
+        .eq("financial_year_id", financialYearId)
+        .single();
+      if (error) throw error;
 
-  async function handleSubmit(e) {
-    e.preventDefault();
-    if (!form.amount || Number(form.amount) <= 0) {
-      toast.error("Enter a valid amount");
+      const doc = await generateInvoicePDF(invoice, org, 'sales', {
+        theme,
+        receiptNumber: receiptData?.receipt_no,
+      });
+      const pdfBlob = doc.output('blob');
+      const url = URL.createObjectURL(pdfBlob);
+      window.open(url, '_blank');
+      message.success("Invoice PDF opened in new tab");
+    } catch (err) {
+      console.error(err);
+      message.error("Failed to generate invoice PDF");
+    }
+  };
+
+  // ─── Create invoice from allocated amounts ──────────────────────────
+  const createInvoiceFromAllocations = async (breakdown, totalPayable, receiptId = null) => {
+    const items = breakdown.map(b => ({
+      item_type: "fee_component",
+      description: b.componentName,
+      quantity: 1,
+      unit_price: b.base,
+      tax_rate_id: b.taxRateId,
+      tax_inclusive: false,
+      hsn_sac_code: '999294',
+    }));
+
+    if (items.length === 0) {
+      items.push({
+        item_type: "fee_payment",
+        description: `Fee Payment - ${fee.fee_structures?.courses?.course_name || "N/A"}`,
+        quantity: 1,
+        unit_price: totalPayable,
+        tax_rate_id: null,
+        tax_inclusive: false,
+      });
+    }
+
+    const payload = {
+      student_id: fee.student_id,
+      invoice_date: new Date().toISOString().split("T")[0],
+      due_date: null,
+      payment_terms: "Immediate",
+      gst_applicable: totals.totalTax > 0,
+      place_of_supply: fee.students?.state_code || "",
+      reverse_charge: false,
+      items,
+      student_fee_id: fee.id,
+      fee_installment_id: null,
+      receipt_id: receiptId,
+      status: "Final",
+    };
+    const result = await createInvoice(payload, ctx);
+    return result.id;
+  };
+
+  // ── Submit payment ──
+  const onFinish = async (values) => {
+    const allocations = totals.breakdown
+      .filter(b => b.entered > 0)
+      .map(b => ({
+        studentFeeComponentId: b.componentId,
+        amount: b.total,
+        baseAmount: b.base,
+        taxAmount: b.tax,
+        taxRateId: b.taxRateId,
+      }));
+
+    if (allocations.length === 0) {
+      message.error("Please allocate at least one component");
       return;
     }
 
-    const paymentAmount = Number(form.amount);
-
-    // Calculate base_amount and tax_amount based on taxInfo
-    let baseAmount = paymentAmount;
-    let taxAmount = 0;
-
-    if (taxInfo && taxInfo.rate > 0) {
-      const rate = taxInfo.rate / 100;
-      if (taxInfo.taxInclusive) {
-        // Amount includes tax
-        baseAmount = paymentAmount / (1 + rate);
-        taxAmount = paymentAmount - baseAmount;
-      } else {
-        // Tax added on top
-        baseAmount = paymentAmount;
-        taxAmount = paymentAmount * rate;
-      }
-      // Round to 2 decimals
-      baseAmount = Math.round(baseAmount * 100) / 100;
-      taxAmount = Math.round(taxAmount * 100) / 100;
+    const payable = totals.totalPayable;
+    if (payable <= 0) {
+      message.error("Invalid payment amount");
+      return;
     }
 
     try {
-      const paymentPayload = {
-        student_fee_id: fee.id,
-        payment_date: form.payment_date,
-        amount: paymentAmount,
-        base_amount: baseAmount,
-        tax_amount: taxAmount,
-        payment_mode: form.payment_mode,
-        transaction_no: form.transaction_no,
-        remarks: form.remarks,
-        installment_id: form.installment_id || null,
-      };
+      setCreatingInvoice(true);
+      const finalInvoiceId = await createInvoiceFromAllocations(totals.breakdown, payable);
+      setCreatingInvoice(false);
 
-      // Build context for branch & financial year
-      const context = {
-        branchId: branch?.id,
-        financialYearId: selectedFinancialYear?.id,
-      };
+      const payment = await collectPaymentWithAllocation({
+        studentFeeId: fee.id,
+        paymentDate: values.payment_date ? values.payment_date.format("YYYY-MM-DD") : dayjs().format("YYYY-MM-DD"),
+        paymentMode: values.payment_mode,
+        transactionNo: values.transaction_no,
+        remarks: values.remarks,
+        installmentId: values.installment_id || null,
+        allocations: allocations.map(a => ({
+          studentFeeComponentId: a.studentFeeComponentId,
+          amount: a.amount,
+          baseAmount: a.baseAmount,
+          taxAmount: a.taxAmount,
+        })),
+        generatedBy: profile?.id,
+        invoiceId: finalInvoiceId,
+      }, ctx);
 
-      // collectPayment signature: (paymentPayload, studentId, invoiceId, context)
-      await collectPayment(paymentPayload, fee.student_id, null, context);
-      toast.success("Payment collected, receipt generated");
-      if (onSuccess) onSuccess();
+      const { data: receipt, error: receiptError } = await supabase
+        .from("receipts")
+        .select("*")
+        .eq("payment_id", payment.id)
+        .eq("branch_id", branchId)
+        .eq("financial_year_id", financialYearId)
+        .single();
+      if (receiptError) {
+        console.warn("Receipt not found for payment", payment.id);
+      } else {
+        setReceiptData(receipt);
+        if (finalInvoiceId && receipt) {
+          await supabase
+            .from("invoices")
+            .update({ receipt_id: receipt.id })
+            .eq("id", finalInvoiceId);
+        }
+      }
+
+      setInvoiceId(finalInvoiceId);
+      setPaymentAmount(payment.amount);
+      setStudentName(`${fee.students?.first_name} ${fee.students?.last_name}`);
+      setStep("success");
+
+      if (org && payment.id) {
+        sendFeeReceiptEmail(payment.id, org).catch((emailErr) =>
+          console.error("Failed to send receipt email", emailErr)
+        );
+      }
+
+      queryClient.invalidateQueries({ queryKey: ["studentFees"] });
+      queryClient.invalidateQueries({ queryKey: ["student-invoices"] });
+      onSuccess?.();
     } catch (err) {
+      setCreatingInvoice(false);
       console.error(err);
-      toast.error("Payment failed");
+      message.error(err.message || "Payment failed");
     }
-  }
+  };
 
-  const hasTax = taxInfo && taxInfo.rate > 0;
+  // ── Handlers for allocation changes ──
+  const handleAllocationChange = (componentId, value) => {
+    const comp = components.find(c => c.id === componentId);
+    if (!comp) return;
+    const pending = Math.max(Number(comp.due_amount) - Number(comp.paid_amount), 0);
+    let num = Number(value);
+    if (isNaN(num) || num < 0) num = 0;
+    if (num > pending) num = pending;
+    setComponentAllocations(prev => ({
+      ...prev,
+      [componentId]: num,
+    }));
+  };
 
+  const handlePayAll = () => {
+    const allocs = {};
+    components.forEach(comp => {
+      const pending = Math.max(Number(comp.due_amount) - Number(comp.paid_amount), 0);
+      allocs[comp.id] = pending;
+    });
+    setComponentAllocations(allocs);
+  };
+
+  const handleClose = () => {
+    setStep("form");
+    onClose();
+  };
+
+  // ── Render ──
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl w-full max-w-md shadow-xl max-h-[90vh] overflow-y-auto">
-        {/* Header */}
-        <div className="sticky top-0 bg-white border-b border-secondary-light px-6 py-4 flex items-center justify-between rounded-t-xl z-10">
-          <div className="flex items-center gap-3">
-            <img
-              src={darkLogo}
-              alt="ShreeVidhya Academy"
-              className="h-10 w-auto"
-            />
-            <h2 className="text-xl font-righteous text-primary-dark">
-              Collect Payment
-            </h2>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-2 hover:bg-secondary-bg rounded-lg transition"
-          >
-            <X size={20} className="text-secondary-dark" />
-          </button>
-        </div>
+    <Modal
+      title={
+        step === "form"
+          ? `Collect Payment - ${fee.students?.first_name} ${fee.students?.last_name}`
+          : "Payment Successful"
+      }
+      open
+      onCancel={handleClose}
+      footer={null}
+      destroyOnHidden
+      width={step === "form" ? 680 : 480}
+    >
+      {step === "form" ? (
+        <>
+          <Descriptions bordered size="small" column={1}>
+            <Descriptions.Item label="Course">
+              {fee.fee_structures?.courses?.course_name || "N/A"}
+            </Descriptions.Item>
+            <Descriptions.Item label="Total Fee (incl. tax)">
+              ₹{totalInclusiveFee.toLocaleString("en-IN")}
+            </Descriptions.Item>
+            {totalInclusivePaid > 0 && (
+              <Descriptions.Item label="Paid (incl. tax)">
+                ₹{totalInclusivePaid.toLocaleString("en-IN")}
+              </Descriptions.Item>
+            )}
+            <Descriptions.Item label="Balance (incl. tax)">
+              ₹{inclusiveBalance.toLocaleString("en-IN")}
+            </Descriptions.Item>
+          </Descriptions>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-5">
-          {/* Student Info */}
-          <div className="bg-primary-bg rounded-lg p-4 flex items-start gap-3">
-            <User size={20} className="text-primary mt-0.5" />
-            <div>
-              <p className="font-semibold text-primary-dark">
-                {fee.students?.first_name} {fee.students?.last_name}
-              </p>
-              <p className="text-sm text-secondary-dark mt-1">
-                Final Fee:{" "}
-                <span className="font-bold text-primary">
-                  ₹{Number(fee.final_fee).toLocaleString("en-IN")}
-                </span>
-              </p>
-              {fee.total_paid > 0 && (
-                <p className="text-sm text-green-700">
-                  Already paid: ₹{Number(fee.total_paid).toLocaleString("en-IN")}
-                </p>
-              )}
-              {hasTax && (
-                <p className="text-xs text-secondary mt-1">
-                  Tax rate: {taxInfo.name} ({taxInfo.rate}%) – {taxInfo.taxInclusive ? "Inclusive" : "Exclusive"}
-                </p>
-              )}
+          <Divider />
+
+          {/* ── Fee Components Allocation ── */}
+          <div className="mb-4">
+            <div className="flex justify-between items-center mb-2">
+              <Text strong>Allocate Payment to Components</Text>
+              <Button size="small" onClick={handlePayAll}>Pay All</Button>
             </div>
-          </div>
-
-          {/* Installments Section */}
-          {loadingInstallments ? (
-            <p className="text-sm text-secondary">Loading installments...</p>
-          ) : installments.length > 0 ? (
-            <div>
-              <label className="block text-sm font-montserrat text-secondary-dark mb-1">
-                <List size={14} className="inline mr-1" />
-                Installments (optional)
-              </label>
-              <select
-                name="installment_id"
-                value={form.installment_id}
-                onChange={handleChange}
-                className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
-              >
-                <option value="">No specific installment (lump sum)</option>
-                {installments.map((inst) => (
-                  <option key={inst.id} value={inst.id}>
-                    #{inst.installment_number} – ₹{Number(inst.amount).toLocaleString("en-IN")}
-                    {inst.due_date ? ` (Due ${inst.due_date})` : ""}
-                    {inst.status === "Paid" ? " ✓ Paid" : ""}
-                  </option>
-                ))}
-              </select>
-              {selectedInstallment && (
-                <p className="text-xs text-secondary mt-1">
-                  Amount auto‑filled with installment amount. You can still change it.
-                </p>
-              )}
-            </div>
-          ) : null}
-
-          {/* Date */}
-          <div>
-            <label className="block text-sm font-montserrat text-secondary-dark mb-1">
-              <Calendar size={14} className="inline mr-1" />
-              Date *
-            </label>
-            <input
-              type="date"
-              name="payment_date"
-              value={form.payment_date}
-              onChange={handleChange}
-              className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
-              required
-            />
-          </div>
-
-          {/* Amount */}
-          <div>
-            <label className="block text-sm font-montserrat text-secondary-dark mb-1">
-              <IndianRupee size={14} className="inline mr-1" />
-              Amount *
-            </label>
-            <input
-              type="number"
-              name="amount"
-              value={form.amount}
-              onChange={handleChange}
-              placeholder="Enter amount"
-              className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light"
-              required
-              step="0.01"
-            />
-            {hasTax && form.amount && Number(form.amount) > 0 && (
-              <div className="mt-2 bg-gray-50 rounded p-2 text-xs text-gray-600 space-y-0.5">
-                <p className="flex justify-between">
-                  <span>Base Amount:</span>
-                  <span className="font-medium">
-                    ₹{(() => {
-                      const amt = Number(form.amount);
-                      const rate = taxInfo.rate / 100;
-                      if (taxInfo.taxInclusive) {
-                        const base = amt / (1 + rate);
-                        return base.toFixed(2);
-                      } else {
-                        return amt.toFixed(2);
-                      }
-                    })()}
-                  </span>
-                </p>
-                <p className="flex justify-between">
-                  <span>Tax ({taxInfo.rate}%):</span>
-                  <span className="font-medium text-primary">
-                    ₹{(() => {
-                      const amt = Number(form.amount);
-                      const rate = taxInfo.rate / 100;
-                      if (taxInfo.taxInclusive) {
-                        const base = amt / (1 + rate);
-                        return (amt - base).toFixed(2);
-                      } else {
-                        return (amt * rate).toFixed(2);
-                      }
-                    })()}
-                  </span>
-                </p>
-                <p className="flex justify-between border-t border-gray-200 pt-0.5 font-medium">
-                  <span>Total:</span>
-                  <span>₹{Number(form.amount).toFixed(2)}</span>
-                </p>
-              </div>
+            {loadingComponents ? (
+              <Text type="secondary">Loading components...</Text>
+            ) : components.length === 0 ? (
+              <Text type="secondary">No components found for this fee.</Text>
+            ) : (
+              <Table
+                dataSource={components}
+                rowKey="id"
+                pagination={false}
+                size="small"
+                columns={[
+                  {
+                    title: "Component",
+                    dataIndex: ["fee_structure_components", "component_name"],
+                    key: "name",
+                  },
+                  {
+                    title: "Due",
+                    dataIndex: "due_amount",
+                    render: val => `₹${Number(val).toFixed(2)}`,
+                    align: "right",
+                  },
+                  {
+                    title: "Paid",
+                    dataIndex: "paid_amount",
+                    render: val => `₹${Number(val).toFixed(2)}`,
+                    align: "right",
+                  },
+                  {
+                    title: "Pending",
+                    render: (_, comp) => {
+                      const pending = Math.max(Number(comp.due_amount) - Number(comp.paid_amount), 0);
+                      return <Text strong>₹{pending.toFixed(2)}</Text>;
+                    },
+                    align: "right",
+                  },
+                  {
+                    title: "Pay Now",
+                    render: (_, comp) => {
+                      const pending = Math.max(Number(comp.due_amount) - Number(comp.paid_amount), 0);
+                      return (
+                        <InputNumber
+                          min={0}
+                          max={pending}
+                          value={componentAllocations[comp.id] || 0}
+                          onChange={(val) => handleAllocationChange(comp.id, val)}
+                          style={{ width: 100 }}
+                          formatter={value => `₹${value}`}
+                          parser={value => value.replace(/₹\s?|(,*)/g, '')}
+                        />
+                      );
+                    },
+                  },
+                ]}
+              />
             )}
           </div>
 
-          {/* Payment Mode */}
-          <div>
-            <label className="block text-sm font-montserrat text-secondary-dark mb-1">
-              <CreditCard size={14} className="inline mr-1" />
-              Payment Mode
-            </label>
-            <select
-              name="payment_mode"
-              value={form.payment_mode}
-              onChange={handleChange}
-              className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
-            >
-              <option>Cash</option>
-              <option>UPI</option>
-              <option>Bank Transfer</option>
-              <option>Cheque</option>
-            </select>
+          {/* ── Tax Breakdown ── */}
+          {totals.breakdown.length > 0 && (
+            <div className="bg-gray-50 dark:bg-gray-700 rounded-md p-3 mb-4">
+              <Text strong>Tax Breakdown</Text>
+              <Table
+                dataSource={totals.breakdown}
+                rowKey="componentName"
+                pagination={false}
+                size="small"
+                columns={[
+                  { title: "Component", dataIndex: "componentName" },
+                  {
+                    title: "Entered",
+                    dataIndex: "entered",
+                    render: val => `₹${val.toFixed(2)}`,
+                    align: "right",
+                  },
+                  {
+                    title: "Base",
+                    dataIndex: "base",
+                    render: val => `₹${val.toFixed(2)}`,
+                    align: "right",
+                  },
+                  {
+                    title: "Tax",
+                    dataIndex: "tax",
+                    render: val => `₹${val.toFixed(2)}`,
+                    align: "right",
+                  },
+                  {
+                    title: "Total",
+                    dataIndex: "total",
+                    render: val => `₹${val.toFixed(2)}`,
+                    align: "right",
+                  },
+                  {
+                    title: "Rate",
+                    render: (_, row) => row.rate > 0 ? `${row.rate}%` : "0%",
+                    align: "right",
+                  },
+                  {
+                    title: "Type",
+                    render: (_, row) => row.taxInclusive ? "Inclusive" : "Exclusive",
+                    align: "center",
+                  },
+                ]}
+              />
+              <div className="mt-2 text-right">
+                <Text strong>Total Payable: </Text>
+                <Text strong>₹{totals.totalPayable.toFixed(2)}</Text>
+                <br />
+                <Text type="secondary">Base: ₹{totals.totalBase.toFixed(2)}</Text>
+                <Text type="secondary" style={{ marginLeft: 12 }}>Tax: ₹{totals.totalTax.toFixed(2)}</Text>
+              </div>
+            </div>
+          )}
+
+          {/* ── Invoice Info ── */}
+          <div className="mb-4 p-3 bg-primary-bg rounded border border-primary">
+            <Text strong>Invoice: </Text>
+            <Text>A new invoice will be created for this payment based on the allocated amounts.</Text>
           </div>
 
-          {/* Transaction No */}
-          <div>
-            <label className="block text-sm font-montserrat text-secondary-dark mb-1">
-              <Hash size={14} className="inline mr-1" />
-              Transaction No / Reference
-            </label>
-            <input
-              type="text"
-              name="transaction_no"
-              value={form.transaction_no}
-              onChange={handleChange}
-              placeholder="e.g., UTR or Cheque No"
-              className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light"
-            />
-          </div>
+          <Form
+            form={form}
+            layout="vertical"
+            onFinish={onFinish}
+            initialValues={{
+              payment_date: dayjs(),
+              amount: totals.totalPayable || 0,
+              payment_mode: "Cash",
+            }}
+          >
+            {!loadingInstallments && installments.length > 0 && (
+              <Form.Item name="installment_id" label="Installment (optional)">
+                <Select
+                  placeholder="No specific installment"
+                  allowClear
+                  options={installments.map((inst) => ({
+                    label: `#${inst.installment_number} – ₹${inst.amount} ${inst.due_date ? `(Due ${inst.due_date})` : ""} ${inst.status === "Paid" ? "✓ Paid" : ""}`,
+                    value: inst.id,
+                  }))}
+                />
+              </Form.Item>
+            )}
 
-          {/* Remarks */}
-          <div>
-            <label className="block text-sm font-montserrat text-secondary-dark mb-1">
-              <FileText size={14} className="inline mr-1" />
-              Remarks
-            </label>
-            <input
-              type="text"
-              name="remarks"
-              value={form.remarks}
-              onChange={handleChange}
-              placeholder="Any additional note"
-              className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light"
-            />
-          </div>
+            <Form.Item
+              name="payment_date"
+              label="Payment Date"
+              rules={[{ required: true }]}
+            >
+              <DatePicker style={{ width: "100%" }} />
+            </Form.Item>
 
-          {/* Buttons */}
-          <div className="flex flex-col sm:flex-row-reverse gap-3 pt-2">
-            <button
-              type="submit"
-              className="w-full sm:w-auto bg-accent hover:bg-accent-light text-white px-6 py-2.5 rounded-lg font-montserrat transition flex items-center justify-center gap-2"
+            <Form.Item
+              name="amount"
+              label="Total Payment Amount (Auto-calculated)"
             >
-              <IndianRupee size={16} />
-              Collect Payment
-            </button>
-            <button
-              type="button"
-              onClick={onClose}
-              className="w-full sm:w-auto border border-secondary-light text-secondary-dark hover:bg-secondary-bg px-6 py-2.5 rounded-lg font-montserrat transition"
+              <InputNumber
+                style={{ width: "100%" }}
+                value={totals.totalPayable}
+                disabled
+                formatter={value => `₹${value}`}
+              />
+            </Form.Item>
+
+            <Form.Item name="payment_mode" label="Payment Mode">
+              <Select>
+                <Select.Option value="Cash">Cash</Select.Option>
+                <Select.Option value="Card">Card</Select.Option>
+                <Select.Option value="UPI">UPI</Select.Option>
+                <Select.Option value="Bank Transfer">Bank Transfer</Select.Option>
+              </Select>
+            </Form.Item>
+
+            <Form.Item name="transaction_no" label="Transaction No / Reference">
+              <Input placeholder="e.g., UTR or Cheque No" />
+            </Form.Item>
+
+            <Form.Item name="remarks" label="Remarks">
+              <Input.TextArea rows={2} placeholder="Any additional note" />
+            </Form.Item>
+
+            <Form.Item style={{ marginBottom: 0 }}>
+              <Space style={{ float: "right" }}>
+                <Button onClick={handleClose}>Cancel</Button>
+                <Button type="primary" htmlType="submit" loading={creatingInvoice}>
+                  Collect Payment
+                </Button>
+              </Space>
+            </Form.Item>
+          </Form>
+        </>
+      ) : (
+        <div style={{ textAlign: "center" }}>
+          <Result
+            status="success"
+            title={`₹${paymentAmount.toLocaleString("en-IN")} collected successfully`}
+            subTitle={`For ${studentName}`}
+          />
+          <div style={{ marginTop: 24, display: "flex", justifyContent: "center", gap: 12 }}>
+            <Button
+              type="primary"
+              icon={<FileTextOutlined />}
+              onClick={handlePrintReceipt}
+              disabled={!receiptData}
             >
-              Cancel
-            </button>
+              Print Receipt
+            </Button>
+            {invoiceId && (
+              <Button
+                type="primary"
+                icon={<FilePdfOutlined />}
+                onClick={handlePrintInvoice}
+              >
+                Print Invoice
+              </Button>
+            )}
+            <Button onClick={handleClose}>Close</Button>
           </div>
-        </form>
-      </div>
-    </div>
+        </div>
+      )}
+    </Modal>
   );
 }

@@ -2,10 +2,12 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import { supabase } from "../api/supabase";
-import AdminLayout from "../layouts/AdminLayout";
+
 import BackButton from "../components/BackButton";
 
 import { Plus, Trash2, ExternalLink } from "lucide-react";
+import { useOrg } from "../context/OrganizationContext";
+import { useTheme } from "../context/ThemeContext"; // ✅ dynamic theme
 
 const RESOURCE_TYPES = [
   "textbook",
@@ -32,33 +34,61 @@ export default function LearningResources() {
     chapter_title: "",
     resource_url: "",
     resource_type: "textbook",
-    medium_id: "", // now using FK
+    medium_id: "",
     board: "GSEB",
     is_premium: false,
   });
 
-  // Fetch dropdown data
+  // ── Branch & Financial Year context ──
+  const { branch, selectedFinancialYear } = useOrg();
+  const theme = useTheme(); // ✅ theme hook
+  const branchId = branch?.id;
+  const financialYearId = selectedFinancialYear?.id;
+
+  const headingFont = theme?.font_heading || "Righteous";
+  const bodyFont = theme?.font_body || "Montserrat";
+
+  // Fetch dropdown data – scoped where appropriate
+
+  // Subjects – scoped
   const { data: subjects = [] } = useQuery({
-    queryKey: ["subjects-list"],
+    queryKey: ["subjects-list", branchId, financialYearId],
     queryFn: async () => {
-      const { data } = await supabase
+      let query = supabase
         .from("subjects")
-        .select("id, subject_name, courses(course_name)");
+        .select("id, subject_name, courses(course_name)")
+        .order("subject_name");
+
+      if (branchId) query = query.eq("branch_id", branchId);
+      if (financialYearId) query = query.eq("financial_year_id", financialYearId);
+
+      const { data } = await query;
       return data || [];
     },
+    enabled: !!branchId && !!financialYearId,
+    staleTime: 10 * 60 * 1000,
   });
 
+  // Batches – scoped
   const { data: batches = [] } = useQuery({
-    queryKey: ["batches-list"],
+    queryKey: ["batches-list", branchId, financialYearId],
     queryFn: async () => {
-      const { data } = await supabase
+      let query = supabase
         .from("batches")
-        .select("id, batch_name");
+        .select("id, batch_name")
+        .order("batch_name");
+
+      if (branchId) query = query.eq("branch_id", branchId);
+      if (financialYearId) query = query.eq("financial_year_id", financialYearId);
+
+      const { data } = await query;
       return data || [];
     },
+    enabled: !!branchId && !!financialYearId,
+    staleTime: 10 * 60 * 1000,
   });
 
-  // NEW: fetch mediums
+  // Mediums – org‑wide (no branch/FY)
   const { data: mediums = [] } = useQuery({
     queryKey: ["mediums-list"],
     queryFn: async () => {
@@ -68,11 +98,12 @@ export default function LearningResources() {
         .order("name");
       return data || [];
     },
+    staleTime: 10 * 60 * 1000,
   });
 
-  // Fetch resources with filters (now includes medium_id and mediums join)
+  // Fetch resources with filters (scoped)
   const { data: resources = [], isLoading } = useQuery({
-    queryKey: ["learning-resources", filters],
+    queryKey: ["learning-resources", filters, branchId, financialYearId],
     queryFn: async () => {
       let query = supabase
         .from("learning_resources")
@@ -80,6 +111,10 @@ export default function LearningResources() {
           "*, subjects(subject_name, courses(course_name)), batches(batch_name), mediums(name)"
         )
         .order("created_at", { ascending: false });
+
+      // Scope to branch & FY
+      if (branchId) query = query.eq("branch_id", branchId);
+      if (financialYearId) query = query.eq("financial_year_id", financialYearId);
 
       if (filters.subject_id) query = query.eq("subject_id", filters.subject_id);
       if (filters.batch_id) query = query.eq("batch_id", filters.batch_id);
@@ -90,12 +125,20 @@ export default function LearningResources() {
       const { data } = await query;
       return data || [];
     },
+    enabled: !!branchId && !!financialYearId,
+    staleTime: 5 * 60 * 1000,
   });
 
-  // Add resource mutation
+  // Add resource mutation – scoped
   const addMutation = useMutation({
     mutationFn: async (payload) => {
-      const { error } = await supabase.from("learning_resources").insert(payload);
+      const { error } = await supabase
+        .from("learning_resources")
+        .insert({
+          ...payload,
+          branch_id: branchId,
+          financial_year_id: financialYearId,
+        });
       if (error) throw error;
     },
     onSuccess: () => {
@@ -106,13 +149,18 @@ export default function LearningResources() {
     onError: () => toast.error("Failed to add"),
   });
 
-  // Delete resource mutation
+  // Delete resource mutation – scoped
   const deleteMutation = useMutation({
     mutationFn: async (id) => {
-      const { error } = await supabase
+      let query = supabase
         .from("learning_resources")
         .delete()
         .eq("id", id);
+
+      if (branchId) query = query.eq("branch_id", branchId);
+      if (financialYearId) query = query.eq("financial_year_id", financialYearId);
+
+      const { error } = await query;
       if (error) throw error;
     },
     onSuccess: () => {
@@ -128,7 +176,6 @@ export default function LearningResources() {
       toast.error("Subject and URL are required");
       return;
     }
-    // Ensure empty strings become null for FK
     const payload = {
       ...form,
       batch_id: form.batch_id || null,
@@ -138,15 +185,19 @@ export default function LearningResources() {
   };
 
   return (
-    <AdminLayout>
+    <>
       <BackButton to="/communication-hub" label="Communication" />
       <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-righteous text-primary-dark">
+        <h1
+          className="text-3xl font-bold text-primary"
+          style={{ fontFamily: headingFont }}
+        >
           Learning Resources
         </h1>
         <button
           onClick={() => setShowForm(true)}
-          className="bg-primary hover:bg-primary-light text-white px-4 py-2 rounded-lg flex items-center gap-2"
+          className="bg-primary hover:bg-primary-light text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
+          style={{ fontFamily: bodyFont }}
         >
           <Plus size={18} /> Add Resource
         </button>
@@ -155,7 +206,7 @@ export default function LearningResources() {
       {/* Filters */}
       <div className="flex gap-4 mb-6 flex-wrap">
         <select
-          className="border p-2 rounded"
+          className="border border-primary-bg bg-white text-primary-dark rounded p-2 text-sm"
           value={filters.subject_id}
           onChange={(e) =>
             setFilters({ ...filters, subject_id: e.target.value })
@@ -170,7 +221,7 @@ export default function LearningResources() {
         </select>
 
         <select
-          className="border p-2 rounded"
+          className="border border-primary-bg bg-white text-primary-dark rounded p-2 text-sm"
           value={filters.batch_id}
           onChange={(e) =>
             setFilters({ ...filters, batch_id: e.target.value })
@@ -185,7 +236,7 @@ export default function LearningResources() {
         </select>
 
         <select
-          className="border p-2 rounded"
+          className="border border-primary-bg bg-white text-primary-dark rounded p-2 text-sm"
           value={filters.resource_type}
           onChange={(e) =>
             setFilters({ ...filters, resource_type: e.target.value })
@@ -199,9 +250,8 @@ export default function LearningResources() {
           ))}
         </select>
 
-        {/* NEW: Medium filter */}
         <select
-          className="border p-2 rounded"
+          className="border border-primary-bg bg-white text-primary-dark rounded p-2 text-sm"
           value={filters.medium_id}
           onChange={(e) =>
             setFilters({ ...filters, medium_id: e.target.value })
@@ -217,46 +267,59 @@ export default function LearningResources() {
       </div>
 
       {/* Resources Table */}
-      <div className="bg-white rounded-xl shadow-sm overflow-x-auto">
+      <div className="bg-white rounded-xl shadow-sm overflow-x-auto border border-primary-bg">
         <table className="w-full min-w-[600px]">
-          <thead className="bg-slate-100">
+          <thead className="bg-primary-bg">
             <tr>
-              <th className="p-3 text-left">Subject</th>
-              <th className="p-3 text-left">Batch</th>
-              <th className="p-3 text-left">Chapter</th>
-              <th className="p-3 text-left">Type</th>
-              <th className="p-3 text-left">Medium / Board</th>
-              <th className="p-3 text-left">Premium</th>
-              <th className="p-3 text-left">Actions</th>
+              <th className="p-3 text-left text-sm font-medium text-primary-dark uppercase" style={{ fontFamily: bodyFont }}>
+                Subject
+              </th>
+              <th className="p-3 text-left text-sm font-medium text-primary-dark uppercase" style={{ fontFamily: bodyFont }}>
+                Batch
+              </th>
+              <th className="p-3 text-left text-sm font-medium text-primary-dark uppercase" style={{ fontFamily: bodyFont }}>
+                Chapter
+              </th>
+              <th className="p-3 text-left text-sm font-medium text-primary-dark uppercase" style={{ fontFamily: bodyFont }}>
+                Type
+              </th>
+              <th className="p-3 text-left text-sm font-medium text-primary-dark uppercase" style={{ fontFamily: bodyFont }}>
+                Medium / Board
+              </th>
+              <th className="p-3 text-left text-sm font-medium text-primary-dark uppercase" style={{ fontFamily: bodyFont }}>
+                Premium
+              </th>
+              <th className="p-3 text-left text-sm font-medium text-primary-dark uppercase" style={{ fontFamily: bodyFont }}>
+                Actions
+              </th>
             </tr>
           </thead>
           <tbody>
             {isLoading ? (
               <tr>
-                <td colSpan={7} className="p-4 text-center">
+                <td colSpan={7} className="p-4 text-center text-primary-dark/60" style={{ fontFamily: bodyFont }}>
                   Loading...
                 </td>
               </tr>
             ) : (
               resources.map((r) => (
-                <tr key={r.id} className="border-b">
-                  <td className="p-3 text-sm">
+                <tr key={r.id} className="border-b border-primary-bg hover:bg-primary-bg transition-colors">
+                  <td className="p-3 text-sm text-primary-dark" style={{ fontFamily: bodyFont }}>
                     {r.subjects?.subject_name} ({r.subjects?.courses?.course_name})
                   </td>
-                  <td className="p-3 text-sm">
+                  <td className="p-3 text-sm text-primary-dark" style={{ fontFamily: bodyFont }}>
                     {r.batches?.batch_name || "All"}
                   </td>
-                  <td className="p-3 text-sm">
+                  <td className="p-3 text-sm text-primary-dark" style={{ fontFamily: bodyFont }}>
                     Ch {r.chapter_no}: {r.chapter_title}
                   </td>
-                  <td className="p-3 text-sm capitalize">
+                  <td className="p-3 text-sm capitalize text-primary-dark" style={{ fontFamily: bodyFont }}>
                     {r.resource_type.replace("_", " ")}
                   </td>
-                  <td className="p-3 text-sm">
-                    {/* Show medium name from join or fallback to text column */}
+                  <td className="p-3 text-sm text-primary-dark" style={{ fontFamily: bodyFont }}>
                     {r.mediums?.name || r.medium || "—"} - {r.board}
                   </td>
-                  <td className="p-3 text-sm">
+                  <td className="p-3 text-sm text-primary-dark" style={{ fontFamily: bodyFont }}>
                     {r.is_premium ? "🔒" : "🆓"}
                   </td>
                   <td className="p-3 text-sm flex gap-2">
@@ -264,13 +327,14 @@ export default function LearningResources() {
                       href={r.resource_url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-blue-600 hover:underline inline-flex items-center gap-1"
+                      className="text-primary hover:underline inline-flex items-center gap-1"
+                      style={{ fontFamily: bodyFont }}
                     >
                       <ExternalLink size={16} /> Open
                     </a>
                     <button
                       onClick={() => deleteMutation.mutate(r.id)}
-                      className="text-red-600"
+                      className="text-accent-dark hover:text-accent"
                       title="Delete"
                     >
                       <Trash2 size={16} />
@@ -285,9 +349,12 @@ export default function LearningResources() {
 
       {/* Add Form Modal */}
       {showForm && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl p-6 w-full max-w-lg shadow-xl">
-            <h2 className="text-xl font-righteous text-primary-dark mb-4">
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl p-6 w-full max-w-lg shadow-xl border border-primary-bg">
+            <h2
+              className="text-xl font-bold text-primary mb-4"
+              style={{ fontFamily: headingFont }}
+            >
               Add Resource
             </h2>
             <form onSubmit={handleSubmit} className="space-y-4">
@@ -298,7 +365,7 @@ export default function LearningResources() {
                 onChange={(e) =>
                   setForm({ ...form, subject_id: e.target.value })
                 }
-                className="w-full border p-2 rounded"
+                className="w-full border border-primary-bg bg-white text-primary-dark rounded p-2.5 text-sm focus:ring-1 focus:ring-primary"
               >
                 <option value="">Select Subject</option>
                 {subjects.map((s) => (
@@ -314,7 +381,7 @@ export default function LearningResources() {
                 onChange={(e) =>
                   setForm({ ...form, batch_id: e.target.value })
                 }
-                className="w-full border p-2 rounded"
+                className="w-full border border-primary-bg bg-white text-primary-dark rounded p-2.5 text-sm focus:ring-1 focus:ring-primary"
               >
                 <option value="">All Batches (optional)</option>
                 {batches.map((b) => (
@@ -332,7 +399,7 @@ export default function LearningResources() {
                 onChange={(e) =>
                   setForm({ ...form, chapter_no: e.target.value })
                 }
-                className="w-full border p-2 rounded"
+                className="w-full border border-primary-bg bg-white text-primary-dark rounded p-2.5 text-sm placeholder-primary-dark/40"
               />
               <input
                 type="text"
@@ -341,7 +408,7 @@ export default function LearningResources() {
                 onChange={(e) =>
                   setForm({ ...form, chapter_title: e.target.value })
                 }
-                className="w-full border p-2 rounded"
+                className="w-full border border-primary-bg bg-white text-primary-dark rounded p-2.5 text-sm placeholder-primary-dark/40"
               />
 
               {/* Resource URL */}
@@ -353,7 +420,7 @@ export default function LearningResources() {
                 onChange={(e) =>
                   setForm({ ...form, resource_url: e.target.value })
                 }
-                className="w-full border p-2 rounded"
+                className="w-full border border-primary-bg bg-white text-primary-dark rounded p-2.5 text-sm placeholder-primary-dark/40"
               />
 
               {/* Type & Medium */}
@@ -363,7 +430,7 @@ export default function LearningResources() {
                   onChange={(e) =>
                     setForm({ ...form, resource_type: e.target.value })
                   }
-                  className="w-1/2 border p-2 rounded"
+                  className="w-1/2 border border-primary-bg bg-white text-primary-dark rounded p-2.5 text-sm"
                 >
                   {RESOURCE_TYPES.map((t) => (
                     <option key={t} value={t}>
@@ -372,13 +439,12 @@ export default function LearningResources() {
                   ))}
                 </select>
 
-                {/* Replaced medium text with dropdown from mediums table */}
                 <select
                   value={form.medium_id}
                   onChange={(e) =>
                     setForm({ ...form, medium_id: e.target.value })
                   }
-                  className="w-1/2 border p-2 rounded"
+                  className="w-1/2 border border-primary-bg bg-white text-primary-dark rounded p-2.5 text-sm"
                 >
                   <option value="">Select Medium</option>
                   {mediums.map((m) => (
@@ -396,18 +462,22 @@ export default function LearningResources() {
                   onChange={(e) =>
                     setForm({ ...form, board: e.target.value })
                   }
-                  className="w-1/2 border p-2 rounded"
+                  className="w-1/2 border border-primary-bg bg-white text-primary-dark rounded p-2.5 text-sm"
                 >
                   <option>GSEB</option>
                   <option>CBSE</option>
                 </select>
-                <label className="flex items-center gap-2">
+                <label
+                  className="flex items-center gap-2 text-sm text-primary-dark"
+                  style={{ fontFamily: bodyFont }}
+                >
                   <input
                     type="checkbox"
                     checked={form.is_premium}
                     onChange={(e) =>
                       setForm({ ...form, is_premium: e.target.checked })
                     }
+                    className="rounded text-primary focus:ring-primary"
                   />
                   Premium (paid access)
                 </label>
@@ -418,13 +488,15 @@ export default function LearningResources() {
                 <button
                   type="button"
                   onClick={() => setShowForm(false)}
-                  className="px-4 py-2 border rounded"
+                  className="border border-primary-bg text-primary-dark px-4 py-2 rounded hover:bg-primary-bg transition-colors"
+                  style={{ fontFamily: bodyFont }}
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-primary text-white rounded"
+                  className="bg-primary hover:bg-primary-light text-white px-4 py-2 rounded transition-colors"
+                  style={{ fontFamily: bodyFont }}
                 >
                   Add
                 </button>
@@ -433,6 +505,6 @@ export default function LearningResources() {
           </div>
         </div>
       )}
-    </AdminLayout>
+    </>
   );
 }

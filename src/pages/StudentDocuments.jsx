@@ -1,5 +1,5 @@
 // src/pages/StudentDocuments.jsx
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import {
@@ -15,7 +15,7 @@ import {
   Download,
   Eye,
 } from "lucide-react";
-import AdminLayout from "../layouts/AdminLayout";
+
 import BackButton from "../components/BackButton";
 
 import { supabase } from "../api/supabase";
@@ -24,20 +24,36 @@ import {
   uploadStudentDocument,
   deleteStudentDocument,
 } from "../services/documentService";
-import { useOrg } from "../context/OrganizationContext";   // NEW
+import { useOrg } from "../context/OrganizationContext";
+import { useTheme } from "../context/ThemeContext"; // ✅ dynamic theme
 
-export default function StudentDocuments() {
+export default function StudentDocuments({ studentId: propStudentId = null, standalone = true }) {
   const queryClient = useQueryClient();
-  const [selectedStudentId, setSelectedStudentId] = useState(null);
+
+  // ── Organization, Branch & Financial Year context ──
+  const { branch, selectedFinancialYear } = useOrg();
+  const theme = useTheme(); // ✅ theme hook
+  const branchId = branch?.id;
+  const financialYearId = selectedFinancialYear?.id;
+  const ctx = { branchId, financialYearId };
+
+  const headingFont = theme?.font_heading || "Righteous";
+  const bodyFont = theme?.font_body || "Montserrat";
+
+  // ── Use propStudentId if provided ──
+  const [selectedStudentId, setSelectedStudentId] = useState(propStudentId);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef(null);
   const [docType, setDocType] = useState("ID Proof");
 
-  // ── Organization, Branch & Financial Year context ──
-  const { branch, selectedFinancialYear } = useOrg();
-  const ctx = { branchId: branch?.id, financialYearId: selectedFinancialYear?.id };
+  // Auto-select when prop changes
+  useEffect(() => {
+    if (propStudentId) {
+      setSelectedStudentId(propStudentId);
+    }
+  }, [propStudentId]);
 
-  // Filters for students
+  // ── Filters for students (only used when no propStudentId) ──
   const [search, setSearch] = useState("");
   const [filterCourse, setFilterCourse] = useState("");
   const [filterBatch, setFilterBatch] = useState("");
@@ -46,7 +62,7 @@ export default function StudentDocuments() {
   const [filterStatus, setFilterStatus] = useState("");
   const [showFilters, setShowFilters] = useState(false);
 
-  // Fetch courses for filter
+  // Fetch courses for filter – organisation‑wide
   const { data: courses = [] } = useQuery({
     queryKey: ["courses-dropdown"],
     queryFn: async () => {
@@ -56,17 +72,25 @@ export default function StudentDocuments() {
     staleTime: 10 * 60 * 1000,
   });
 
-  // Fetch batches for filter
+  // Fetch batches for filter – scoped
   const { data: batches = [] } = useQuery({
-    queryKey: ["batches-dropdown"],
+    queryKey: ["batches-dropdown", branchId, financialYearId],
     queryFn: async () => {
-      const { data } = await supabase.from("batches").select("id, batch_name").eq("status", "active");
+      let query = supabase
+        .from("batches")
+        .select("id, batch_name")
+        .eq("status", "active")
+        .order("batch_name");
+      if (branchId) query = query.eq("branch_id", branchId);
+      if (financialYearId) query = query.eq("financial_year_id", financialYearId);
+      const { data } = await query;
       return data || [];
     },
+    enabled: !!branchId && !!financialYearId,
     staleTime: 10 * 60 * 1000,
   });
 
-  // Fetch mediums for filter
+  // Fetch mediums for filter – organisation‑wide
   const { data: mediums = [] } = useQuery({
     queryKey: ["mediums-dropdown"],
     queryFn: async () => {
@@ -76,84 +100,87 @@ export default function StudentDocuments() {
     staleTime: 10 * 60 * 1000,
   });
 
-  // Fetch students with all filters
+  // Fetch students with filters – only needed when propStudentId is not provided
   const { data: students = [], isLoading: studentsLoading } = useQuery({
-    queryKey: ["students-filtered", { search, course: filterCourse, batch: filterBatch, medium: filterMedium, standard: filterStandard, status: filterStatus }],
+    queryKey: ["students-filtered", { search, course: filterCourse, batch: filterBatch, medium: filterMedium, standard: filterStandard, status: filterStatus }, branchId, financialYearId],
     queryFn: async () => {
       let query = supabase
         .from("students")
         .select("id, first_name, last_name, admission_no, standard, photo_url, status, medium_id")
         .order("first_name");
 
+      if (branchId) query = query.eq("branch_id", branchId);
+      if (financialYearId) query = query.eq("financial_year_id", financialYearId);
+
       if (search) {
         query = query.or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,admission_no.ilike.%${search}%`);
       }
-      if (filterStandard) {
-        query = query.eq("standard", filterStandard);
-      }
-      if (filterMedium) {
-        query = query.eq("medium_id", filterMedium);
-      }
-      if (filterStatus) {
-        query = query.eq("status", filterStatus);
-      }
+      if (filterStandard) query = query.eq("standard", filterStandard);
+      if (filterMedium) query = query.eq("medium_id", filterMedium);
+      if (filterStatus) query = query.eq("status", filterStatus);
 
-      // Course and batch filters require joining
+      // Course and batch filters
       if (filterCourse || filterBatch) {
         let studentIds = new Set();
         if (filterCourse) {
-          const { data: courseBatches } = await supabase
+          let courseBatchesQuery = supabase
             .from("batches")
             .select("id")
             .eq("course_id", filterCourse);
+          if (branchId) courseBatchesQuery = courseBatchesQuery.eq("branch_id", branchId);
+          if (financialYearId) courseBatchesQuery = courseBatchesQuery.eq("financial_year_id", financialYearId);
+          const { data: courseBatches } = await courseBatchesQuery;
           const batchIds = courseBatches?.map((b) => b.id) || [];
           if (batchIds.length > 0) {
-            const { data: batchStudents } = await supabase
+            let batchStudentsQuery = supabase
               .from("student_batches")
               .select("student_id")
               .in("batch_id", batchIds)
               .eq("status", "active");
+            if (branchId) batchStudentsQuery = batchStudentsQuery.eq("branch_id", branchId);
+            if (financialYearId) batchStudentsQuery = batchStudentsQuery.eq("financial_year_id", financialYearId);
+            const { data: batchStudents } = await batchStudentsQuery;
             batchStudents?.forEach((bs) => studentIds.add(bs.student_id));
           }
         }
         if (filterBatch) {
-          const { data: batchStudents } = await supabase
+          let batchStudentsQuery = supabase
             .from("student_batches")
             .select("student_id")
             .eq("batch_id", filterBatch)
             .eq("status", "active");
+          if (branchId) batchStudentsQuery = batchStudentsQuery.eq("branch_id", branchId);
+          if (financialYearId) batchStudentsQuery = batchStudentsQuery.eq("financial_year_id", financialYearId);
+          const { data: batchStudents } = await batchStudentsQuery;
           batchStudents?.forEach((bs) => studentIds.add(bs.student_id));
         }
         const ids = Array.from(studentIds);
-        if (ids.length > 0) {
-          query = query.in("id", ids);
-        } else {
-          return []; // no students matching
-        }
+        if (ids.length > 0) query = query.in("id", ids);
+        else return [];
       }
 
-      const { data, error } = await query.limit(200); // increased for better filtering
+      const { data, error } = await query.limit(200);
       if (error) throw error;
       return data || [];
     },
+    enabled: !!branchId && !!financialYearId && !propStudentId, // only run when no propStudentId
     staleTime: 2 * 60 * 1000,
   });
 
-  // Fetch documents for selected student
+  // Fetch documents for selected student – scoped
   const {
     data: documents = [],
     isLoading: docsLoading,
   } = useQuery({
-    queryKey: ["student-documents", selectedStudentId],
-    queryFn: () => getStudentDocuments(selectedStudentId),
-    enabled: !!selectedStudentId,
+    queryKey: ["student-documents", selectedStudentId, branchId, financialYearId],
+    queryFn: () => getStudentDocuments(selectedStudentId, branchId, financialYearId),
+    enabled: !!selectedStudentId && !!branchId && !!financialYearId,
     staleTime: 2 * 60 * 1000,
   });
 
-  // Mutations
+  // ── Mutations ──
   const uploadMutation = useMutation({
     mutationFn: async (file) => {
-      // Pass context as fourth argument to uploadStudentDocument
       await uploadStudentDocument(selectedStudentId, file, docType, ctx);
     },
     onSuccess: () => {
@@ -167,9 +194,9 @@ export default function StudentDocuments() {
   const deleteMutation = useMutation({
     mutationFn: async (doc) => {
       const url = new URL(doc.file_path);
-      const pathParts = url.pathname.split("/ShreeVidhya_Academy/"); // adjust for your bucket
+      const pathParts = url.pathname.split("/ShreeVidhya_Academy/");
       const filePath = pathParts[1] || doc.file_path;
-      await deleteStudentDocument(doc.id, filePath);
+      await deleteStudentDocument(doc.id, filePath, branchId, financialYearId);
     },
     onSuccess: () => {
       toast.success("Document deleted");
@@ -184,164 +211,191 @@ export default function StudentDocuments() {
     uploadMutation.mutate(file);
   }
 
-  // Preview selected student name
-  const selectedStudent = students.find((s) => s.id == selectedStudentId);
+  const selectedStudent = propStudentId
+    ? null // we don't have the full student object when standalone=false, but we don't need it
+    : students.find((s) => s.id == selectedStudentId);
 
-  return (
-    <AdminLayout>
-      <BackButton to="/admissions-hub" label="Admissions" />
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
-        <div>
-          <h1 className="text-3xl font-righteous text-primary-dark">Student Documents</h1>
-          <p className="text-sm text-secondary-dark font-montserrat mt-1">
-            Upload and manage student files
-          </p>
-        </div>
-      </div>
-
-      {/* Search & Filters */}
-      <div className="flex flex-col sm:flex-row gap-3 mb-4">
-        <div className="relative flex-1">
-          <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-secondary" />
-          <input
-            type="text"
-            placeholder="Search by name or admission no..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full border border-secondary-light rounded-lg pl-10 pr-4 py-2.5 text-sm focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light"
-          />
-        </div>
-        <button
-          onClick={() => setShowFilters(!showFilters)}
-          className="border border-secondary-light px-4 py-2.5 rounded-lg text-secondary-dark hover:bg-secondary-bg font-montserrat text-sm flex items-center gap-2"
-        >
-          <Filter size={18} /> Filters
-          {showFilters && <X size={16} />}
-        </button>
-      </div>
-
-      {/* Advanced Filters Panel */}
-      {showFilters && (
-        <div className="bg-white rounded-xl p-4 shadow-sm mb-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 border border-secondary-light">
+  // ── Content ──
+  const content = (
+    <>
+      {/* Header – only show if standalone */}
+      {standalone && (
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
           <div>
-            <label className="text-xs font-montserrat text-secondary-dark">Course</label>
-            <select
-              value={filterCourse}
-              onChange={(e) => setFilterCourse(e.target.value)}
-              className="w-full border border-secondary-light rounded p-2 text-sm mt-1 focus:ring-1 focus:ring-primary"
-            >
-              <option value="">All Courses</option>
-              {courses.map((c) => (
-                <option key={c.id} value={c.id}>{c.course_name}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="text-xs font-montserrat text-secondary-dark">Batch</label>
-            <select
-              value={filterBatch}
-              onChange={(e) => setFilterBatch(e.target.value)}
-              className="w-full border border-secondary-light rounded p-2 text-sm mt-1 focus:ring-1 focus:ring-primary"
-            >
-              <option value="">All Batches</option>
-              {batches.map((b) => (
-                <option key={b.id} value={b.id}>{b.batch_name}</option>
-              ))}
-            </select>
-          </div>
-          {/* NEW: Medium filter */}
-          <div>
-            <label className="text-xs font-montserrat text-secondary-dark">Medium</label>
-            <select
-              value={filterMedium}
-              onChange={(e) => setFilterMedium(e.target.value)}
-              className="w-full border border-secondary-light rounded p-2 text-sm mt-1 focus:ring-1 focus:ring-primary"
-            >
-              <option value="">All Mediums</option>
-              {mediums.map((m) => (
-                <option key={m.id} value={m.id}>{m.name}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="text-xs font-montserrat text-secondary-dark">Standard</label>
-            <input
-              type="text"
-              value={filterStandard}
-              onChange={(e) => setFilterStandard(e.target.value)}
-              placeholder="e.g., 10"
-              className="w-full border border-secondary-light rounded p-2 text-sm mt-1 focus:ring-1 focus:ring-primary"
-            />
-          </div>
-          {/* NEW: Status filter */}
-          <div>
-            <label className="text-xs font-montserrat text-secondary-dark">Status</label>
-            <select
-              value={filterStatus}
-              onChange={(e) => setFilterStatus(e.target.value)}
-              className="w-full border border-secondary-light rounded p-2 text-sm mt-1 focus:ring-1 focus:ring-primary"
-            >
-              <option value="">All Statuses</option>
-              <option value="active">Active</option>
-              <option value="inactive">Inactive</option>
-              <option value="graduated">Graduated</option>
-            </select>
-          </div>
-          <div className="flex items-end col-span-full lg:col-span-1">
-            <button
-              onClick={() => {
-                setSearch("");
-                setFilterCourse("");
-                setFilterBatch("");
-                setFilterMedium("");
-                setFilterStandard("");
-                setFilterStatus("");
-              }}
-              className="text-primary text-sm hover:underline"
-            >
-              Clear Filters
-            </button>
+            <h1 className="text-3xl font-bold text-primary" style={{ fontFamily: headingFont }}>
+              Student Documents
+            </h1>
+            <p className="text-sm text-primary-dark mt-1" style={{ fontFamily: bodyFont }}>
+              Upload and manage student files
+            </p>
           </div>
         </div>
       )}
 
-      {/* Student Picker */}
-      <div className="mb-6 max-w-2xl">
-        <label className="block text-sm font-montserrat text-secondary-dark mb-1">
-          <User size={14} className="inline mr-1" /> Select Student
-        </label>
-        <select
-          value={selectedStudentId || ""}
-          onChange={(e) => setSelectedStudentId(e.target.value || null)}
-          className="w-full border border-secondary-light rounded-lg p-2.5 text-sm focus:ring-1 focus:ring-primary focus:border-primary outline-none"
-        >
-          <option value="">Choose a student…</option>
-          {students.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.first_name} {s.last_name} ({s.admission_no}) - Std {s.standard} ({s.status})
-            </option>
-          ))}
-        </select>
-        {students.length === 0 && !studentsLoading && (
-          <p className="text-xs text-secondary-light mt-1">No students match the filters</p>
-        )}
-      </div>
+      {/* Search & Filters – only if standalone and no propStudentId */}
+      {standalone && !propStudentId && (
+        <>
+          <div className="flex flex-col sm:flex-row gap-3 mb-4">
+            <div className="relative flex-1">
+              <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-primary-dark/60" />
+              <input
+                type="text"
+                placeholder="Search by name or admission no..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="w-full border border-primary-bg rounded-lg pl-10 pr-4 py-2.5 text-sm focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-primary-dark/40 bg-white text-primary-dark"
+                style={{ fontFamily: bodyFont }}
+              />
+            </div>
+            <button
+              onClick={() => setShowFilters(!showFilters)}
+              className="border border-primary-bg px-4 py-2.5 rounded-lg text-primary-dark hover:bg-primary-bg text-sm flex items-center gap-2"
+              style={{ fontFamily: bodyFont }}
+            >
+              <Filter size={18} /> Filters
+              {showFilters && <X size={16} />}
+            </button>
+          </div>
+
+          {/* Advanced Filters Panel */}
+          {showFilters && (
+            <div className="bg-white rounded-xl p-4 shadow-sm mb-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 border border-primary-bg">
+              <div>
+                <label className="text-xs text-primary-dark" style={{ fontFamily: bodyFont }}>
+                  Course
+                </label>
+                <select
+                  value={filterCourse}
+                  onChange={(e) => setFilterCourse(e.target.value)}
+                  className="w-full border border-primary-bg rounded p-2 text-sm mt-1 focus:ring-1 focus:ring-primary bg-white text-primary-dark"
+                >
+                  <option value="">All Courses</option>
+                  {courses.map((c) => (
+                    <option key={c.id} value={c.id}>{c.course_name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-primary-dark" style={{ fontFamily: bodyFont }}>
+                  Batch
+                </label>
+                <select
+                  value={filterBatch}
+                  onChange={(e) => setFilterBatch(e.target.value)}
+                  className="w-full border border-primary-bg rounded p-2 text-sm mt-1 focus:ring-1 focus:ring-primary bg-white text-primary-dark"
+                >
+                  <option value="">All Batches</option>
+                  {batches.map((b) => (
+                    <option key={b.id} value={b.id}>{b.batch_name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-primary-dark" style={{ fontFamily: bodyFont }}>
+                  Medium
+                </label>
+                <select
+                  value={filterMedium}
+                  onChange={(e) => setFilterMedium(e.target.value)}
+                  className="w-full border border-primary-bg rounded p-2 text-sm mt-1 focus:ring-1 focus:ring-primary bg-white text-primary-dark"
+                >
+                  <option value="">All Mediums</option>
+                  {mediums.map((m) => (
+                    <option key={m.id} value={m.id}>{m.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-primary-dark" style={{ fontFamily: bodyFont }}>
+                  Standard
+                </label>
+                <input
+                  type="text"
+                  value={filterStandard}
+                  onChange={(e) => setFilterStandard(e.target.value)}
+                  placeholder="e.g., 10"
+                  className="w-full border border-primary-bg rounded p-2 text-sm mt-1 focus:ring-1 focus:ring-primary bg-white text-primary-dark placeholder-primary-dark/40"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-primary-dark" style={{ fontFamily: bodyFont }}>
+                  Status
+                </label>
+                <select
+                  value={filterStatus}
+                  onChange={(e) => setFilterStatus(e.target.value)}
+                  className="w-full border border-primary-bg rounded p-2 text-sm mt-1 focus:ring-1 focus:ring-primary bg-white text-primary-dark"
+                >
+                  <option value="">All Statuses</option>
+                  <option value="active">Active</option>
+                  <option value="inactive">Inactive</option>
+                  <option value="graduated">Graduated</option>
+                </select>
+              </div>
+              <div className="flex items-end col-span-full lg:col-span-1">
+                <button
+                  onClick={() => {
+                    setSearch("");
+                    setFilterCourse("");
+                    setFilterBatch("");
+                    setFilterMedium("");
+                    setFilterStandard("");
+                    setFilterStatus("");
+                  }}
+                  className="text-primary text-sm hover:underline"
+                  style={{ fontFamily: bodyFont }}
+                >
+                  Clear Filters
+                </button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Student Picker – only when standalone and no propStudentId */}
+      {standalone && !propStudentId && (
+        <div className="mb-6 max-w-2xl">
+          <label className="block text-sm text-primary-dark mb-1" style={{ fontFamily: bodyFont }}>
+            <User size={14} className="inline mr-1" /> Select Student
+          </label>
+          <select
+            value={selectedStudentId || ""}
+            onChange={(e) => setSelectedStudentId(e.target.value || null)}
+            className="w-full border border-primary-bg rounded-lg p-2.5 text-sm focus:ring-1 focus:ring-primary focus:border-primary outline-none bg-white text-primary-dark"
+            style={{ fontFamily: bodyFont }}
+          >
+            <option value="">Choose a student…</option>
+            {students.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.first_name} {s.last_name} ({s.admission_no}) - Std {s.standard} ({s.status})
+              </option>
+            ))}
+          </select>
+          {students.length === 0 && !studentsLoading && (
+            <p className="text-xs text-primary-dark/40 mt-1" style={{ fontFamily: bodyFont }}>
+              No students match the filters
+            </p>
+          )}
+        </div>
+      )}
 
       {selectedStudentId && (
         <>
           {/* Upload Section */}
-          <div className="bg-white rounded-xl p-6 shadow-sm mb-8 border border-secondary-light">
-            <h2 className="text-lg font-semibold font-righteous text-primary-dark mb-4">
+          <div className="bg-white rounded-xl p-6 shadow-sm mb-8 border border-primary-bg">
+            <h2 className="text-lg font-semibold text-primary mb-4" style={{ fontFamily: headingFont }}>
               Upload New Document
             </h2>
             <div className="flex flex-col sm:flex-row gap-4 items-end">
               <div className="flex-1">
-                <label className="block text-sm font-montserrat text-secondary-dark mb-1">Document Type</label>
+                <label className="block text-sm text-primary-dark mb-1" style={{ fontFamily: bodyFont }}>
+                  Document Type
+                </label>
                 <select
                   value={docType}
                   onChange={(e) => setDocType(e.target.value)}
-                  className="w-full border border-secondary-light rounded p-2.5 text-sm focus:ring-1 focus:ring-primary"
+                  className="w-full border border-primary-bg rounded p-2.5 text-sm focus:ring-1 focus:ring-primary bg-white text-primary-dark"
                 >
                   <option>ID Proof</option>
                   <option>Previous Marksheet</option>
@@ -363,7 +417,8 @@ export default function StudentDocuments() {
                 <button
                   onClick={() => fileInputRef.current?.click()}
                   disabled={uploading}
-                  className="bg-primary hover:bg-primary-light text-white px-5 py-2.5 rounded-lg flex items-center gap-2 font-montserrat text-sm disabled:opacity-50"
+                  className="bg-primary hover:bg-primary-light text-white px-5 py-2.5 rounded-lg flex items-center gap-2 text-sm disabled:opacity-50"
+                  style={{ fontFamily: bodyFont }}
                 >
                   <Upload size={18} />
                   {uploading ? "Uploading..." : "Choose & Upload"}
@@ -373,34 +428,36 @@ export default function StudentDocuments() {
           </div>
 
           {/* Documents List */}
-          <div className="bg-white rounded-xl shadow-sm overflow-hidden border border-secondary-light">
-            <h2 className="text-lg font-semibold font-righteous text-primary-dark p-4 border-b border-secondary-light">
-              Documents for {selectedStudent?.first_name} {selectedStudent?.last_name}
+          <div className="bg-white rounded-xl shadow-sm overflow-hidden border border-primary-bg">
+            <h2 className="text-lg font-semibold text-primary p-4 border-b border-primary-bg" style={{ fontFamily: headingFont }}>
+              Documents for {selectedStudent ? `${selectedStudent.first_name} ${selectedStudent.last_name}` : `Student ${selectedStudentId}`}
             </h2>
             {docsLoading ? (
-              <p className="p-4 text-center text-secondary">Loading documents…</p>
+              <p className="p-4 text-center text-primary-dark/60" style={{ fontFamily: bodyFont }}>
+                Loading documents…
+              </p>
             ) : documents.length === 0 ? (
-              <div className="p-8 text-center text-secondary">
-                <FileText size={32} className="mx-auto text-secondary-light mb-2" />
+              <div className="p-8 text-center text-primary-dark/60" style={{ fontFamily: bodyFont }}>
+                <FileText size={32} className="mx-auto text-primary-dark/40 mb-2" />
                 <p>No documents uploaded yet.</p>
               </div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[600px]">
-                  <thead className="bg-slate-50 border-b border-secondary-light">
+                  <thead className="bg-primary-bg border-b border-primary-bg">
                     <tr>
-                      <th className="text-left p-3 text-sm font-montserrat text-secondary-dark">Type</th>
-                      <th className="text-left p-3 text-sm font-montserrat text-secondary-dark">File Name</th>
-                      <th className="text-left p-3 text-sm font-montserrat text-secondary-dark">Uploaded At</th>
-                      <th className="text-left p-3 text-sm font-montserrat text-secondary-dark">Actions</th>
+                      <th className="text-left p-3 text-sm font-medium text-primary-dark uppercase" style={{ fontFamily: bodyFont }}>Type</th>
+                      <th className="text-left p-3 text-sm font-medium text-primary-dark uppercase" style={{ fontFamily: bodyFont }}>File Name</th>
+                      <th className="text-left p-3 text-sm font-medium text-primary-dark uppercase" style={{ fontFamily: bodyFont }}>Uploaded At</th>
+                      <th className="text-left p-3 text-sm font-medium text-primary-dark uppercase" style={{ fontFamily: bodyFont }}>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
                     {documents.map((doc) => (
-                      <tr key={doc.id} className="border-b border-secondary-light hover:bg-primary-bg transition">
-                        <td className="p-3 text-sm">{doc.document_type}</td>
-                        <td className="p-3 text-sm">{doc.file_name}</td>
-                        <td className="p-3 text-sm">
+                      <tr key={doc.id} className="border-b border-primary-bg hover:bg-primary-bg transition-colors">
+                        <td className="p-3 text-sm text-primary-dark" style={{ fontFamily: bodyFont }}>{doc.document_type}</td>
+                        <td className="p-3 text-sm text-primary-dark" style={{ fontFamily: bodyFont }}>{doc.file_name}</td>
+                        <td className="p-3 text-sm text-primary-dark" style={{ fontFamily: bodyFont }}>
                           {new Date(doc.uploaded_at).toLocaleDateString()}
                         </td>
                         <td className="p-3 text-sm">
@@ -418,7 +475,7 @@ export default function StudentDocuments() {
                                 if (!window.confirm("Delete this document?")) return;
                                 deleteMutation.mutate(doc);
                               }}
-                              className="text-red-600 hover:underline flex items-center gap-1"
+                              className="text-accent-dark hover:underline flex items-center gap-1"
                             >
                               <Trash2 size={16} /> Delete
                             </button>
@@ -433,6 +490,17 @@ export default function StudentDocuments() {
           </div>
         </>
       )}
-    </AdminLayout>
+    </>
+  );
+
+  if (!standalone) {
+    return <div>{content}</div>;
+  }
+
+  return (
+    <>
+      <BackButton to="/admissions-hub" label="Admissions" />
+      {content}
+    </>
   );
 }

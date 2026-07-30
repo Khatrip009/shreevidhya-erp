@@ -19,7 +19,8 @@ import {
   getProgressEvaluations,
 } from "../services/progressService";
 import { useOrgDarkLogo } from "../hooks/useOrgDarkLogo";
-import { useOrg } from "../context/OrganizationContext";   // NEW
+import { useOrg } from "../context/OrganizationContext";
+import { useTheme } from "../context/ThemeContext";               // ✅ dynamic theme
 
 export default function ProgressEvaluationForm({
   onSubmit,
@@ -27,7 +28,13 @@ export default function ProgressEvaluationForm({
   initialData = {},
 }) {
   const darkLogo = useOrgDarkLogo();
-  const { branch, selectedFinancialYear } = useOrg();      // NEW
+  const { branch, selectedFinancialYear } = useOrg();
+  const theme = useTheme();                                     // ✅ theme hook
+  const branchId = branch?.id;
+  const financialYearId = selectedFinancialYear?.id;
+
+  const headingFont = theme?.font_heading || "Righteous";
+  const bodyFont = theme?.font_body || "Montserrat";
 
   const [batches, setBatches] = useState([]);
   const [mediums, setMediums] = useState([]);
@@ -44,35 +51,34 @@ export default function ProgressEvaluationForm({
     teacher_remarks: initialData.teacher_remarks || "",
   });
 
+  // Load dropdowns only when branch & FY are ready
   useEffect(() => {
+    if (!branchId || !financialYearId) return;
     loadDropdowns();
-  }, []);
+  }, [branchId, financialYearId]);
 
+  // Set medium filter based on selected batch
   useEffect(() => {
-    if (initialData.batch_id && batches.length > 0) {
-      const batch = batches.find((b) => b.id == initialData.batch_id);
-      if (batch) {
-        setSelectedMediumId(batch.medium_id ? String(batch.medium_id) : "");
-      }
-    }
-  }, [initialData.batch_id, batches]);
-
-  useEffect(() => {
-    if (form.batch_id && batches.length > 0) {
-      const batch = batches.find((b) => b.id == form.batch_id);
-      if (batch) {
-        setSelectedMediumId(batch.medium_id ? String(batch.medium_id) : "");
-      }
-      loadStudents(form.batch_id);
-    } else {
-      setStudents([]);
+    if (!form.batch_id || batches.length === 0) return;
+    const batch = batches.find((b) => b.id == form.batch_id);
+    if (batch) {
+      setSelectedMediumId(batch.medium_id ? String(batch.medium_id) : "");
     }
   }, [form.batch_id, batches]);
+
+  // Load students when batch changes
+  useEffect(() => {
+    if (!form.batch_id || !branchId || !financialYearId) {
+      setStudents([]);
+      return;
+    }
+    loadStudents(form.batch_id);
+  }, [form.batch_id, branchId, financialYearId]);
 
   async function loadDropdowns() {
     try {
       const [batchData, mediumData] = await Promise.all([
-        getActiveBatches(),
+        getActiveBatches(branchId, financialYearId),
         getMediumOptions(),
       ]);
       setBatches(batchData);
@@ -84,7 +90,7 @@ export default function ProgressEvaluationForm({
 
   async function loadStudents(batchId) {
     try {
-      const data = await getStudentsByBatch(batchId);
+      const data = await getStudentsByBatch(batchId, branchId, financialYearId);
       setStudents(data);
     } catch {
       toast.error("Failed to load students");
@@ -97,16 +103,18 @@ export default function ProgressEvaluationForm({
 
   // Fetch previous evaluations for the selected student
   const { data: studentEvals = [] } = useQuery({
-    queryKey: ["student-evaluations", form.student_id],
+    queryKey: ["student-evaluations", form.student_id, branchId, financialYearId],
     queryFn: async () => {
       if (!form.student_id) return [];
       const { data } = await getProgressEvaluations({
         pageParam: 0,
         filters: { student_id: form.student_id, pageSize: 100 },
+        branchId,
+        financialYearId,
       });
       return data || [];
     },
-    enabled: !!form.student_id,
+    enabled: !!form.student_id && !!branchId && !!financialYearId,
     staleTime: 1 * 60 * 1000,
   });
 
@@ -124,9 +132,12 @@ export default function ProgressEvaluationForm({
     };
   }, [studentEvals]);
 
-  // Filter batches by selected medium (but keep current batch visible even if it doesn't match)
+  // Filter batches by selected medium
   const filteredBatches = batches.filter(
-    (b) => !selectedMediumId || b.medium_id == selectedMediumId || b.id == form.batch_id
+    (b) =>
+      !selectedMediumId ||
+      b.medium_id == selectedMediumId ||
+      b.id == form.batch_id
   );
 
   async function handleSubmit(e) {
@@ -145,10 +156,9 @@ export default function ProgressEvaluationForm({
         : null,
     };
 
-    // Build context for branch & financial year
     const context = {
-      branchId: branch?.id,
-      financialYearId: selectedFinancialYear?.id,
+      branchId: branchId,
+      financialYearId: financialYearId,
     };
 
     try {
@@ -160,24 +170,27 @@ export default function ProgressEvaluationForm({
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl w-full max-w-lg max-h-[90vh] flex flex-col shadow-xl">
+      <div className="bg-white rounded-xl w-full max-w-lg max-h-[90vh] flex flex-col shadow-xl border border-primary-bg">
         {/* Header */}
-        <div className="flex-shrink-0 bg-white border-b border-secondary-light px-6 py-4 flex items-center justify-between rounded-t-xl">
+        <div className="flex-shrink-0 bg-white border-b border-primary-bg px-6 py-4 flex items-center justify-between rounded-t-xl">
           <div className="flex items-center gap-3">
             <img
               src={darkLogo}
               alt="ShreeVidhya Academy"
               className="h-10 w-auto"
             />
-            <h2 className="text-xl font-righteous text-primary-dark">
+            <h2
+              className="text-xl font-bold text-primary"
+              style={{ fontFamily: headingFont }}
+            >
               {initialData.id ? "Edit Evaluation" : "New Evaluation"}
             </h2>
           </div>
           <button
             onClick={onClose}
-            className="p-2 hover:bg-secondary-bg rounded-lg transition"
+            className="p-2 hover:bg-primary-bg rounded-lg transition"
           >
-            <X size={20} className="text-secondary-dark" />
+            <X size={20} className="text-primary-dark" />
           </button>
         </div>
 
@@ -185,7 +198,10 @@ export default function ProgressEvaluationForm({
         <div className="flex-1 overflow-y-auto p-6 space-y-5">
           {/* Batch first */}
           <div>
-            <label className="block text-sm font-montserrat text-secondary-dark mb-1">
+            <label
+              className="block text-sm text-primary-dark mb-1"
+              style={{ fontFamily: bodyFont }}
+            >
               <Layers size={14} className="inline mr-1" />
               Batch *
             </label>
@@ -193,8 +209,9 @@ export default function ProgressEvaluationForm({
               name="batch_id"
               value={form.batch_id}
               onChange={handleChange}
-              className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
+              className="w-full border border-primary-bg bg-white text-primary-dark rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
               required
+              style={{ fontFamily: bodyFont }}
             >
               <option value="">Select Batch</option>
               {filteredBatches.map((b) => (
@@ -205,9 +222,12 @@ export default function ProgressEvaluationForm({
             </select>
           </div>
 
-          {/* Medium filter (below batch) */}
+          {/* Medium filter */}
           <div>
-            <label className="block text-sm font-montserrat text-secondary-dark mb-1">
+            <label
+              className="block text-sm text-primary-dark mb-1"
+              style={{ fontFamily: bodyFont }}
+            >
               <Filter size={14} className="inline mr-1" />
               Medium
             </label>
@@ -222,7 +242,8 @@ export default function ProgressEvaluationForm({
                   }
                 }
               }}
-              className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
+              className="w-full border border-primary-bg bg-white text-primary-dark rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
+              style={{ fontFamily: bodyFont }}
             >
               <option value="">All Mediums</option>
               {mediums.map((m) => (
@@ -235,7 +256,10 @@ export default function ProgressEvaluationForm({
 
           {/* Student */}
           <div>
-            <label className="block text-sm font-montserrat text-secondary-dark mb-1">
+            <label
+              className="block text-sm text-primary-dark mb-1"
+              style={{ fontFamily: bodyFont }}
+            >
               <User size={14} className="inline mr-1" />
               Student *
             </label>
@@ -243,9 +267,10 @@ export default function ProgressEvaluationForm({
               name="student_id"
               value={form.student_id}
               onChange={handleChange}
-              className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
+              className="w-full border border-primary-bg bg-white text-primary-dark rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
               required
               disabled={!form.batch_id}
+              style={{ fontFamily: bodyFont }}
             >
               <option value="">Select Student</option>
               {students.map((s) => (
@@ -258,18 +283,21 @@ export default function ProgressEvaluationForm({
 
           {/* Auto Averages */}
           {form.student_id && (
-            <div className="bg-gray-50 p-3 rounded-lg border border-secondary-light">
-              <p className="text-xs font-medium text-secondary-dark mb-2 flex items-center gap-1">
+            <div className="bg-primary-bg p-3 rounded-lg border border-primary-bg">
+              <p
+                className="text-xs font-medium text-primary-dark mb-2 flex items-center gap-1"
+                style={{ fontFamily: bodyFont }}
+              >
                 <BarChart3 size={14} /> Student Averages (from previous evaluations)
               </p>
               <div className="grid grid-cols-2 gap-3">
                 <div className="text-center">
-                  <p className="text-sm font-bold text-primary-dark">{averages.avgAtt}</p>
-                  <p className="text-xs text-secondary-light">Avg Attendance</p>
+                  <p className="text-sm font-bold text-primary">{averages.avgAtt}</p>
+                  <p className="text-xs text-primary-dark/60">Avg Attendance</p>
                 </div>
                 <div className="text-center">
-                  <p className="text-sm font-bold text-primary-dark">{averages.avgScore}</p>
-                  <p className="text-xs text-secondary-light">Avg Score</p>
+                  <p className="text-sm font-bold text-primary">{averages.avgScore}</p>
+                  <p className="text-xs text-primary-dark/60">Avg Score</p>
                 </div>
               </div>
             </div>
@@ -277,7 +305,10 @@ export default function ProgressEvaluationForm({
 
           {/* Evaluation Date */}
           <div>
-            <label className="block text-sm font-montserrat text-secondary-dark mb-1">
+            <label
+              className="block text-sm text-primary-dark mb-1"
+              style={{ fontFamily: bodyFont }}
+            >
               <Calendar size={14} className="inline mr-1" />
               Evaluation Date *
             </label>
@@ -286,7 +317,7 @@ export default function ProgressEvaluationForm({
               name="evaluation_date"
               value={form.evaluation_date}
               onChange={handleChange}
-              className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
+              className="w-full border border-primary-bg bg-white text-primary-dark rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
               required
             />
           </div>
@@ -294,7 +325,10 @@ export default function ProgressEvaluationForm({
           {/* Attendance % and Performance Score */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-montserrat text-secondary-dark mb-1">
+              <label
+                className="block text-sm text-primary-dark mb-1"
+                style={{ fontFamily: bodyFont }}
+              >
                 <TrendingUp size={14} className="inline mr-1" />
                 Attendance %
               </label>
@@ -304,14 +338,18 @@ export default function ProgressEvaluationForm({
                 placeholder="e.g., 85"
                 value={form.attendance_percentage}
                 onChange={handleChange}
-                className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light"
+                className="w-full border border-primary-bg bg-white text-primary-dark rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-primary-dark/40"
                 min="0"
                 max="100"
                 step="0.1"
+                style={{ fontFamily: bodyFont }}
               />
             </div>
             <div>
-              <label className="block text-sm font-montserrat text-secondary-dark mb-1">
+              <label
+                className="block text-sm text-primary-dark mb-1"
+                style={{ fontFamily: bodyFont }}
+              >
                 <Star size={14} className="inline mr-1" />
                 Performance Score
               </label>
@@ -321,17 +359,21 @@ export default function ProgressEvaluationForm({
                 placeholder="e.g., 72"
                 value={form.performance_score}
                 onChange={handleChange}
-                className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light"
+                className="w-full border border-primary-bg bg-white text-primary-dark rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-primary-dark/40"
                 min="0"
                 max="100"
                 step="0.1"
+                style={{ fontFamily: bodyFont }}
               />
             </div>
           </div>
 
           {/* Teacher Remarks */}
           <div>
-            <label className="block text-sm font-montserrat text-secondary-dark mb-1">
+            <label
+              className="block text-sm text-primary-dark mb-1"
+              style={{ fontFamily: bodyFont }}
+            >
               <MessageSquareText size={14} className="inline mr-1" />
               Teacher Remarks
             </label>
@@ -341,24 +383,27 @@ export default function ProgressEvaluationForm({
               value={form.teacher_remarks}
               onChange={handleChange}
               rows={3}
-              className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light resize-none"
+              className="w-full border border-primary-bg bg-white text-primary-dark rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-primary-dark/40 resize-none"
+              style={{ fontFamily: bodyFont }}
             />
           </div>
         </div>
 
         {/* Footer buttons */}
-        <div className="flex-shrink-0 border-t border-secondary-light px-6 py-4 flex flex-col sm:flex-row-reverse gap-3 rounded-b-xl">
+        <div className="flex-shrink-0 border-t border-primary-bg px-6 py-4 flex flex-col sm:flex-row-reverse gap-3 rounded-b-xl">
           <button
             type="submit"
             onClick={handleSubmit}
-            className="w-full sm:w-auto bg-primary hover:bg-primary-light text-white px-6 py-2.5 rounded-lg font-montserrat transition flex items-center justify-center gap-2"
+            className="w-full sm:w-auto bg-primary hover:bg-primary-light text-white px-6 py-2.5 rounded-lg transition flex items-center justify-center gap-2"
+            style={{ fontFamily: bodyFont }}
           >
             {initialData.id ? "Update Evaluation" : "Save Evaluation"}
           </button>
           <button
             type="button"
             onClick={onClose}
-            className="w-full sm:w-auto border border-secondary-light text-secondary-dark hover:bg-secondary-bg px-6 py-2.5 rounded-lg font-montserrat transition"
+            className="w-full sm:w-auto border border-primary-bg text-primary-dark hover:bg-primary-bg px-6 py-2.5 rounded-lg transition"
+            style={{ fontFamily: bodyFont }}
           >
             Cancel
           </button>

@@ -4,17 +4,25 @@ import { X, User, Phone, Mail, Briefcase, MapPin, Users, Unlink } from "lucide-r
 import { supabase } from "../api/supabase";
 import { useOrgDarkLogo } from "../hooks/useOrgDarkLogo";
 import { createParent, updateParent, linkStudentToParent } from "../services/parentService";
-import { useOrg } from "../context/OrganizationContext";   // NEW
+import { useOrg } from "../context/OrganizationContext";
+import { useTheme } from "../context/ThemeContext";               // ✅ dynamic theme
 
 export default function ParentForm({
-  onSubmit,          // callback({ form, studentId }) for create, (form) for update
+  onSubmit,
   onClose,
   initialData = {},
-  studentId = null,  // only used for create from student profile
+  studentId = null,
 }) {
   const darkLogo = useOrgDarkLogo();
-  const { branch, selectedFinancialYear } = useOrg();      // NEW
-  const context = { branchId: branch?.id, financialYearId: selectedFinancialYear?.id }; // NEW
+  const { branch, selectedFinancialYear } = useOrg();
+  const theme = useTheme();                                     // ✅ theme hook
+  const branchId = branch?.id;
+  const financialYearId = selectedFinancialYear?.id;
+
+  const headingFont = theme?.font_heading || "Righteous";
+  const bodyFont = theme?.font_body || "Montserrat";
+
+  const context = { branchId, financialYearId };
 
   const isEditing = !!initialData.id;
 
@@ -28,37 +36,39 @@ export default function ParentForm({
     address: initialData.address || "",
   });
 
-  // Student selection – for create (required) or edit (optional)
   const [selectedStudentId, setSelectedStudentId] = useState(studentId || null);
   const [students, setStudents] = useState([]);
   const [loadingStudents, setLoadingStudents] = useState(!studentId);
 
-  // Linked students (edit mode)
   const [linkedStudents, setLinkedStudents] = useState([]);
   const [loadingLinked, setLoadingLinked] = useState(isEditing);
 
-  // Fetch all active students (always, but filter out linked ones in edit mode)
+  // Fetch active students – scoped
   useEffect(() => {
-    if (!studentId) {
+    if (!studentId && branchId && financialYearId) {
       setLoadingStudents(true);
       supabase
         .from("students")
         .select("id, first_name, last_name, standard")
         .eq("status", "active")
+        .eq("branch_id", branchId)
+        .eq("financial_year_id", financialYearId)
         .order("first_name")
         .then(({ data }) => setStudents(data || []))
         .finally(() => setLoadingStudents(false));
     }
-  }, [studentId]);
+  }, [studentId, branchId, financialYearId]);
 
-  // Fetch linked students when editing
+  // Fetch linked students when editing – scoped
   useEffect(() => {
-    if (isEditing) {
+    if (isEditing && branchId && financialYearId) {
       setLoadingLinked(true);
       supabase
         .from("student_parents")
         .select("student_id, students(first_name, last_name, standard, admission_no)")
         .eq("parent_id", initialData.id)
+        .eq("branch_id", branchId)
+        .eq("financial_year_id", financialYearId)
         .then(({ data, error }) => {
           if (!error) {
             const mapped = data.map((link) => ({
@@ -74,19 +84,22 @@ export default function ParentForm({
     } else {
       setLoadingLinked(false);
     }
-  }, [initialData.id, isEditing]);
+  }, [initialData.id, isEditing, branchId, financialYearId]);
 
   function handleChange(e) {
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
   }
 
   async function handleUnlink(studentIdToUnlink) {
+    if (!branchId || !financialYearId) return;
     try {
       const { error } = await supabase
         .from("student_parents")
         .delete()
         .eq("parent_id", initialData.id)
-        .eq("student_id", studentIdToUnlink);
+        .eq("student_id", studentIdToUnlink)
+        .eq("branch_id", branchId)
+        .eq("financial_year_id", financialYearId);
 
       if (error) throw error;
 
@@ -98,75 +111,81 @@ export default function ParentForm({
   }
 
   async function handleSubmit(e) {
-  e.preventDefault();
-  if (!form.father_name && !form.mother_name) {
-    toast.error("At least one parent name is required");
-    return;
-  }
-  if (!form.mobile) {
-    toast.error("Mobile number is required");
-    return;
-  }
-
-  try {
-    if (isEditing) {
-      // Update parent fields
-      await updateParent(initialData.id, form, context);
-      toast.success("Parent updated");
-
-      // If a student is selected, link them (additional link)
-      if (selectedStudentId) {
-        await linkStudentToParent(initialData.id, selectedStudentId, context);
-        toast.success("Student linked successfully");
-        // Refresh linked students
-        const { data } = await supabase
-          .from("student_parents")
-          .select("student_id, students(first_name, last_name, standard, admission_no)")
-          .eq("parent_id", initialData.id);
-        const mapped = data.map((link) => ({
-          student_id: link.student_id,
-          name: `${link.students.first_name} ${link.students.last_name}`,
-          standard: link.students.standard,
-          admission_no: link.students.admission_no,
-        }));
-        setLinkedStudents(mapped);
-        setSelectedStudentId(null);
-      }
-
-      onSubmit(form);
-    } else {
-      // ── Create new parent – check for duplicate mobile first ──
-      const { data: existing } = await supabase
-        .from("parents")
-        .select("*")
-        .eq("mobile", form.mobile.trim())
-        .maybeSingle();
-
-      if (existing) {
-        // Mobile already exists → use the existing parent
-        const idToLink = studentId || selectedStudentId;
-        if (idToLink) {
-          await linkStudentToParent(existing.id, idToLink, context);
-          toast.success("Parent already exists – linked successfully");
-        }
-        onSubmit({ form, studentId: idToLink, parent: existing });
-        return;
-      }
-
-      // No duplicate → create new parent
-      if (!studentId && !selectedStudentId) {
-        toast.error("Please select a student to link this parent");
-        return;
-      }
-      const idToLink = studentId || selectedStudentId;
-      const createdParent = await createParent(form, idToLink, context);
-      toast.success("Parent created and linked");
-      onSubmit({ form, studentId: idToLink, parent: createdParent });
+    e.preventDefault();
+    if (!form.father_name && !form.mother_name) {
+      toast.error("At least one parent name is required");
+      return;
     }
-  } catch (err) {
-    toast.error(err.message || "Failed to save parent");
+    if (!form.mobile) {
+      toast.error("Mobile number is required");
+      return;
+    }
+
+    if (!branchId || !financialYearId) {
+      toast.error("Branch and financial year are required");
+      return;
+    }
+
+    try {
+      if (isEditing) {
+        // Update parent fields
+        await updateParent(initialData.id, form, context);
+        toast.success("Parent updated");
+
+        if (selectedStudentId) {
+          await linkStudentToParent(initialData.id, selectedStudentId, context);
+          toast.success("Student linked successfully");
+          // Refresh linked students – scoped
+          const { data } = await supabase
+            .from("student_parents")
+            .select("student_id, students(first_name, last_name, standard, admission_no)")
+            .eq("parent_id", initialData.id)
+            .eq("branch_id", branchId)
+            .eq("financial_year_id", financialYearId);
+          const mapped = data.map((link) => ({
+            student_id: link.student_id,
+            name: `${link.students.first_name} ${link.students.last_name}`,
+            standard: link.students.standard,
+            admission_no: link.students.admission_no,
+          }));
+          setLinkedStudents(mapped);
+          setSelectedStudentId(null);
+        }
+
+        onSubmit(form);
+      } else {
+        // Create new parent – check for duplicate mobile (scoped)
+        const { data: existing } = await supabase
+          .from("parents")
+          .select("*")
+          .eq("mobile", form.mobile.trim())
+          .eq("branch_id", branchId)
+          .eq("financial_year_id", financialYearId)
+          .maybeSingle();
+
+        if (existing) {
+          const idToLink = studentId || selectedStudentId;
+          if (idToLink) {
+            await linkStudentToParent(existing.id, idToLink, context);
+            toast.success("Parent already exists – linked successfully");
+          }
+          onSubmit({ form, studentId: idToLink, parent: existing });
+          return;
+        }
+
+        if (!studentId && !selectedStudentId) {
+          toast.error("Please select a student to link this parent");
+          return;
+        }
+        const idToLink = studentId || selectedStudentId;
+        const createdParent = await createParent(form, idToLink, context);
+        toast.success("Parent created and linked");
+        onSubmit({ form, studentId: idToLink, parent: createdParent });
+      }
+    } catch (err) {
+      toast.error(err.message || "Failed to save parent");
+    }
   }
-}
 
   // Filter out already linked students from the dropdown in edit mode
   const availableStudents = isEditing
@@ -175,24 +194,24 @@ export default function ParentForm({
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl w-full max-w-2xl shadow-xl max-h-[90vh] overflow-y-auto">
+      <div className="bg-white rounded-xl w-full max-w-2xl shadow-xl max-h-[90vh] overflow-y-auto border border-primary-bg">
         {/* Header */}
-        <div className="sticky top-0 bg-white border-b border-secondary-light px-6 py-4 flex items-center justify-between rounded-t-xl z-10">
+        <div className="sticky top-0 bg-white border-b border-primary-bg px-6 py-4 flex items-center justify-between rounded-t-xl z-10">
           <div className="flex items-center gap-3">
             <img
               src={darkLogo}
               alt="ShreeVidhya Academy"
               className="h-10 w-auto"
             />
-            <h2 className="text-xl font-righteous text-primary-dark">
+            <h2 className="text-xl font-bold text-primary" style={{ fontFamily: headingFont }}>
               {isEditing ? "Edit Parent" : "Add Parent"}
             </h2>
           </div>
           <button
             onClick={onClose}
-            className="p-2 hover:bg-secondary-bg rounded-lg transition"
+            className="p-2 hover:bg-primary-bg rounded-lg transition"
           >
-            <X size={20} className="text-secondary-dark" />
+            <X size={20} className="text-primary-dark" />
           </button>
         </div>
 
@@ -200,18 +219,19 @@ export default function ParentForm({
           {/* Student selector */}
           {!studentId && (
             <div>
-              <label className="block text-sm font-montserrat text-secondary-dark mb-1">
+              <label className="block text-sm text-primary-dark mb-1" style={{ fontFamily: bodyFont }}>
                 <Users size={14} className="inline mr-1" />
                 {isEditing ? "Link Additional Student" : "Link to Student *"}
               </label>
               {loadingStudents ? (
-                <p className="text-sm text-secondary">Loading students...</p>
+                <p className="text-sm text-primary-dark/60" style={{ fontFamily: bodyFont }}>Loading students...</p>
               ) : (
                 <select
                   value={selectedStudentId || ""}
                   onChange={(e) => setSelectedStudentId(e.target.value ? Number(e.target.value) : null)}
-                  className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary outline-none"
+                  className="w-full border border-primary-bg rounded p-2.5 focus:ring-1 focus:ring-primary outline-none bg-white text-primary-dark"
                   required={!isEditing}
+                  style={{ fontFamily: bodyFont }}
                 >
                   <option value="">{isEditing ? "None" : "Select a student"}</option>
                   {availableStudents.map((s) => (
@@ -227,7 +247,7 @@ export default function ParentForm({
           {/* Father & Mother Name */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-montserrat text-secondary-dark mb-1">
+              <label className="block text-sm text-primary-dark mb-1" style={{ fontFamily: bodyFont }}>
                 <User size={14} className="inline mr-1" />
                 Father Name
               </label>
@@ -236,11 +256,12 @@ export default function ParentForm({
                 placeholder="Father's full name"
                 value={form.father_name}
                 onChange={handleChange}
-                className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light"
+                className="w-full border border-primary-bg rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-primary-dark/40 bg-white text-primary-dark"
+                style={{ fontFamily: bodyFont }}
               />
             </div>
             <div>
-              <label className="block text-sm font-montserrat text-secondary-dark mb-1">
+              <label className="block text-sm text-primary-dark mb-1" style={{ fontFamily: bodyFont }}>
                 <User size={14} className="inline mr-1" />
                 Mother Name
               </label>
@@ -249,7 +270,8 @@ export default function ParentForm({
                 placeholder="Mother's full name"
                 value={form.mother_name}
                 onChange={handleChange}
-                className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light"
+                className="w-full border border-primary-bg rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-primary-dark/40 bg-white text-primary-dark"
+                style={{ fontFamily: bodyFont }}
               />
             </div>
           </div>
@@ -257,7 +279,7 @@ export default function ParentForm({
           {/* Mobile & WhatsApp */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-montserrat text-secondary-dark mb-1">
+              <label className="block text-sm text-primary-dark mb-1" style={{ fontFamily: bodyFont }}>
                 <Phone size={14} className="inline mr-1" />
                 Mobile *
               </label>
@@ -266,12 +288,13 @@ export default function ParentForm({
                 placeholder="Phone number"
                 value={form.mobile}
                 onChange={handleChange}
-                className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light"
+                className="w-full border border-primary-bg rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-primary-dark/40 bg-white text-primary-dark"
                 required
+                style={{ fontFamily: bodyFont }}
               />
             </div>
             <div>
-              <label className="block text-sm font-montserrat text-secondary-dark mb-1">
+              <label className="block text-sm text-primary-dark mb-1" style={{ fontFamily: bodyFont }}>
                 <Phone size={14} className="inline mr-1" />
                 WhatsApp
               </label>
@@ -280,7 +303,8 @@ export default function ParentForm({
                 placeholder="WhatsApp number"
                 value={form.whatsapp}
                 onChange={handleChange}
-                className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light"
+                className="w-full border border-primary-bg rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-primary-dark/40 bg-white text-primary-dark"
+                style={{ fontFamily: bodyFont }}
               />
             </div>
           </div>
@@ -288,7 +312,7 @@ export default function ParentForm({
           {/* Email & Occupation */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-montserrat text-secondary-dark mb-1">
+              <label className="block text-sm text-primary-dark mb-1" style={{ fontFamily: bodyFont }}>
                 <Mail size={14} className="inline mr-1" />
                 Email
               </label>
@@ -298,11 +322,12 @@ export default function ParentForm({
                 placeholder="Email address"
                 value={form.email}
                 onChange={handleChange}
-                className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light"
+                className="w-full border border-primary-bg rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-primary-dark/40 bg-white text-primary-dark"
+                style={{ fontFamily: bodyFont }}
               />
             </div>
             <div>
-              <label className="block text-sm font-montserrat text-secondary-dark mb-1">
+              <label className="block text-sm text-primary-dark mb-1" style={{ fontFamily: bodyFont }}>
                 <Briefcase size={14} className="inline mr-1" />
                 Occupation
               </label>
@@ -311,14 +336,15 @@ export default function ParentForm({
                 placeholder="Occupation"
                 value={form.occupation}
                 onChange={handleChange}
-                className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light"
+                className="w-full border border-primary-bg rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-primary-dark/40 bg-white text-primary-dark"
+                style={{ fontFamily: bodyFont }}
               />
             </div>
           </div>
 
           {/* Address */}
           <div>
-            <label className="block text-sm font-montserrat text-secondary-dark mb-1">
+            <label className="block text-sm text-primary-dark mb-1" style={{ fontFamily: bodyFont }}>
               <MapPin size={14} className="inline mr-1" />
               Address
             </label>
@@ -328,29 +354,30 @@ export default function ParentForm({
               value={form.address}
               onChange={handleChange}
               rows={3}
-              className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light resize-none"
+              className="w-full border border-primary-bg rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-primary-dark/40 resize-none bg-white text-primary-dark"
+              style={{ fontFamily: bodyFont }}
             />
           </div>
 
           {/* Linked Students (edit mode) */}
           {isEditing && (
             <div>
-              <label className="block text-sm font-montserrat text-secondary-dark mb-2">
+              <label className="block text-sm text-primary-dark mb-2" style={{ fontFamily: bodyFont }}>
                 <Users size={14} className="inline mr-1" />
                 Linked Students
               </label>
               {loadingLinked ? (
-                <p className="text-sm text-secondary">Loading...</p>
+                <p className="text-sm text-primary-dark/60" style={{ fontFamily: bodyFont }}>Loading...</p>
               ) : linkedStudents.length === 0 ? (
-                <p className="text-sm text-secondary italic">No students linked.</p>
+                <p className="text-sm text-primary-dark/40 italic" style={{ fontFamily: bodyFont }}>No students linked.</p>
               ) : (
                 <ul className="space-y-2">
                   {linkedStudents.map((student) => (
                     <li
                       key={student.student_id}
-                      className="flex items-center justify-between bg-gray-50 border rounded-lg px-3 py-2"
+                      className="flex items-center justify-between bg-primary-bg border border-primary-bg rounded-lg px-3 py-2"
                     >
-                      <span className="text-sm">
+                      <span className="text-sm text-primary-dark" style={{ fontFamily: bodyFont }}>
                         {student.name}
                         {student.standard ? ` (Std ${student.standard})` : ""}
                         {student.admission_no ? ` — ${student.admission_no}` : ""}
@@ -358,7 +385,7 @@ export default function ParentForm({
                       <button
                         type="button"
                         onClick={() => handleUnlink(student.student_id)}
-                        className="text-red-500 hover:text-red-700 p-1 rounded"
+                        className="text-accent-dark hover:text-accent p-1 rounded"
                         title="Unlink student"
                       >
                         <Unlink size={16} />
@@ -374,14 +401,16 @@ export default function ParentForm({
           <div className="flex flex-col sm:flex-row-reverse gap-3 pt-2">
             <button
               type="submit"
-              className="w-full sm:w-auto bg-primary hover:bg-primary-light text-white px-6 py-2.5 rounded-lg font-montserrat transition flex items-center justify-center gap-2"
+              className="w-full sm:w-auto bg-primary hover:bg-primary-light text-white px-6 py-2.5 rounded-lg font-medium transition flex items-center justify-center gap-2"
+              style={{ fontFamily: bodyFont }}
             >
               {isEditing ? "Update Parent" : "Create Parent"}
             </button>
             <button
               type="button"
               onClick={onClose}
-              className="w-full sm:w-auto border border-secondary-light text-secondary-dark hover:bg-secondary-bg px-6 py-2.5 rounded-lg font-montserrat transition"
+              className="w-full sm:w-auto border border-primary-bg text-primary-dark hover:bg-primary-bg px-6 py-2.5 rounded-lg font-medium transition"
+              style={{ fontFamily: bodyFont }}
             >
               Cancel
             </button>

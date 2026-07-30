@@ -1,34 +1,42 @@
 // src/services/attendanceReportService.js
 import { supabase } from "../api/supabase";
+import { sendEmail } from "./emailService";
 
 /**
  * Get attendance report: per student in a batch (or all batches)
  * Optionally filter by medium.
  * Returns array of { student_id, student_name, admission_no, total_sessions, present_count, percentage, batch_name, medium_name }
  */
-export async function getAttendanceReport(batchId, startDate, endDate, mediumId = null) {
-  // 1. Get sessions for the batch (and date range), optionally filtered by medium
+export async function getAttendanceReport(
+  batchId,
+  startDate,
+  endDate,
+  mediumId = null,
+  branchId,
+  financialYearId
+) {
+  // 1. Get sessions for the batch (and date range), scoped by branch & FY
   let sessionQuery = supabase
     .from("attendance_sessions")
     .select("id, attendance_date, batch_id")
     .order("attendance_date", { ascending: true });
 
-  if (batchId) {
-    sessionQuery = sessionQuery.eq("batch_id", batchId);
-  }
-  if (startDate) {
-    sessionQuery = sessionQuery.gte("attendance_date", startDate);
-  }
-  if (endDate) {
-    sessionQuery = sessionQuery.lte("attendance_date", endDate);
-  }
+  if (branchId) sessionQuery = sessionQuery.eq("branch_id", branchId);
+  if (financialYearId) sessionQuery = sessionQuery.eq("financial_year_id", financialYearId);
+
+  if (batchId) sessionQuery = sessionQuery.eq("batch_id", batchId);
+  if (startDate) sessionQuery = sessionQuery.gte("attendance_date", startDate);
+  if (endDate) sessionQuery = sessionQuery.lte("attendance_date", endDate);
 
   // If medium filter is provided, restrict to batches of that medium
   if (mediumId) {
-    const { data: mediumBatchIds } = await supabase
+    let mediumBatchQuery = supabase
       .from("batches")
       .select("id")
       .eq("medium_id", mediumId);
+    if (branchId) mediumBatchQuery = mediumBatchQuery.eq("branch_id", branchId);
+    if (financialYearId) mediumBatchQuery = mediumBatchQuery.eq("financial_year_id", financialYearId);
+    const { data: mediumBatchIds } = await mediumBatchQuery;
     const batchIds = mediumBatchIds?.map((b) => b.id) || [];
     if (batchIds.length > 0) {
       sessionQuery = sessionQuery.in("batch_id", batchIds);
@@ -43,20 +51,28 @@ export async function getAttendanceReport(batchId, startDate, endDate, mediumId 
 
   const sessionIds = sessions.map((s) => s.id);
 
-  // 2. Get all students in the batch(es) – if batchId specified, get that batch's students, else all active students
-  let studentQuery = supabase.from("student_batches").select(`
+  // 2. Get all students in the batch(es) – scoped by branch & FY
+  let studentQuery = supabase
+    .from("student_batches")
+    .select(`
       student_id,
       students!inner( id, first_name, last_name, admission_no )
-    `).eq("status", "active");
+    `)
+    .eq("status", "active");
+
+  if (branchId) studentQuery = studentQuery.eq("branch_id", branchId);
+  if (financialYearId) studentQuery = studentQuery.eq("financial_year_id", financialYearId);
 
   if (batchId) {
     studentQuery = studentQuery.eq("batch_id", batchId);
   } else if (mediumId) {
-    // If no batchId but mediumId is set, restrict students to batches of that medium
-    const { data: mediumBatchIds } = await supabase
+    let mediumStudentBatchQuery = supabase
       .from("batches")
       .select("id")
       .eq("medium_id", mediumId);
+    if (branchId) mediumStudentBatchQuery = mediumStudentBatchQuery.eq("branch_id", branchId);
+    if (financialYearId) mediumStudentBatchQuery = mediumStudentBatchQuery.eq("financial_year_id", financialYearId);
+    const { data: mediumBatchIds } = await mediumStudentBatchQuery;
     const batchIds = mediumBatchIds?.map((b) => b.id) || [];
     if (batchIds.length > 0) {
       studentQuery = studentQuery.in("batch_id", batchIds);
@@ -89,11 +105,11 @@ export async function getAttendanceReport(batchId, startDate, endDate, mediumId 
 
   if (marksError) throw marksError;
 
-  // 4. Calculate per student
+  // 4. Calculate per student – CASE‑INSENSITIVE present check
   const totalSessions = sessionIds.length;
   const presentCountMap = {};
   marks.forEach((m) => {
-    if (m.status === "Present") {
+    if (m.status?.toLowerCase() === "present") {
       presentCountMap[m.student_id] = (presentCountMap[m.student_id] || 0) + 1;
     }
   });
@@ -102,11 +118,13 @@ export async function getAttendanceReport(batchId, startDate, endDate, mediumId 
   let batchName = "";
   let mediumName = "";
   if (batchId) {
-    const { data: batch } = await supabase
+    let batchQuery = supabase
       .from("batches")
       .select("batch_name, mediums(name)")
-      .eq("id", batchId)
-      .single();
+      .eq("id", batchId);
+    if (branchId) batchQuery = batchQuery.eq("branch_id", branchId);
+    if (financialYearId) batchQuery = batchQuery.eq("financial_year_id", financialYearId);
+    const { data: batch } = await batchQuery.single();
     if (batch) {
       batchName = batch.batch_name || "";
       mediumName = batch.mediums?.name || "";
@@ -128,18 +146,23 @@ export async function getAttendanceReport(batchId, startDate, endDate, mediumId 
   });
 }
 
-// Get active batches for filter dropdown
-export async function getActiveBatches() {
-  const { data, error } = await supabase
+// Get active batches for filter dropdown – scoped by branch & FY
+export async function getActiveBatches(branchId, financialYearId) {
+  let query = supabase
     .from("batches")
     .select("id, batch_name")
     .eq("status", "active")
     .order("batch_name");
+
+  if (branchId) query = query.eq("branch_id", branchId);
+  if (financialYearId) query = query.eq("financial_year_id", financialYearId);
+
+  const { data, error } = await query;
   if (error) throw error;
   return data;
 }
 
-// NEW – get mediums for attendance report filter dropdown
+// Get mediums for attendance report filter dropdown – organization‑wide
 export async function getMediumOptions() {
   const { data, error } = await supabase
     .from("mediums")
@@ -147,4 +170,97 @@ export async function getMediumOptions() {
     .order("name");
   if (error) throw error;
   return data || [];
+}
+
+/**
+ * Fetches the attendance report and sends it as an HTML email to the specified recipients.
+ */
+export async function sendAttendanceReportEmail({
+  batchId,
+  startDate,
+  endDate,
+  mediumId = null,
+  branchId,
+  financialYearId,
+  recipients,
+  subject = "Attendance Report",
+  from,
+  includeTable = true,
+}) {
+  try {
+    const reportData = await getAttendanceReport(
+      batchId,
+      startDate,
+      endDate,
+      mediumId,
+      branchId,
+      financialYearId
+    );
+
+    if (!reportData || reportData.length === 0) {
+      throw new Error("No attendance data found for the given parameters.");
+    }
+
+    let tableHtml = `
+      <table style="border-collapse: collapse; width: 100%; font-family: Arial, sans-serif; font-size: 14px;">
+        <thead>
+          <tr style="background-color: #f2f2f2;">
+            <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Student</th>
+            <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Admission No.</th>
+            <th style="border: 1px solid #ddd; padding: 8px; text-align: center;">Total Sessions</th>
+            <th style="border: 1px solid #ddd; padding: 8px; text-align: center;">Present</th>
+            <th style="border: 1px solid #ddd; padding: 8px; text-align: center;">Attendance %</th>
+          </tr>
+        </thead>
+        <tbody>
+    `;
+
+    reportData.forEach((row) => {
+      const percentage = parseFloat(row.percentage);
+      const color = percentage < 75 ? '#ff6b6b' : (percentage < 85 ? '#ffd93d' : '#6bcb77');
+      tableHtml += `
+        <tr>
+          <td style="border: 1px solid #ddd; padding: 8px;">${row.student_name}</td>
+          <td style="border: 1px solid #ddd; padding: 8px;">${row.admission_no || '—'}</td>
+          <td style="border: 1px solid #ddd; padding: 8px; text-align: center;">${row.total_sessions}</td>
+          <td style="border: 1px solid #ddd; padding: 8px; text-align: center;">${row.present_count}</td>
+          <td style="border: 1px solid #ddd; padding: 8px; text-align: center; font-weight: bold; color: ${color};">${row.percentage}%</td>
+        </tr>
+      `;
+    });
+
+    tableHtml += `
+        </tbody>
+      </table>
+    `;
+
+    const batchInfo = reportData[0]?.batch_name || 'All Batches';
+    const mediumInfo = reportData[0]?.medium_name || 'All Mediums';
+    const dateRange = startDate && endDate ? `${startDate} to ${endDate}` : 'All Dates';
+
+    const htmlBody = `
+      <div style="font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto;">
+        <h2>Attendance Report</h2>
+        <p><strong>Batch:</strong> ${batchInfo}</p>
+        <p><strong>Medium:</strong> ${mediumInfo}</p>
+        <p><strong>Period:</strong> ${dateRange}</p>
+        <p><strong>Total Students:</strong> ${reportData.length}</p>
+        ${includeTable ? tableHtml : '<p>Report generated. (Table not included)</p>'}
+        <hr>
+        <p style="font-size: 12px; color: #888;">This is an automated report from your Academy Management System.</p>
+      </div>
+    `;
+
+    const result = await sendEmail({
+      to: recipients,
+      subject: subject,
+      html: htmlBody,
+      from,
+    });
+
+    return { success: true, data: result };
+  } catch (error) {
+    console.error("Error sending attendance report email:", error);
+    return { success: false, error: error.message };
+  }
 }

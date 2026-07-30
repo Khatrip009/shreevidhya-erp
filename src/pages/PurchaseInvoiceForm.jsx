@@ -8,10 +8,10 @@ import {
   updatePurchaseInvoice,
   getPurchaseInvoice,
 } from "../services/purchaseInvoiceService";
-import { getOrganization } from "../services/organizationService";
-import { useOrg } from "../context/OrganizationContext";   // NEW
+import { useOrg } from "../context/OrganizationContext";
+import { useTheme } from "../context/ThemeContext";               // ✅ dynamic theme
 import toast from "react-hot-toast";
-import AdminLayout from "../layouts/AdminLayout";
+
 import { ArrowLeft, Save, Plus, Trash2, Loader } from "lucide-react";
 
 export default function PurchaseInvoiceForm() {
@@ -20,9 +20,14 @@ export default function PurchaseInvoiceForm() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
-  // ── Organisation / Branch / Financial Year context ──
-  const { branch, selectedFinancialYear } = useOrg();   // NEW
-  const ctx = { branchId: branch?.id, financialYearId: selectedFinancialYear?.id };
+  const { branch, selectedFinancialYear } = useOrg();
+  const theme = useTheme();                                     // ✅ theme hook
+  const branchId = branch?.id;
+  const financialYearId = selectedFinancialYear?.id;
+  const ctx = { branchId, financialYearId };
+
+  const headingFont = theme?.font_heading || "Righteous";
+  const bodyFont = theme?.font_body || "Montserrat";
 
   const [form, setForm] = useState({
     vendor_id: "",
@@ -43,61 +48,77 @@ export default function PurchaseInvoiceForm() {
   ]);
   const [saving, setSaving] = useState(false);
 
-  // ── Fetch vendors ──
+  // ── Fetch vendors – scoped ──
   const { data: vendors = [] } = useQuery({
-    queryKey: ["vendors-dropdown"],
+    queryKey: ["vendors-dropdown", branchId, financialYearId],
     queryFn: async () => {
-      const { data } = await supabase.from("vendors").select("id, vendor_name").order("vendor_name");
+      let query = supabase.from("vendors").select("id, vendor_name").order("vendor_name");
+      if (branchId) query = query.eq("branch_id", branchId);
+      if (financialYearId) query = query.eq("financial_year_id", financialYearId);
+      const { data } = await query;
       return data || [];
     },
+    enabled: !!branchId && !!financialYearId,
     staleTime: 10 * 60 * 1000,
   });
 
-  // ── Fetch purchase orders (for reference) ──
+  // ── Fetch purchase orders – scoped ──
   const { data: purchaseOrders = [] } = useQuery({
-    queryKey: ["purchase-orders-dropdown"],
+    queryKey: ["purchase-orders-dropdown", branchId, financialYearId],
     queryFn: async () => {
-      const { data } = await supabase
+      let query = supabase
         .from("purchase_orders")
         .select("id, po_number")
         .eq("status", "Received")
         .order("created_at", { ascending: false });
+      if (branchId) query = query.eq("branch_id", branchId);
+      if (financialYearId) query = query.eq("financial_year_id", financialYearId);
+      const { data } = await query;
       return data || [];
     },
+    enabled: !!branchId && !!financialYearId,
     staleTime: 5 * 60 * 1000,
   });
 
-  // ── Fetch inventory items ──
+  // ── Fetch inventory items – scoped ──
   const { data: inventoryItems = [] } = useQuery({
-    queryKey: ["inventory-items-dropdown"],
+    queryKey: ["inventory-items-dropdown", branchId, financialYearId],
     queryFn: async () => {
-      const { data } = await supabase
+      let query = supabase
         .from("inventory_items")
         .select("id, item_name, unit, unit_price")
         .order("item_name");
+      if (branchId) query = query.eq("branch_id", branchId);
+      if (financialYearId) query = query.eq("financial_year_id", financialYearId);
+      const { data } = await query;
       return data || [];
     },
+    enabled: !!branchId && !!financialYearId,
     staleTime: 5 * 60 * 1000,
   });
 
-  // ── Fetch tax rates ──
+  // ── Fetch tax rates – scoped ──
   const { data: taxRates = [] } = useQuery({
-    queryKey: ["tax-rates-dropdown"],
+    queryKey: ["tax-rates-dropdown", branchId, financialYearId],
     queryFn: async () => {
-      const { data } = await supabase
+      let query = supabase
         .from("tax_rates")
         .select("id, name, rate")
         .eq("is_active", true);
+      if (branchId) query = query.eq("branch_id", branchId);
+      if (financialYearId) query = query.eq("financial_year_id", financialYearId);
+      const { data } = await query;
       return data || [];
     },
+    enabled: !!branchId && !!financialYearId,
     staleTime: 10 * 60 * 1000,
   });
 
-  // ── Load existing invoice if editing ──
+  // ── Load existing invoice if editing – scoped ──
   const { data: invoice, isLoading: loadingInvoice } = useQuery({
-    queryKey: ["purchase-invoice", id],
-    queryFn: () => getPurchaseInvoice(id),
-    enabled: isEditing,
+    queryKey: ["purchase-invoice", id, branchId, financialYearId],
+    queryFn: () => getPurchaseInvoice(id, branchId, financialYearId),
+    enabled: isEditing && !!branchId && !!financialYearId,
   });
 
   useEffect(() => {
@@ -124,6 +145,64 @@ export default function PurchaseInvoiceForm() {
       }
     }
   }, [invoice]);
+
+  // ── NEW: Fetch selected PO data (items + po_number) when a PO is chosen ──
+  const { data: selectedPO } = useQuery({
+    queryKey: ["selected-po", form.purchase_order_id, branchId, financialYearId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("purchase_orders")
+        .select("po_number, purchase_order_items(*)")
+        .eq("id", form.purchase_order_id)
+        .maybeSingle();
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!form.purchase_order_id && !!branchId && !!financialYearId,
+  });
+
+  // ── Auto‑populate items from selected PO (only for new invoices) ──
+  useEffect(() => {
+    // Don’t override items when editing an existing invoice
+    if (isEditing) return;
+
+    if (selectedPO?.purchase_order_items?.length) {
+      const poItems = selectedPO.purchase_order_items.map((poItem) => ({
+        item_id: poItem.item_id ? String(poItem.item_id) : "",
+        description:
+          inventoryItems.find((inv) => inv.id === poItem.item_id)?.item_name || "",
+        hsn_sac_code: "", // PO items don’t have HSN/SAC, leave blank
+        quantity: poItem.quantity_ordered || 1,
+        unit_price: poItem.unit_price || 0,
+        tax_rate_id: poItem.tax_rate_id ? String(poItem.tax_rate_id) : "",
+      }));
+      setItems(poItems);
+
+      // Optionally pre‑fill the reference with the PO number
+      setForm((prev) => ({
+        ...prev,
+        reference: selectedPO.po_number || prev.reference,
+      }));
+    } else if (!form.purchase_order_id) {
+      // Reset to one empty row when the PO is cleared
+      setItems([
+        {
+          item_id: "",
+          description: "",
+          hsn_sac_code: "",
+          quantity: 1,
+          unit_price: 0,
+          tax_rate_id: "",
+        },
+      ]);
+      // Clear the reference if it was set by a previous PO
+      setForm((prev) => ({
+        ...prev,
+        reference: "",
+      }));
+    }
+    // Dependencies: re‑run when PO data, inventory list, or PO selection changes
+  }, [selectedPO, inventoryItems, form.purchase_order_id, isEditing]);
 
   // ── Handlers ──
   const addItem = () => {
@@ -190,7 +269,7 @@ export default function PurchaseInvoiceForm() {
 
   const totals = computeTotals();
 
-  // ── Mutations – now pass context ──
+  // ── Mutations ──
   const createMutation = useMutation({
     mutationFn: (payload) => createPurchaseInvoice(payload, ctx),
     onSuccess: () => {
@@ -252,123 +331,189 @@ export default function PurchaseInvoiceForm() {
 
   if (loadingInvoice) {
     return (
-      <AdminLayout>
-        <div className="p-8 text-center">Loading invoice…</div>
-      </AdminLayout>
+      <div className="p-8 text-center text-primary-dark/60" style={{ fontFamily: bodyFont }}>
+        Loading invoice…
+      </div>
     );
   }
 
   return (
-    <AdminLayout>
+    <>
       <button
         onClick={() => navigate("/purchase-invoices")}
-        className="inline-flex items-center gap-2 text-secondary hover:text-primary-dark mb-4 text-sm"
+        className="inline-flex items-center gap-2 text-primary-dark hover:text-primary mb-4 text-sm"
+        style={{ fontFamily: bodyFont }}
       >
         <ArrowLeft size={18} /> Back to Invoices
       </button>
 
-      <h1 className="text-3xl font-righteous text-primary-dark mb-6">
+      <h1
+        className="text-3xl font-bold text-primary mb-6"
+        style={{ fontFamily: headingFont }}
+      >
         {isEditing ? "Edit Purchase Invoice" : "New Purchase Invoice"}
       </h1>
 
-      <form className="bg-white rounded-xl shadow-sm p-6 space-y-6">
+      <form
+        onSubmit={handleSubmit}
+        className="bg-white rounded-xl shadow-sm border border-primary-bg p-6 space-y-6"
+      >
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-montserrat text-secondary-dark mb-1">
+            <label
+              className="block text-sm font-medium text-primary-dark mb-1"
+              style={{ fontFamily: bodyFont }}
+            >
               Vendor *
             </label>
             <select
               value={form.vendor_id}
               onChange={(e) => setForm({ ...form, vendor_id: e.target.value })}
-              className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary"
+              className="w-full border border-primary-bg bg-white rounded-lg p-2.5 text-sm text-primary-dark focus:ring-1 focus:ring-primary"
               required
             >
               <option value="">Select Vendor</option>
               {vendors.map((v) => (
-                <option key={v.id} value={v.id}>{v.vendor_name}</option>
+                <option key={v.id} value={v.id}>
+                  {v.vendor_name}
+                </option>
               ))}
             </select>
           </div>
           <div>
-            <label className="block text-sm font-montserrat text-secondary-dark mb-1">
+            <label
+              className="block text-sm font-medium text-primary-dark mb-1"
+              style={{ fontFamily: bodyFont }}
+            >
               Invoice Date
             </label>
             <input
               type="date"
               value={form.invoice_date}
               onChange={(e) => setForm({ ...form, invoice_date: e.target.value })}
-              className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary"
+              className="w-full border border-primary-bg bg-white rounded-lg p-2.5 text-sm text-primary-dark focus:ring-1 focus:ring-primary"
             />
           </div>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-montserrat text-secondary-dark mb-1">
+            <label
+              className="block text-sm font-medium text-primary-dark mb-1"
+              style={{ fontFamily: bodyFont }}
+            >
               Purchase Order (optional)
             </label>
             <select
               value={form.purchase_order_id}
               onChange={(e) => setForm({ ...form, purchase_order_id: e.target.value })}
-              className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary"
+              className="w-full border border-primary-bg bg-white rounded-lg p-2.5 text-sm text-primary-dark focus:ring-1 focus:ring-primary"
             >
               <option value="">None</option>
               {purchaseOrders.map((po) => (
-                <option key={po.id} value={po.id}>{po.po_number}</option>
+                <option key={po.id} value={po.id}>
+                  {po.po_number}
+                </option>
               ))}
             </select>
           </div>
           <div>
-            <label className="block text-sm font-montserrat text-secondary-dark mb-1">
+            <label
+              className="block text-sm font-medium text-primary-dark mb-1"
+              style={{ fontFamily: bodyFont }}
+            >
               Reference
             </label>
             <input
               type="text"
               value={form.reference}
               onChange={(e) => setForm({ ...form, reference: e.target.value })}
-              className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary"
+              className="w-full border border-primary-bg bg-white rounded-lg p-2.5 text-sm text-primary-dark focus:ring-1 focus:ring-primary"
               placeholder="Vendor bill ref, etc."
             />
           </div>
         </div>
 
         <div>
-          <label className="block text-sm font-montserrat text-secondary-dark mb-1">
+          <label
+            className="block text-sm font-medium text-primary-dark mb-1"
+            style={{ fontFamily: bodyFont }}
+          >
             Notes
           </label>
           <textarea
             value={form.notes}
             onChange={(e) => setForm({ ...form, notes: e.target.value })}
             rows={2}
-            className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary"
+            className="w-full border border-primary-bg bg-white rounded-lg p-2.5 text-sm text-primary-dark focus:ring-1 focus:ring-primary"
             placeholder="Any additional notes..."
           />
         </div>
 
         {/* Items */}
         <div>
-          <h3 className="text-lg font-semibold text-secondary-dark mb-3">Items</h3>
-          <div className="overflow-x-auto">
+          <h3
+            className="text-lg font-semibold text-primary mb-3"
+            style={{ fontFamily: headingFont }}
+          >
+            Items
+          </h3>
+          <div className="overflow-x-auto border border-primary-bg rounded-lg">
             <table className="w-full min-w-[800px]">
-              <thead className="bg-slate-100">
+              <thead className="bg-primary-bg">
                 <tr>
-                  <th className="p-2 text-left text-sm">Item</th>
-                  <th className="p-2 text-left text-sm">Description</th>
-                  <th className="p-2 text-left text-sm">HSN/SAC</th>
-                  <th className="p-2 text-right text-sm">Qty</th>
-                  <th className="p-2 text-right text-sm">Unit Price</th>
-                  <th className="p-2 text-left text-sm">Tax Rate</th>
-                  <th className="p-2 text-center text-sm">Actions</th>
+                  <th
+                    className="p-2 text-left text-sm font-medium text-primary-dark uppercase"
+                    style={{ fontFamily: bodyFont }}
+                  >
+                    Item
+                  </th>
+                  <th
+                    className="p-2 text-left text-sm font-medium text-primary-dark uppercase"
+                    style={{ fontFamily: bodyFont }}
+                  >
+                    Description
+                  </th>
+                  <th
+                    className="p-2 text-left text-sm font-medium text-primary-dark uppercase"
+                    style={{ fontFamily: bodyFont }}
+                  >
+                    HSN/SAC
+                  </th>
+                  <th
+                    className="p-2 text-right text-sm font-medium text-primary-dark uppercase"
+                    style={{ fontFamily: bodyFont }}
+                  >
+                    Qty
+                  </th>
+                  <th
+                    className="p-2 text-right text-sm font-medium text-primary-dark uppercase"
+                    style={{ fontFamily: bodyFont }}
+                  >
+                    Unit Price
+                  </th>
+                  <th
+                    className="p-2 text-left text-sm font-medium text-primary-dark uppercase"
+                    style={{ fontFamily: bodyFont }}
+                  >
+                    Tax Rate
+                  </th>
+                  <th
+                    className="p-2 text-center text-sm font-medium text-primary-dark uppercase"
+                    style={{ fontFamily: bodyFont }}
+                  >
+                    Actions
+                  </th>
                 </tr>
               </thead>
               <tbody>
                 {items.map((item, idx) => (
-                  <tr key={idx} className="border-t">
+                  <tr key={idx} className="border-t border-primary-bg hover:bg-primary-bg">
                     <td className="p-2">
                       <select
                         value={item.item_id}
                         onChange={(e) => handleItemSelect(idx, e.target.value)}
-                        className="w-full border rounded p-1 text-sm"
+                        className="w-full border border-primary-bg bg-white rounded p-1 text-sm text-primary-dark"
                       >
                         <option value="">Select</option>
                         {inventoryItems.map((inv) => (
@@ -383,7 +528,7 @@ export default function PurchaseInvoiceForm() {
                         type="text"
                         value={item.description}
                         onChange={(e) => updateItem(idx, "description", e.target.value)}
-                        className="w-full border rounded p-1 text-sm"
+                        className="w-full border border-primary-bg bg-white rounded p-1 text-sm text-primary-dark"
                         placeholder="Description"
                       />
                     </td>
@@ -392,7 +537,7 @@ export default function PurchaseInvoiceForm() {
                         type="text"
                         value={item.hsn_sac_code}
                         onChange={(e) => updateItem(idx, "hsn_sac_code", e.target.value)}
-                        className="w-full border rounded p-1 text-sm"
+                        className="w-full border border-primary-bg bg-white rounded p-1 text-sm text-primary-dark"
                         placeholder="HSN/SAC"
                       />
                     </td>
@@ -401,7 +546,7 @@ export default function PurchaseInvoiceForm() {
                         type="number"
                         value={item.quantity}
                         onChange={(e) => updateItem(idx, "quantity", e.target.value)}
-                        className="w-16 border rounded p-1 text-sm text-right"
+                        className="w-20 border border-primary-bg bg-white rounded p-1 text-sm text-right text-primary-dark"
                         min="1"
                         step="0.01"
                       />
@@ -411,7 +556,7 @@ export default function PurchaseInvoiceForm() {
                         type="number"
                         value={item.unit_price}
                         onChange={(e) => updateItem(idx, "unit_price", e.target.value)}
-                        className="w-24 border rounded p-1 text-sm text-right"
+                        className="w-24 border border-primary-bg bg-white rounded p-1 text-sm text-right text-primary-dark"
                         min="0"
                         step="0.01"
                       />
@@ -420,7 +565,7 @@ export default function PurchaseInvoiceForm() {
                       <select
                         value={item.tax_rate_id}
                         onChange={(e) => updateItem(idx, "tax_rate_id", e.target.value)}
-                        className="w-full border rounded p-1 text-sm"
+                        className="w-full border border-primary-bg bg-white rounded p-1 text-sm text-primary-dark"
                       >
                         <option value="">No Tax</option>
                         {taxRates.map((tr) => (
@@ -434,7 +579,7 @@ export default function PurchaseInvoiceForm() {
                       <button
                         type="button"
                         onClick={() => removeItem(idx)}
-                        className="text-red-600 hover:text-red-800"
+                        className="text-accent hover:text-accent-dark"
                       >
                         <Trash2 size={16} />
                       </button>
@@ -447,29 +592,30 @@ export default function PurchaseInvoiceForm() {
           <button
             type="button"
             onClick={addItem}
-            className="mt-2 text-primary text-sm flex items-center gap-1"
+            className="mt-2 text-primary text-sm flex items-center gap-1 hover:underline"
+            style={{ fontFamily: bodyFont }}
           >
             <Plus size={16} /> Add Item
           </button>
         </div>
 
         {/* Totals */}
-        <div className="border-t pt-4 space-y-2">
+        <div className="border-t border-primary-bg pt-4 space-y-2">
           <div className="flex justify-end">
             <div className="w-72 space-y-1">
-              <div className="flex justify-between text-sm">
+              <div className="flex justify-between text-sm text-primary-dark" style={{ fontFamily: bodyFont }}>
                 <span>Taxable Amount:</span>
                 <span className="font-medium">₹ {totals.taxableTotal.toFixed(2)}</span>
               </div>
-              <div className="flex justify-between text-sm">
+              <div className="flex justify-between text-sm text-primary-dark" style={{ fontFamily: bodyFont }}>
                 <span>GST (approx):</span>
                 <span className="font-medium">₹ {totals.totalGST.toFixed(2)}</span>
               </div>
-              <div className="flex justify-between text-lg font-bold border-t pt-1">
+              <div className="flex justify-between text-lg font-bold border-t border-primary-bg pt-1 text-primary" style={{ fontFamily: headingFont }}>
                 <span>Grand Total:</span>
-                <span className="text-primary">₹ {totals.grandTotal.toFixed(2)}</span>
+                <span>₹ {totals.grandTotal.toFixed(2)}</span>
               </div>
-              <p className="text-xs text-secondary-light">
+              <p className="text-xs text-primary-dark/60" style={{ fontFamily: bodyFont }}>
                 * GST will be split as CGST/SGST or IGST based on vendor state.
               </p>
             </div>
@@ -477,19 +623,20 @@ export default function PurchaseInvoiceForm() {
         </div>
 
         {/* Actions */}
-        <div className="flex flex-wrap gap-3 pt-4 border-t">
+        <div className="flex flex-wrap gap-3 pt-4 border-t border-primary-bg">
           <button
             type="button"
             onClick={() => navigate("/purchase-invoices")}
-            className="border border-secondary-light px-4 py-2 rounded-lg text-sm hover:bg-secondary-bg transition"
+            className="border border-primary-bg px-4 py-2 rounded-lg text-sm text-primary-dark hover:bg-primary-bg transition-colors"
+            style={{ fontFamily: bodyFont }}
           >
             Cancel
           </button>
           <button
             type="submit"
-            onClick={handleSubmit}
             disabled={saving || createMutation.isPending || updateMutation.isPending}
-            className="bg-primary hover:bg-primary-light text-white px-6 py-2 rounded-lg text-sm flex items-center gap-2 transition disabled:opacity-50"
+            className="bg-primary hover:bg-accent text-white px-6 py-2 rounded-lg text-sm flex items-center gap-2 transition disabled:opacity-50"
+            style={{ fontFamily: bodyFont }}
           >
             {saving || createMutation.isPending || updateMutation.isPending ? (
               <Loader className="w-4 h-4 animate-spin" />
@@ -500,6 +647,6 @@ export default function PurchaseInvoiceForm() {
           </button>
         </div>
       </form>
-    </AdminLayout>
+    </>
   );
 }

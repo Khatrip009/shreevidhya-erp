@@ -1,22 +1,98 @@
 // src/services/purchaseInvoiceService.js
 import { supabase } from "../api/supabase";
+import { sendTemplateEmail } from "./emailService"; // 👈 Added
 
-// ─── HELPERS ───────────────────────────────────────────────
-async function generateInvoiceNumber() {
-  const { data, error } = await supabase.rpc("generate_purchase_invoice_number");
-  if (error) throw error;
-  return data;
+// ─── Helpers ──────────────────────────────────────────────────────────
+
+async function getOrganizationFromBranch(branchId) {
+  const { data: branch, error: branchError } = await supabase
+    .from("branches")
+    .select("organization_id")
+    .eq("id", branchId)
+    .single();
+  if (branchError) throw branchError;
+
+  const { data: org, error: orgError } = await supabase
+    .from("organization")
+    .select("id, company_name")
+    .eq("id", branch.organization_id)
+    .single();
+  if (orgError) throw orgError;
+  return org;
 }
 
-async function computeTaxableAmounts(item, vendorState, orgState) {
+async function getAdminEmails(organizationId) {
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("email")
+    .eq("organization_id", organizationId)
+    .in("role", ["admin", "super_admin", "organization_admin"])
+    .eq("is_active", true);
+  if (error) throw error;
+  return data?.map(p => p.email).filter(Boolean) || [];
+}
+
+/**
+ * Send purchase invoice received notification to admins using the "pi_received" template.
+ */
+async function sendPurchaseInvoiceReceivedNotification(invoiceId, context) {
+  const { branchId, financialYearId } = context;
+  try {
+    // 1. Fetch invoice with vendor details
+    let invoiceQuery = supabase
+      .from("purchase_invoices")
+      .select(`
+        *,
+        vendors(id, vendor_name)
+      `)
+      .eq("id", invoiceId);
+    if (branchId) invoiceQuery = invoiceQuery.eq("branch_id", branchId);
+    if (financialYearId) invoiceQuery = invoiceQuery.eq("financial_year_id", financialYearId);
+    const { data: invoice, error } = await invoiceQuery.single();
+    if (error) throw error;
+
+    const org = await getOrganizationFromBranch(branchId);
+    const adminEmails = await getAdminEmails(org.id);
+    if (adminEmails.length === 0) {
+      console.warn('No admin emails found, skipping purchase invoice notification.');
+      return;
+    }
+
+    const contextEmail = {
+      academyName: org.company_name,
+      invoice_number: invoice.invoice_number,
+      vendor_name: invoice.vendors?.vendor_name || 'Unknown Vendor',
+      invoice_date: invoice.invoice_date,
+      grand_total: invoice.grand_total || 0,
+    };
+
+    await sendTemplateEmail({
+      to: adminEmails,
+      organizationId: org.id,
+      slug: "pi_received",
+      context: contextEmail,
+      branchId,
+    });
+    console.log(`✅ Purchase invoice notification sent to admins for ${invoice.invoice_number}`);
+  } catch (error) {
+    console.error("❌ Failed to send purchase invoice notification:", error);
+  }
+}
+
+// ─── HELPERS (existing) ─────────────────────────────────────────────
+
+// Scoped tax‑rate fetch
+async function computeTaxableAmounts(item, vendorState, orgState, branchId, financialYearId) {
   const taxable = parseFloat(item.quantity) * parseFloat(item.unit_price);
   let cgst = 0, sgst = 0, igst = 0, cess = 0;
   if (item.tax_rate_id) {
-    const { data: taxRate } = await supabase
+    let taxQuery = supabase
       .from("tax_rates")
       .select("rate")
-      .eq("id", item.tax_rate_id)
-      .single();
+      .eq("id", item.tax_rate_id);
+    if (branchId) taxQuery = taxQuery.eq("branch_id", branchId);
+    if (financialYearId) taxQuery = taxQuery.eq("financial_year_id", financialYearId);
+    const { data: taxRate } = await taxQuery.single();
     const rate = taxRate?.rate || 0;
     if (rate > 0) {
       const isInterState = vendorState !== orgState && vendorState !== "" && orgState !== "";
@@ -32,8 +108,9 @@ async function computeTaxableAmounts(item, vendorState, orgState) {
   return { taxable, cgst, sgst, igst, cess, total };
 }
 
-// ─── CRUD ──────────────────────────────────────────────────
-export async function getPurchaseInvoices(filters = {}) {
+// ─── CRUD ─────────────────────────────────────────────────────────────
+
+export async function getPurchaseInvoices(filters = {}, branchId, financialYearId) {
   let query = supabase
     .from("purchase_invoices")
     .select(`
@@ -42,6 +119,10 @@ export async function getPurchaseInvoices(filters = {}) {
       purchase_orders(po_number)
     `)
     .order("invoice_date", { ascending: false });
+
+  // Scope
+  if (branchId) query = query.eq("branch_id", branchId);
+  if (financialYearId) query = query.eq("financial_year_id", financialYearId);
 
   if (filters.vendor_id) query = query.eq("vendor_id", filters.vendor_id);
   if (filters.status) query = query.eq("status", filters.status);
@@ -58,8 +139,8 @@ export async function getPurchaseInvoices(filters = {}) {
   return data || [];
 }
 
-export async function getPurchaseInvoice(id) {
-  const { data, error } = await supabase
+export async function getPurchaseInvoice(id, branchId, financialYearId) {
+  let query = supabase
     .from("purchase_invoices")
     .select(`
       *,
@@ -71,18 +152,22 @@ export async function getPurchaseInvoice(id) {
         tax_rates(id, name, rate)
       )
     `)
-    .eq("id", id)
-    .single();
+    .eq("id", id);
+
+  if (branchId) query = query.eq("branch_id", branchId);
+  if (financialYearId) query = query.eq("financial_year_id", financialYearId);
+
+  const { data, error } = await query.single();
   if (error) throw error;
   return data;
 }
 
 // context: { branchId, financialYearId }
 export async function createPurchaseInvoice(payload, context) {
-  const { vendor_id, invoice_date, purchase_order_id, reference, notes, items } = payload;
+  const { vendor_id, invoice_date, purchase_order_id, reference, notes, items, status } = payload;
   const { branchId, financialYearId } = context;
 
-  // Fetch vendor state
+  // Fetch vendor state (vendors are org-wide, not scoped)
   const { data: vendor } = await supabase
     .from("vendors")
     .select("state_code")
@@ -101,10 +186,10 @@ export async function createPurchaseInvoice(payload, context) {
 
   let totalTaxable = 0, totalGST = 0, totalCess = 0, grandTotal = 0;
 
-  // Compute each item
+  // Compute each item with scoped tax‑rate lookup
   const computedItems = await Promise.all(
     items.map(async (item) => {
-      const result = await computeTaxableAmounts(item, vendorState, orgState);
+      const result = await computeTaxableAmounts(item, vendorState, orgState, branchId, financialYearId);
       totalTaxable += result.taxable;
       totalGST += result.cgst + result.sgst + result.igst;
       totalCess += result.cess || 0;
@@ -113,13 +198,15 @@ export async function createPurchaseInvoice(payload, context) {
     })
   );
 
-  const invoiceNumber = await generateInvoiceNumber();
+  
+  // Determine final status
+  const finalStatus = status || "Draft";
 
   // Insert invoice header
   const { data: invoice, error } = await supabase
     .from("purchase_invoices")
     .insert({
-      invoice_number: invoiceNumber,
+      
       invoice_date: invoice_date || new Date().toISOString().split("T")[0],
       vendor_id,
       purchase_order_id: purchase_order_id || null,
@@ -127,7 +214,7 @@ export async function createPurchaseInvoice(payload, context) {
       total_gst_amount: totalGST,
       total_cess: totalCess,
       grand_total: grandTotal,
-      status: "Draft",
+      status: finalStatus,
       reference: reference || "",
       notes: notes || "",
       branch_id: branchId,
@@ -160,23 +247,30 @@ export async function createPurchaseInvoice(payload, context) {
     .insert(itemInserts);
   if (insError) throw insError;
 
+  // If status is "Final", send notification
+  if (finalStatus === "Final") {
+    await sendPurchaseInvoiceReceivedNotification(invoice.id, context);
+  }
+
   return invoice;
 }
 
 // context: { branchId, financialYearId }
 export async function updatePurchaseInvoice(id, payload, context) {
-  const { vendor_id, invoice_date, purchase_order_id, reference, notes, items } = payload;
+  const { vendor_id, invoice_date, purchase_order_id, reference, notes, items, status } = payload;
   const { branchId, financialYearId } = context;
 
-  // Fetch existing invoice to delete old items
-  const { data: existing } = await supabase
+  // Fetch existing invoice (scoped) to check status
+  let existingQuery = supabase
     .from("purchase_invoices")
     .select("status")
-    .eq("id", id)
-    .single();
-  if (existing.status !== "Draft") throw new Error("Only draft invoices can be edited");
+    .eq("id", id);
+  if (branchId) existingQuery = existingQuery.eq("branch_id", branchId);
+  if (financialYearId) existingQuery = existingQuery.eq("financial_year_id", financialYearId);
+  const { data: existing } = await existingQuery.single();
+  if (existing?.status !== "Draft") throw new Error("Only draft invoices can be edited");
 
-  // Compute totals similarly to create
+  // Vendor and org states (not scoped)
   const { data: vendor } = await supabase
     .from("vendors")
     .select("state_code")
@@ -193,7 +287,7 @@ export async function updatePurchaseInvoice(id, payload, context) {
   let totalTaxable = 0, totalGST = 0, totalCess = 0, grandTotal = 0;
   const computedItems = await Promise.all(
     items.map(async (item) => {
-      const result = await computeTaxableAmounts(item, vendorState, orgState);
+      const result = await computeTaxableAmounts(item, vendorState, orgState, branchId, financialYearId);
       totalTaxable += result.taxable;
       totalGST += result.cgst + result.sgst + result.igst;
       totalCess += result.cess || 0;
@@ -202,8 +296,8 @@ export async function updatePurchaseInvoice(id, payload, context) {
     })
   );
 
-  // Update header
-  const { data: invoice, error } = await supabase
+  // Update header (scoped)
+  let headerUpdateQuery = supabase
     .from("purchase_invoices")
     .update({
       vendor_id,
@@ -215,21 +309,27 @@ export async function updatePurchaseInvoice(id, payload, context) {
       grand_total: grandTotal,
       reference: reference || "",
       notes: notes || "",
+      status: status || "Draft",
       updated_at: new Date(),
       branch_id: branchId,
       financial_year_id: financialYearId,
     })
-    .eq("id", id)
-    .select()
-    .single();
+    .eq("id", id);
+  if (branchId) headerUpdateQuery = headerUpdateQuery.eq("branch_id", branchId);
+  if (financialYearId) headerUpdateQuery = headerUpdateQuery.eq("financial_year_id", financialYearId);
+  const { data: invoice, error } = await headerUpdateQuery.select().single();
   if (error) throw error;
 
-  // Delete old items and insert new ones
-  await supabase
+  // Delete old items (scoped)
+  let deleteItemsQuery = supabase
     .from("purchase_invoice_items")
     .delete()
     .eq("purchase_invoice_id", id);
+  if (branchId) deleteItemsQuery = deleteItemsQuery.eq("branch_id", branchId);
+  if (financialYearId) deleteItemsQuery = deleteItemsQuery.eq("financial_year_id", financialYearId);
+  await deleteItemsQuery;
 
+  // Insert new items
   const itemInserts = computedItems.map((item) => ({
     purchase_invoice_id: id,
     item_id: item.item_id,
@@ -252,13 +352,18 @@ export async function updatePurchaseInvoice(id, payload, context) {
     .insert(itemInserts);
   if (insError) throw insError;
 
+  // If status changed to "Final", send notification
+  if (status === "Final" && existing.status !== "Final") {
+    await sendPurchaseInvoiceReceivedNotification(id, context);
+  }
+
   return invoice;
 }
 
 // context: { branchId, financialYearId }
 export async function finalizePurchaseInvoice(id, context) {
   const { branchId, financialYearId } = context;
-  const { data, error } = await supabase
+  let query = supabase
     .from("purchase_invoices")
     .update({
       status: "Final",
@@ -266,20 +371,38 @@ export async function finalizePurchaseInvoice(id, context) {
       branch_id: branchId,
       financial_year_id: financialYearId,
     })
-    .eq("id", id)
-    .select()
-    .single();
+    .eq("id", id);
+
+  if (branchId) query = query.eq("branch_id", branchId);
+  if (financialYearId) query = query.eq("financial_year_id", financialYearId);
+
+  const { data, error } = await query.select().single();
   if (error) throw error;
+
+  // ─── Send notification to admins ──────────────────────────
+  await sendPurchaseInvoiceReceivedNotification(id, context);
+
   return data;
 }
 
-export async function deletePurchaseInvoice(id) {
-  const { data: invoice } = await supabase
+export async function deletePurchaseInvoice(id, branchId, financialYearId) {
+  // Check status (scoped)
+  let statusQuery = supabase
     .from("purchase_invoices")
     .select("status")
-    .eq("id", id)
-    .single();
-  if (invoice.status !== "Draft") throw new Error("Cannot delete finalized invoice");
-  const { error } = await supabase.from("purchase_invoices").delete().eq("id", id);
+    .eq("id", id);
+  if (branchId) statusQuery = statusQuery.eq("branch_id", branchId);
+  if (financialYearId) statusQuery = statusQuery.eq("financial_year_id", financialYearId);
+  const { data: invoice } = await statusQuery.single();
+  if (invoice?.status !== "Draft") throw new Error("Cannot delete finalized invoice");
+
+  // Delete (scoped)
+  let deleteQuery = supabase
+    .from("purchase_invoices")
+    .delete()
+    .eq("id", id);
+  if (branchId) deleteQuery = deleteQuery.eq("branch_id", branchId);
+  if (financialYearId) deleteQuery = deleteQuery.eq("financial_year_id", financialYearId);
+  const { error } = await deleteQuery;
   if (error) throw error;
 }

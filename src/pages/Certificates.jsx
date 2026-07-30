@@ -17,9 +17,9 @@ import {
   X,
   Award,
   Printer,
+  Mail,
 } from "lucide-react";
 import Papa from "papaparse";
-import AdminLayout from "../layouts/AdminLayout";
 import CertificateForm from "../components/CertificateForm";
 import BackButton from "../components/BackButton";
 import {
@@ -30,24 +30,42 @@ import {
 } from "../services/certificateService";
 import { generateCertificatePdf } from "../utils/certificatePdf";
 import { supabase } from "../api/supabase";
-import { useOrg } from "../context/OrganizationContext";   // NEW
+import { useOrg } from "../context/OrganizationContext";
+import { useTheme } from "../context/ThemeContext"; // ✅ dynamic theme
+import { sendTemplateEmail, sendEmail } from "../services/emailService";
 
 export default function Certificates() {
   const queryClient = useQueryClient();
 
-  // ── Organisation / Branch / Financial Year context ──
-  const { branch, selectedFinancialYear } = useOrg();
-  const ctx = {
-    branchId: branch?.id,
-    financialYearId: selectedFinancialYear?.id,
-  };
+  const { branch, selectedFinancialYear, org } = useOrg();
+  const theme = useTheme();
+  const branchId = branch?.id;
+  const financialYearId = selectedFinancialYear?.id;
 
-  // Search & filters
+  const headingFont = theme?.font_heading || "Righteous";
+  const bodyFont = theme?.font_body || "Montserrat";
+
   const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
   const fileInputRef = useRef(null);
 
-  // Infinite query for certificates (unchanged)
+  // ─── Helper: get admin emails ──────────────────────────────────────
+  const getAdminEmails = async () => {
+    if (!org?.id) return [];
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("email")
+      .eq("organization_id", org.id)
+      .in("role", ["admin", "super_admin", "organization_admin"])
+      .eq("is_active", true);
+    if (error) {
+      console.error("Failed to fetch admin emails:", error);
+      return [];
+    }
+    return data?.map(p => p.email).filter(Boolean) || [];
+  };
+
+  // ─── Query ──────────────────────────────────────────────────────────
   const {
     data,
     isLoading,
@@ -55,7 +73,7 @@ export default function Certificates() {
     hasNextPage,
     isFetchingNextPage,
   } = useInfiniteQuery({
-    queryKey: ["certificates", { search }],
+    queryKey: ["certificates", { search }, branchId, financialYearId],
     queryFn: async ({ pageParam = 0 }) => {
       const limit = 20;
       const from = pageParam * limit;
@@ -65,11 +83,13 @@ export default function Certificates() {
         .from("certificates")
         .select(
           `*,
-          students ( first_name, last_name, admission_no ),
+          students ( first_name, last_name, admission_no, email ),
           courses ( course_name ),
           course_levels ( level_name )`,
           { count: "exact" }
         )
+        .eq("branch_id", branchId)
+        .eq("financial_year_id", financialYearId)
         .order("issue_date", { ascending: false })
         .range(from, to);
 
@@ -91,14 +111,15 @@ export default function Certificates() {
       return undefined;
     },
     initialPageParam: 0,
+    enabled: !!branchId && !!financialYearId,
     staleTime: 5 * 60 * 1000,
   });
 
   const certificates = data?.pages.flatMap((page) => page.data) || [];
 
-  // Mutations – now accept context
+  // ─── Mutations ──────────────────────────────────────────────────────
   const createMutation = useMutation({
-    mutationFn: (payload) => createCertificate(payload, ctx),
+    mutationFn: (payload) => createCertificate(payload, { branchId, financialYearId }),
     onSuccess: () => {
       toast.success("Certificate issued");
       queryClient.invalidateQueries({ queryKey: ["certificates"] });
@@ -108,7 +129,7 @@ export default function Certificates() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (id) => deleteCertificate(id, ctx),
+    mutationFn: (id) => deleteCertificate(id, { branchId, financialYearId }),
     onSuccess: () => {
       toast.success("Certificate deleted");
       queryClient.invalidateQueries({ queryKey: ["certificates"] });
@@ -116,7 +137,108 @@ export default function Certificates() {
     onError: () => toast.error("Delete failed"),
   });
 
-  // CSV Import – also pass context
+  // ─── Send certificate email manually ──────────────────────────────
+  const sendCertificateEmailMutation = useMutation({
+    mutationFn: async (cert) => {
+      const student = cert.students;
+      const parentEmail = student?.email;
+
+      if (!parentEmail) {
+        throw new Error("No email found for the student.");
+      }
+
+      const context = {
+        academyName: org?.company_name || "Academy",
+        student_name: `${student?.first_name || ''} ${student?.last_name || ''}`.trim(),
+        certificate_no: cert.certificate_no,
+        course_name: cert.courses?.course_name || 'N/A',
+        level_name: cert.course_levels?.level_name || '',
+        issue_date: cert.issue_date,
+        download_link: cert.certificate_url || '',
+      };
+
+      await sendTemplateEmail({
+        to: parentEmail,
+        organizationId: org?.id,
+        slug: "certificate_issued",
+        context,
+        branchId,
+      });
+      return true;
+    },
+    onSuccess: () => {
+      toast.success("Certificate email sent.");
+    },
+    onError: (err) => {
+      toast.error("Failed to send email: " + err.message);
+    },
+  });
+
+  // ─── Send Report to Admins ─────────────────────────────────────────
+  const sendReportEmail = async () => {
+    if (certificates.length === 0) {
+      alert("No certificates to send.");
+      return;
+    }
+
+    try {
+      const adminEmails = await getAdminEmails();
+      if (adminEmails.length === 0) {
+        alert("No admin emails found.");
+        return;
+      }
+
+      let tableRows = certificates.map((c) => `
+        <tr>
+          <td style="padding:4px 8px;border:1px solid #ddd;">${c.certificate_no}</td>
+          <td style="padding:4px 8px;border:1px solid #ddd;">${c.students?.first_name || ''} ${c.students?.last_name || ''}</td>
+          <td style="padding:4px 8px;border:1px solid #ddd;">${c.students?.admission_no || ''}</td>
+          <td style="padding:4px 8px;border:1px solid #ddd;">${c.courses?.course_name || ''}</td>
+          <td style="padding:4px 8px;border:1px solid #ddd;">${c.course_levels?.level_name || '-'}</td>
+          <td style="padding:4px 8px;border:1px solid #ddd;">${c.issue_date}</td>
+        </tr>
+      `).join('');
+
+      const htmlBody = `
+        <div style="font-family:Arial,sans-serif;max-width:800px;margin:0 auto;">
+          <h2 style="color:#0D47A1;">Certificate Report</h2>
+          <p><strong>Branch:</strong> ${branch?.branch_name || 'N/A'}</p>
+          <p><strong>Total Certificates:</strong> ${certificates.length}</p>
+          <hr />
+          <table style="width:100%;border-collapse:collapse;font-size:12px;">
+            <thead>
+              <tr style="background:#e3f2fd;">
+                <th style="padding:4px 8px;border:1px solid #ddd;text-align:left;">Certificate No</th>
+                <th style="padding:4px 8px;border:1px solid #ddd;text-align:left;">Student</th>
+                <th style="padding:4px 8px;border:1px solid #ddd;text-align:left;">Admission No</th>
+                <th style="padding:4px 8px;border:1px solid #ddd;text-align:left;">Course</th>
+                <th style="padding:4px 8px;border:1px solid #ddd;text-align:left;">Level</th>
+                <th style="padding:4px 8px;border:1px solid #ddd;text-align:left;">Issue Date</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${tableRows}
+            </tbody>
+          </table>
+          <p style="color:#888;font-size:10px;margin-top:20px;">Computer‑generated report from ${org?.company_name || 'Academy'}</p>
+        </div>
+      `;
+
+      await sendEmail({
+        to: adminEmails,
+        subject: `Certificate Report - ${new Date().toLocaleDateString()}`,
+        html: htmlBody,
+        from: org?.email || undefined,
+      });
+
+      alert("Report sent to admins.");
+    } catch (err) {
+      console.error("Failed to send report:", err);
+      alert("Failed to send report. Check console for details.");
+    }
+  };
+
+  // ─── CSV import/export (unchanged) ─────────────────────────────────
   async function handleCSVImport(event) {
     const file = event.target.files[0];
     if (!file) return;
@@ -136,7 +258,7 @@ export default function Certificates() {
               certificate_url: row.certificate_url || null,
               issued_by: 1,
             };
-            await createCertificate(payload, ctx);
+            await createCertificate(payload, { branchId, financialYearId });
             successCount++;
           } catch (err) {
             console.error(err);
@@ -149,19 +271,9 @@ export default function Certificates() {
     });
   }
 
-  // CSV Export (unchanged)
   async function handleCSVExport() {
     try {
-      const { data: allData } = await supabase
-        .from("certificates")
-        .select(
-          `*,
-          students ( first_name, last_name, admission_no ),
-          courses ( course_name ),
-          course_levels ( level_name )`
-        )
-        .order("issue_date", { ascending: false });
-
+      const allData = await getAllCertificatesForExport(branchId, financialYearId);
       const filtered = search
         ? allData.filter(
             (c) =>
@@ -202,32 +314,51 @@ export default function Certificates() {
   }
 
   return (
-    <AdminLayout>
+    <div className="space-y-6 px-4 sm:px-6 lg:px-0">
       <BackButton to="/academics-hub" label="Academics Hub" />
+
       {/* Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h1 className="text-3xl font-righteous text-primary-dark">Certificates</h1>
-          <p className="text-sm text-secondary-dark font-montserrat mt-1">
+          <h1
+            className="text-2xl sm:text-3xl font-bold text-primary"
+            style={{ fontFamily: headingFont }}
+          >
+            Certificates
+          </h1>
+          <p
+            className="text-sm text-primary-dark mt-1"
+            style={{ fontFamily: bodyFont }}
+          >
             Issue and manage certificates
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <button
             onClick={() => setShowForm(true)}
-            className="bg-primary hover:bg-primary-light text-white px-5 py-2.5 rounded-lg transition font-montserrat text-sm flex items-center gap-2"
+            className="inline-flex items-center gap-2 px-4 py-2.5 bg-primary hover:bg-primary-light text-white rounded-lg transition-colors text-sm font-medium"
+            style={{ fontFamily: bodyFont }}
           >
             <Award size={18} /> Issue Certificate
           </button>
           <button
+            onClick={sendReportEmail}
+            className="inline-flex items-center gap-2 px-4 py-2.5 bg-accent hover:bg-accent-dark text-white rounded-lg transition-colors text-sm font-medium"
+            style={{ fontFamily: bodyFont }}
+          >
+            <Mail size={18} /> Send Report
+          </button>
+          <button
             onClick={handleCSVExport}
-            className="border border-secondary-light px-4 py-2.5 rounded-lg text-secondary-dark hover:bg-secondary-bg font-montserrat text-sm flex items-center gap-2"
+            className="inline-flex items-center gap-2 px-4 py-2.5 border border-primary-bg bg-white text-primary-dark rounded-lg hover:bg-primary-bg transition-colors text-sm"
+            style={{ fontFamily: bodyFont }}
           >
             <Download size={18} /> Export
           </button>
           <button
             onClick={() => fileInputRef.current?.click()}
-            className="border border-secondary-light px-4 py-2.5 rounded-lg text-secondary-dark hover:bg-secondary-bg font-montserrat text-sm flex items-center gap-2"
+            className="inline-flex items-center gap-2 px-4 py-2.5 border border-primary-bg bg-white text-primary-dark rounded-lg hover:bg-primary-bg transition-colors text-sm"
+            style={{ fontFamily: bodyFont }}
           >
             <Upload size={18} /> Import
           </button>
@@ -242,58 +373,59 @@ export default function Certificates() {
       </div>
 
       {/* Search */}
-      <div className="relative mb-6 max-w-md">
+      <div className="relative max-w-md">
         <Search
           size={18}
-          className="absolute left-3 top-1/2 -translate-y-1/2 text-secondary"
+          className="absolute left-3 top-1/2 -translate-y-1/2 text-primary-dark/60"
         />
         <input
           type="text"
           placeholder="Search by certificate no or student name..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="w-full border border-secondary-light rounded-lg pl-10 pr-4 py-2.5 text-sm focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light"
+          className="w-full border border-primary-bg bg-white text-primary-dark rounded-lg pl-10 pr-4 py-2.5 text-sm"
+          style={{ fontFamily: bodyFont }}
         />
       </div>
 
       {/* Certificates Table */}
-      <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+      <div className="bg-white rounded-xl shadow-sm border border-primary-bg overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[700px]">
-            <thead className="bg-slate-100 border-b border-secondary-light">
+          <table className="w-full min-w-[800px]">
+            <thead className="bg-primary-bg">
               <tr>
-                <th className="p-3 text-left text-sm font-montserrat text-secondary-dark">
+                <th className="p-3 text-left text-xs font-medium text-primary-dark uppercase tracking-wider">
                   Certificate No
                 </th>
-                <th className="text-left text-sm font-montserrat text-secondary-dark">
+                <th className="p-3 text-left text-xs font-medium text-primary-dark uppercase tracking-wider">
                   Student
                 </th>
-                <th className="text-left text-sm font-montserrat text-secondary-dark">
+                <th className="p-3 text-left text-xs font-medium text-primary-dark uppercase tracking-wider">
                   Course
                 </th>
-                <th className="text-left text-sm font-montserrat text-secondary-dark">
+                <th className="p-3 text-left text-xs font-medium text-primary-dark uppercase tracking-wider">
                   Level
                 </th>
-                <th className="text-left text-sm font-montserrat text-secondary-dark">
+                <th className="p-3 text-left text-xs font-medium text-primary-dark uppercase tracking-wider">
                   Issue Date
                 </th>
-                <th className="text-left text-sm font-montserrat text-secondary-dark">
+                <th className="p-3 text-left text-xs font-medium text-primary-dark uppercase tracking-wider">
                   Actions
                 </th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="divide-y divide-primary-bg">
               {isLoading ? (
                 <tr>
-                  <td colSpan={6} className="p-6 text-center text-secondary">
+                  <td colSpan={6} className="p-6 text-center text-primary-dark/60">
                     Loading certificates…
                   </td>
                 </tr>
               ) : certificates.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="p-6 text-center text-secondary">
+                  <td colSpan={6} className="p-6 text-center text-primary-dark/60">
                     <div className="flex flex-col items-center gap-2">
-                      <Award size={32} className="text-secondary-light" />
+                      <Award size={32} className="text-primary-dark/40" />
                       <span>No certificates found</span>
                     </div>
                   </td>
@@ -302,37 +434,51 @@ export default function Certificates() {
                 certificates.map((cert) => (
                   <tr
                     key={cert.id}
-                    className="border-b border-secondary-light hover:bg-primary-bg transition"
+                    className="hover:bg-primary-bg transition-colors"
                   >
-                    <td className="p-3 text-sm font-medium">
+                    <td className="p-3 text-sm font-medium text-primary">
                       {cert.certificate_no}
                     </td>
-                    <td className="text-sm">
+                    <td className="text-sm text-primary-dark">
                       {cert.students?.first_name} {cert.students?.last_name}{" "}
-                      <span className="text-xs text-secondary-light">
+                      <span className="text-xs text-primary-dark/60">
                         ({cert.students?.admission_no})
                       </span>
                     </td>
-                    <td className="text-sm">{cert.courses?.course_name}</td>
-                    <td className="text-sm">
+                    <td className="text-sm text-primary-dark">
+                      {cert.courses?.course_name}
+                    </td>
+                    <td className="text-sm text-primary-dark">
                       {cert.course_levels?.level_name || "-"}
                     </td>
-                    <td className="text-sm">{cert.issue_date}</td>
+                    <td className="text-sm text-primary-dark">
+                      {cert.issue_date}
+                    </td>
                     <td className="text-sm">
-                      <div className="flex gap-2">
+                      <div className="flex gap-2 flex-wrap">
                         <button
                           onClick={() => handleDownloadPdf(cert)}
                           className="text-primary hover:underline flex items-center gap-1"
+                          title="Download PDF"
                         >
-                          <Download size={16} /> PDF
+                          <Download size={16} />
+                        </button>
+                        <button
+                          onClick={() => sendCertificateEmailMutation.mutate(cert)}
+                          disabled={sendCertificateEmailMutation.isPending}
+                          className="text-primary hover:underline flex items-center gap-1"
+                          title="Send Email"
+                        >
+                          <Mail size={16} />
+                          {sendCertificateEmailMutation.isPending ? '...' : ''}
                         </button>
                         <button
                           onClick={() => {
-                            if (!window.confirm("Delete this certificate?"))
-                              return;
+                            if (!window.confirm("Delete this certificate?")) return;
                             deleteMutation.mutate(cert.id);
                           }}
-                          className="text-red-600 hover:underline"
+                          className="text-accent hover:underline"
+                          title="Delete"
                         >
                           <Trash2 size={15} />
                         </button>
@@ -352,20 +498,21 @@ export default function Certificates() {
           <button
             onClick={() => fetchNextPage()}
             disabled={isFetchingNextPage}
-            className="bg-primary hover:bg-primary-light text-white px-6 py-2.5 rounded-lg font-montserrat text-sm transition disabled:opacity-60"
+            className="bg-primary hover:bg-primary-light text-white px-6 py-2.5 rounded-lg text-sm font-medium transition disabled:opacity-60"
+            style={{ fontFamily: bodyFont }}
           >
             {isFetchingNextPage ? "Loading more…" : "Load More"}
           </button>
         </div>
       )}
 
-      {/* Certificate Form Modal – passes context to createMutation */}
+      {/* Certificate Form Modal */}
       {showForm && (
         <CertificateForm
           onSubmit={(payload, context) => createMutation.mutate(payload)}
           onClose={() => setShowForm(false)}
         />
       )}
-    </AdminLayout>
+    </div>
   );
 }

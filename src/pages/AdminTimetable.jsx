@@ -1,10 +1,11 @@
+// src/pages/AdminTimetable.jsx
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "../api/supabase";
-import AdminLayout from "../layouts/AdminLayout";
 import BatchForm from "../components/BatchForm";
 import { updateBatch } from "../services/batchService";
-import { useOrg } from "../context/OrganizationContext";   // NEW
+import { useOrg } from "../context/OrganizationContext";
+import { useTheme } from "../context/ThemeContext";
 import toast from "react-hot-toast";
 import { Clock, Layers } from "lucide-react";
 
@@ -17,9 +18,13 @@ export default function AdminTimetable() {
   const [selectedMediumId, setSelectedMediumId] = useState("");
 
   // ── Organization & Financial Year context ──
-  const { branch, selectedFinancialYear } = useOrg();      // NEW
+  const { branch, selectedFinancialYear } = useOrg();
 
-  // Fetch mediums for filter dropdown
+  const { theme } = useTheme();
+  const branchId = branch?.id;
+  const financialYearId = selectedFinancialYear?.id;
+
+  // Fetch mediums for filter dropdown (org‑wide)
   const { data: mediums = [] } = useQuery({
     queryKey: ["timetable-mediums"],
     queryFn: async () => {
@@ -29,19 +34,21 @@ export default function AdminTimetable() {
     staleTime: 10 * 60 * 1000,
   });
 
-  // Fetch all active batches with nested data – now includes medium name
+  // Fetch all active batches – SCOPED by branch & FY
   const { data: batches = [], isLoading } = useQuery({
-    queryKey: ["timetable-batches", selectedMediumId],
+    queryKey: ["timetable-batches", selectedMediumId, branchId, financialYearId],
     queryFn: async () => {
       let query = supabase
         .from("batches")
-        .select(`
-          *,
+        .select(
+          `*,
           courses ( course_name ),
           mediums ( name ),
-          batch_teachers ( teacher_id, subject_id, day, teachers ( first_name, last_name ), subjects ( subject_name ) )
-        `)
+          batch_teachers ( teacher_id, subject_id, day, teachers ( first_name, last_name ), subjects ( subject_name ) )`
+        )
         .eq("status", "active")
+        .eq("branch_id", branchId)
+        .eq("financial_year_id", financialYearId)
         .order("batch_name");
 
       if (selectedMediumId) {
@@ -52,6 +59,7 @@ export default function AdminTimetable() {
       if (error) throw error;
       return data || [];
     },
+    enabled: !!branchId && !!financialYearId,
     staleTime: 5 * 60 * 1000,
   });
 
@@ -64,7 +72,6 @@ export default function AdminTimetable() {
     return h + m / 60;
   };
 
-  // Get batches for a slot, only showing assignments whose day matches exactly
   const getBatchesForSlot = (day, hour) => {
     return batches
       .filter((batch) => {
@@ -84,10 +91,9 @@ export default function AdminTimetable() {
 
   const handleBatchUpdate = async (payload) => {
     try {
-      // Build context for branch & financial year
       const context = {
-        branchId: branch?.id,
-        financialYearId: selectedFinancialYear?.id,
+        branchId: branchId,
+        financialYearId: financialYearId,
       };
       await updateBatch(editingBatch.id, payload, context);
       toast.success("Batch updated");
@@ -100,33 +106,41 @@ export default function AdminTimetable() {
 
   if (isLoading) {
     return (
-      <AdminLayout>
-        <div className="p-8 text-center">Loading timetable…</div>
-      </AdminLayout>
+      <div className="flex items-center justify-center p-12 text-primary-dark/60">
+        Loading timetable…
+      </div>
     );
   }
 
   return (
-    <AdminLayout>
-      <div className="mb-6">
-        <h1 className="text-3xl font-righteous text-primary-dark">
+    <div className="space-y-6 px-4 sm:px-6 lg:px-0">
+      {/* Header */}
+      <div>
+        <h1
+          className="text-2xl sm:text-3xl font-bold text-primary"
+          style={{ fontFamily: "var(--font-heading)" }}
+        >
           Master Timetable
         </h1>
-        <p className="text-sm text-secondary-dark font-montserrat mt-1">
+        <p
+          className="text-sm text-primary-dark/80 mt-1"
+          style={{ fontFamily: "var(--font-body)" }}
+        >
           Weekly class schedule – click any batch to edit its timing.
         </p>
-        <p className="text-xs text-secondary mt-1">
+        <p className="text-xs text-primary-dark/60 mt-1" style={{ fontFamily: "var(--font-body)" }}>
           Only teacher‑subject pairs with a specific day assigned are shown.
         </p>
       </div>
 
       {/* Medium Filter */}
-      <div className="flex items-center gap-2 mb-4">
-        <Layers size={18} className="text-secondary" />
+      <div className="flex items-center gap-3 flex-wrap">
+        <Layers size={18} className="text-primary-dark/60" />
         <select
           value={selectedMediumId}
           onChange={(e) => setSelectedMediumId(e.target.value)}
-          className="border border-secondary-light rounded-lg p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none"
+          className="border border-primary-bg bg-white text-primary-dark rounded-lg px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none"
+          style={{ fontFamily: "var(--font-body)" }}
         >
           <option value="">All Mediums</option>
           {mediums.map((m) => (
@@ -137,17 +151,18 @@ export default function AdminTimetable() {
         </select>
       </div>
 
-      <div className="overflow-x-auto">
+      {/* Timetable Grid */}
+      <div className="overflow-x-auto rounded-xl border border-primary-bg">
         <div className="min-w-[900px]">
           {/* Header: day names */}
-          <div className="grid grid-cols-7 gap-1 mb-1">
-            <div className="p-2 font-semibold text-sm text-secondary-dark bg-slate-100 rounded">
+          <div className="grid grid-cols-7 gap-1 p-2">
+            <div className="p-2 text-sm font-semibold text-primary-dark bg-primary-bg rounded">
               Time
             </div>
             {DAYS.map((day) => (
               <div
                 key={day}
-                className="p-2 font-semibold text-sm text-secondary-dark bg-slate-100 rounded text-center"
+                className="p-2 text-sm font-semibold text-primary-dark bg-primary-bg rounded text-center"
               >
                 {day}
               </div>
@@ -158,8 +173,8 @@ export default function AdminTimetable() {
           {TIME_SLOTS.map((hourStr) => {
             const hour = parseInt(hourStr);
             return (
-              <div key={hourStr} className="grid grid-cols-7 gap-1 mb-1">
-                <div className="p-2 text-xs font-medium text-secondary bg-gray-50 rounded flex items-center justify-center">
+              <div key={hourStr} className="grid grid-cols-7 gap-1 px-2 pb-2">
+                <div className="p-2 text-xs font-medium text-primary-dark/60 bg-primary-bg rounded flex items-center justify-center">
                   <Clock size={14} className="mr-1" />
                   {hourStr}
                 </div>
@@ -168,17 +183,19 @@ export default function AdminTimetable() {
                   return (
                     <div
                       key={`${day}-${hourStr}`}
-                      className="p-1 rounded border border-secondary-light min-h-[60px] bg-white hover:shadow-sm transition"
+                      className="p-1 rounded border border-primary-bg min-h-[60px] bg-white hover:shadow-md transition-shadow"
                     >
                       {batchesInSlot.map((batch) => (
                         <div
                           key={batch.id}
-                          className="bg-primary-bg text-primary-dark p-2 rounded mb-1 text-xs cursor-pointer hover:bg-primary-light/20 transition"
+                          className="p-2 rounded mb-1 text-xs cursor-pointer bg-primary/20 text-primary-dark hover:ring-2 hover:ring-primary transition"
                           onClick={() => setEditingBatch(batch)}
                           title="Click to edit batch timing"
                         >
-                          <div className="font-semibold">{batch.batch_name}</div>
-                          <div className="text-secondary">
+                          <div className="font-semibold" style={{ fontFamily: "var(--font-heading)" }}>
+                            {batch.batch_name}
+                          </div>
+                          <div className="text-primary-dark/80">
                             {batch.courses?.course_name}
                             {batch.mediums?.name ? ` (${batch.mediums.name})` : ""}
                           </div>
@@ -190,17 +207,18 @@ export default function AdminTimetable() {
                                   className="flex items-center gap-1"
                                 >
                                   <span className="text-primary font-medium">
-                                    {bt.teachers?.first_name}{" "}
-                                    {bt.teachers?.last_name}
+                                    {bt.teachers?.first_name} {bt.teachers?.last_name}
                                   </span>
-                                  <span className="text-secondary">-</span>
-                                  <span>{bt.subjects?.subject_name}</span>
+                                  <span className="text-primary-dark/40">-</span>
+                                  <span className="text-primary-dark">
+                                    {bt.subjects?.subject_name}
+                                  </span>
                                 </div>
                               ))}
                             </div>
                           ) : (
-                            <div className="text-xs text-secondary italic mt-1">
-                              No teacher assigned for this day
+                            <div className="text-xs text-primary-dark/40 italic mt-1">
+                              No teacher assigned
                             </div>
                           )}
                         </div>
@@ -221,6 +239,6 @@ export default function AdminTimetable() {
           onClose={() => setEditingBatch(null)}
         />
       )}
-    </AdminLayout>
+    </div>
   );
 }

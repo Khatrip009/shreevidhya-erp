@@ -1,11 +1,40 @@
 // src/services/financeService.js
 import { supabase } from "../api/supabase";
+import { sendTemplateEmail } from "./emailService"; // 👈 Added
 
-// ========================
-// INCOME (paginated)
-// ========================
+// ─── Helpers ──────────────────────────────────────────────────────────
 
-export async function getIncomes({ pageParam = 0, filters = {} } = {}) {
+async function getOrganizationFromBranch(branchId) {
+  const { data: branch, error: branchError } = await supabase
+    .from("branches")
+    .select("organization_id")
+    .eq("id", branchId)
+    .single();
+  if (branchError) throw branchError;
+
+  const { data: org, error: orgError } = await supabase
+    .from("organization")
+    .select("id, company_name")
+    .eq("id", branch.organization_id)
+    .single();
+  if (orgError) throw orgError;
+  return org;
+}
+
+async function getAdminEmails(organizationId) {
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("email")
+    .eq("organization_id", organizationId)
+    .in("role", ["admin", "super_admin", "organization_admin"])
+    .eq("is_active", true);
+  if (error) throw error;
+  return data?.map(p => p.email).filter(Boolean) || [];
+}
+
+// ─── INCOME ──────────────────────────────────────────────────────────
+
+export async function getIncomes({ pageParam = 0, filters = {}, branchId, financialYearId } = {}) {
   const limit = 10;
   const from = pageParam * limit;
   const to = from + limit - 1;
@@ -15,6 +44,9 @@ export async function getIncomes({ pageParam = 0, filters = {} } = {}) {
     .select("*", { count: "exact" })
     .order("income_date", { ascending: false })
     .range(from, to);
+
+  if (branchId) query = query.eq("branch_id", branchId);
+  if (financialYearId) query = query.eq("financial_year_id", financialYearId);
 
   if (filters.search) {
     query = query.or(
@@ -29,11 +61,14 @@ export async function getIncomes({ pageParam = 0, filters = {} } = {}) {
   return { data, count };
 }
 
-export async function getAllIncomesForExport(filters = {}) {
+export async function getAllIncomesForExport(filters = {}, branchId, financialYearId) {
   let query = supabase
     .from("income")
     .select("*")
     .order("income_date", { ascending: false });
+
+  if (branchId) query = query.eq("branch_id", branchId);
+  if (financialYearId) query = query.eq("financial_year_id", financialYearId);
 
   if (filters.search) {
     query = query.or(
@@ -57,27 +92,59 @@ export async function createIncome(payload, context) {
     .select()
     .single();
   if (error) throw error;
+
+  // ─── Send notification to admins ──────────────────────────
+  try {
+    const org = await getOrganizationFromBranch(branchId);
+    const adminEmails = await getAdminEmails(org.id);
+    if (adminEmails.length > 0) {
+      await sendTemplateEmail({
+        to: adminEmails,
+        organizationId: org.id,
+        slug: "system_announcement",
+        context: {
+          academyName: org.company_name,
+          title: "New Income Recorded",
+          message: `A new income entry has been recorded:\n` +
+            `Category: ${payload.category || 'N/A'}\n` +
+            `Amount: ₹${Number(payload.amount).toLocaleString('en-IN')}\n` +
+            `Date: ${payload.income_date}\n` +
+            `Description: ${payload.description || 'N/A'}`,
+          target_type: "Admin",
+        },
+        branchId,
+      });
+    }
+  } catch (emailError) {
+    console.error("❌ Failed to send income notification:", emailError);
+  }
+
   return data;
 }
 
 // context: { branchId, financialYearId }
 export async function updateIncome(id, payload, context) {
   const { branchId, financialYearId } = context;
-  const { data, error } = await supabase
+
+  let query = supabase
     .from("income")
     .update({ ...payload, branch_id: branchId, financial_year_id: financialYearId })
-    .eq("id", id)
-    .select()
-    .single();
+    .eq("id", id);
+
+  if (branchId) query = query.eq("branch_id", branchId);
+  if (financialYearId) query = query.eq("financial_year_id", financialYearId);
+
+  const { data, error } = await query.select().single();
   if (error) throw error;
   return data;
 }
 
-// Soft delete – context required for RLS on update
+// Soft delete – scoped
 // context: { branchId, financialYearId }
 export async function deleteIncome(id, context) {
   const { branchId, financialYearId } = context;
-  const { error } = await supabase
+
+  let query = supabase
     .from("income")
     .update({
       deleted_at: new Date().toISOString(),
@@ -85,14 +152,17 @@ export async function deleteIncome(id, context) {
       financial_year_id: financialYearId,
     })
     .eq("id", id);
+
+  if (branchId) query = query.eq("branch_id", branchId);
+  if (financialYearId) query = query.eq("financial_year_id", financialYearId);
+
+  const { error } = await query;
   if (error) throw error;
 }
 
-// ========================
-// EXPENSES (paginated)
-// ========================
+// ─── EXPENSES ──────────────────────────────────────────────────────────
 
-export async function getExpenses({ pageParam = 0, filters = {} } = {}) {
+export async function getExpenses({ pageParam = 0, filters = {}, branchId, financialYearId } = {}) {
   const limit = 10;
   const from = pageParam * limit;
   const to = from + limit - 1;
@@ -102,6 +172,9 @@ export async function getExpenses({ pageParam = 0, filters = {} } = {}) {
     .select("*", { count: "exact" })
     .order("expense_date", { ascending: false })
     .range(from, to);
+
+  if (branchId) query = query.eq("branch_id", branchId);
+  if (financialYearId) query = query.eq("financial_year_id", financialYearId);
 
   if (filters.search) {
     query = query.or(
@@ -116,11 +189,14 @@ export async function getExpenses({ pageParam = 0, filters = {} } = {}) {
   return { data, count };
 }
 
-export async function getAllExpensesForExport(filters = {}) {
+export async function getAllExpensesForExport(filters = {}, branchId, financialYearId) {
   let query = supabase
     .from("expenses")
     .select("*")
     .order("expense_date", { ascending: false });
+
+  if (branchId) query = query.eq("branch_id", branchId);
+  if (financialYearId) query = query.eq("financial_year_id", financialYearId);
 
   if (filters.search) {
     query = query.or(
@@ -144,27 +220,60 @@ export async function createExpense(payload, context) {
     .select()
     .single();
   if (error) throw error;
+
+  // ─── Send notification to admins ──────────────────────────
+  try {
+    const org = await getOrganizationFromBranch(branchId);
+    const adminEmails = await getAdminEmails(org.id);
+    if (adminEmails.length > 0) {
+      await sendTemplateEmail({
+        to: adminEmails,
+        organizationId: org.id,
+        slug: "system_announcement",
+        context: {
+          academyName: org.company_name,
+          title: "New Expense Recorded",
+          message: `A new expense entry has been recorded:\n` +
+            `Category: ${payload.category || 'N/A'}\n` +
+            `Amount: ₹${Number(payload.amount).toLocaleString('en-IN')}\n` +
+            `Date: ${payload.expense_date}\n` +
+            `Description: ${payload.description || 'N/A'}\n` +
+            `Bill No.: ${payload.bill_number || 'N/A'}`,
+          target_type: "Admin",
+        },
+        branchId,
+      });
+    }
+  } catch (emailError) {
+    console.error("❌ Failed to send expense notification:", emailError);
+  }
+
   return data;
 }
 
 // context: { branchId, financialYearId }
 export async function updateExpense(id, payload, context) {
   const { branchId, financialYearId } = context;
-  const { data, error } = await supabase
+
+  let query = supabase
     .from("expenses")
     .update({ ...payload, branch_id: branchId, financial_year_id: financialYearId })
-    .eq("id", id)
-    .select()
-    .single();
+    .eq("id", id);
+
+  if (branchId) query = query.eq("branch_id", branchId);
+  if (financialYearId) query = query.eq("financial_year_id", financialYearId);
+
+  const { data, error } = await query.select().single();
   if (error) throw error;
   return data;
 }
 
-// Soft delete – context required for RLS on update
+// Soft delete – scoped
 // context: { branchId, financialYearId }
 export async function deleteExpense(id, context) {
   const { branchId, financialYearId } = context;
-  const { error } = await supabase
+
+  let query = supabase
     .from("expenses")
     .update({
       deleted_at: new Date().toISOString(),
@@ -172,25 +281,39 @@ export async function deleteExpense(id, context) {
       financial_year_id: financialYearId,
     })
     .eq("id", id);
+
+  if (branchId) query = query.eq("branch_id", branchId);
+  if (financialYearId) query = query.eq("financial_year_id", financialYearId);
+
+  const { error } = await query;
   if (error) throw error;
 }
 
-// Profit & Loss summary – read only, RLS filters automatically
-export async function getProfitLossSummary(startDate, endDate) {
-  const { data: incomes, error: incomeError } = await supabase
+// ─── Profit & Loss Summary ──────────────────────────────────────────
+
+export async function getProfitLossSummary(startDate, endDate, branchId, financialYearId) {
+  let incomeQuery = supabase
     .from("income")
     .select("amount")
     .gte("income_date", startDate)
     .lte("income_date", endDate);
 
+  if (branchId) incomeQuery = incomeQuery.eq("branch_id", branchId);
+  if (financialYearId) incomeQuery = incomeQuery.eq("financial_year_id", financialYearId);
+
+  const { data: incomes, error: incomeError } = await incomeQuery;
   if (incomeError) throw incomeError;
 
-  const { data: expenses, error: expenseError } = await supabase
+  let expenseQuery = supabase
     .from("expenses")
     .select("amount")
     .gte("expense_date", startDate)
     .lte("expense_date", endDate);
 
+  if (branchId) expenseQuery = expenseQuery.eq("branch_id", branchId);
+  if (financialYearId) expenseQuery = expenseQuery.eq("financial_year_id", financialYearId);
+
+  const { data: expenses, error: expenseError } = await expenseQuery;
   if (expenseError) throw expenseError;
 
   const totalIncome = (incomes || []).reduce((sum, r) => sum + Number(r.amount), 0);

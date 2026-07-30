@@ -1,12 +1,93 @@
 // src/services/salaryService.js
 import { supabase } from '../api/supabase';
+import { sendTemplateEmail } from './emailService'; // 👈 Added
+
+// ─── Helpers ──────────────────────────────────────────────────────────
+
+async function getOrganizationFromBranch(branchId) {
+  const { data: branch, error: branchError } = await supabase
+    .from("branches")
+    .select("organization_id")
+    .eq("id", branchId)
+    .single();
+  if (branchError) throw branchError;
+
+  const { data: org, error: orgError } = await supabase
+    .from("organization")
+    .select("id, company_name")
+    .eq("id", branch.organization_id)
+    .single();
+  if (orgError) throw orgError;
+  return org;
+}
+
+/**
+ * Send salary slip email to the teacher using the "salary_slip" template.
+ */
+async function sendSalarySlipEmail(paymentId, context) {
+  const { branchId, financialYearId } = context;
+  try {
+    // 1. Fetch payment details with teacher info
+    let paymentQuery = supabase
+      .from("salary_payments")
+      .select(`
+        *,
+        teachers(
+          id, first_name, last_name, employee_code, email
+        )
+      `)
+      .eq("id", paymentId);
+
+    if (branchId) paymentQuery = paymentQuery.eq("branch_id", branchId);
+    if (financialYearId) paymentQuery = paymentQuery.eq("financial_year_id", financialYearId);
+
+    const { data: payment, error } = await paymentQuery.single();
+    if (error) throw error;
+
+    if (!payment.teachers?.email) {
+      console.warn(`No email for teacher ${payment.teacher_id}, skipping salary slip.`);
+      return;
+    }
+
+    const org = await getOrganizationFromBranch(branchId);
+    const teacher = payment.teachers;
+
+    const contextEmail = {
+      academyName: org.company_name,
+      teacher_name: `${teacher.first_name} ${teacher.last_name}`,
+      employee_code: teacher.employee_code || 'N/A',
+      payment_date: payment.payment_date,
+      gross_amount: payment.amount,
+      tds: payment.tds_amount || 0,
+      net_amount: payment.net_amount || 0,
+    };
+
+    await sendTemplateEmail({
+      to: teacher.email,
+      organizationId: org.id,
+      slug: "salary_slip",
+      context: contextEmail,
+      branchId,
+    });
+    console.log(`✅ Salary slip sent to ${teacher.email} for ${payment.payment_date}`);
+  } catch (error) {
+    console.error("❌ Failed to send salary slip email:", error);
+  }
+}
 
 // ─── GET SALARY PAYMENTS (with optional filters) ──────────
-export async function getSalaryPayments(filters = {}) {
+export async function getSalaryPayments(
+  filters = {},
+  branchId,
+  financialYearId
+) {
   let query = supabase
     .from('salary_payments')
     .select('*, teachers(first_name, last_name, employee_code)')
     .order('payment_date', { ascending: false });
+
+  if (branchId) query = query.eq('branch_id', branchId);
+  if (financialYearId) query = query.eq('financial_year_id', financialYearId);
 
   if (filters.teacher_id) query = query.eq('teacher_id', filters.teacher_id);
   if (filters.start_date) query = query.gte('payment_date', filters.start_date);
@@ -18,42 +99,71 @@ export async function getSalaryPayments(filters = {}) {
 }
 
 // ─── CHECK EXISTING PAYMENTS FOR A MONTH ──────────────────
-export async function getExistingSalaryPayments(month, year) {
+export async function getExistingSalaryPayments(
+  month,
+  year,
+  branchId,
+  financialYearId
+) {
   const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
   const endDate = new Date(year, month, 0).toISOString().split('T')[0];
-  const { data, error } = await supabase
+  let query = supabase
     .from('salary_payments')
     .select('teacher_id')
     .gte('payment_date', startDate)
     .lte('payment_date', endDate);
+
+  if (branchId) query = query.eq('branch_id', branchId);
+  if (financialYearId) query = query.eq('financial_year_id', financialYearId);
+
+  const { data, error } = await query;
   if (error) throw error;
   return data || [];
 }
 
 // ─── GET TOTAL LECTURES FOR A TEACHER IN A MONTH ──────────
-async function getTeacherLectureCount(teacherId, startDate, endDate) {
-  const { data } = await supabase
+async function getTeacherLectureCount(
+  teacherId,
+  startDate,
+  endDate,
+  branchId,
+  financialYearId
+) {
+  let query = supabase
     .from('attendance_sessions')
     .select('teacher_id')
     .gte('attendance_date', startDate)
     .lte('attendance_date', endDate)
     .eq('teacher_id', teacherId);
+
+  if (branchId) query = query.eq('branch_id', branchId);
+  if (financialYearId) query = query.eq('financial_year_id', financialYearId);
+
+  const { data } = await query;
   return (data || []).length;
 }
 
 // ─── GENERATE SALARY FOR A SINGLE TEACHER ─────────────────
-// If grossAmount is provided (from the frontend), use it directly.
-// Otherwise calculate it from the teacher's settings and actual lecture count.
 // context: { branchId, financialYearId }
-export async function generateTeacherSalary(teacherId, month, year, grossAmount = null, context) {
+export async function generateTeacherSalary(
+  teacherId,
+  month,
+  year,
+  grossAmount = null,
+  context
+) {
   const { branchId, financialYearId } = context;
 
-  // 1. Get teacher details
-  const { data: teacher, error: tErr } = await supabase
+  // 1. Get teacher details (scoped)
+  let teacherQuery = supabase
     .from('teachers')
     .select('*')
-    .eq('id', teacherId)
-    .single();
+    .eq('id', teacherId);
+
+  if (branchId) teacherQuery = teacherQuery.eq('branch_id', branchId);
+  if (financialYearId) teacherQuery = teacherQuery.eq('financial_year_id', financialYearId);
+
+  const { data: teacher, error: tErr } = await teacherQuery.single();
   if (tErr) throw tErr;
 
   const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
@@ -62,18 +172,30 @@ export async function generateTeacherSalary(teacherId, month, year, grossAmount 
   let finalGross = grossAmount;
   let totalLectures = 0;
 
-  // If no gross amount passed (e.g. from bulk generation), compute it
+  // If no gross amount passed, compute from teacher settings
   if (finalGross === null) {
     if (teacher.salary_type === 'fixed') {
       finalGross = teacher.monthly_salary || 0;
     } else if (teacher.salary_type === 'lecture_based') {
-      totalLectures = await getTeacherLectureCount(teacherId, startDate, endDate);
+      totalLectures = await getTeacherLectureCount(
+        teacherId,
+        startDate,
+        endDate,
+        branchId,
+        financialYearId
+      );
       finalGross = totalLectures * (teacher.per_lecture_rate || 0);
     }
   } else {
-    // grossAmount was passed – still we might want to show lecture count for record
+    // grossAmount passed – still fetch lectures count for record
     if (teacher.salary_type === 'lecture_based') {
-      totalLectures = await getTeacherLectureCount(teacherId, startDate, endDate);
+      totalLectures = await getTeacherLectureCount(
+        teacherId,
+        startDate,
+        endDate,
+        branchId,
+        financialYearId
+      );
     }
   }
 
@@ -101,16 +223,28 @@ export async function generateTeacherSalary(teacherId, month, year, grossAmount 
     .select()
     .single();
   if (pErr) throw pErr;
+
+  // ─── Send salary slip email ──────────────────────────────
+  await sendSalarySlipEmail(payment.id, context);
+
   return payment;
 }
 
 // ─── BULK GENERATE SALARIES FOR ALL ACTIVE TEACHERS ──────
 // context: { branchId, financialYearId }
 export async function generateAllSalaries(month, year, context) {
-  const { data: teachers, error } = await supabase
+  const { branchId, financialYearId } = context;
+
+  // Get active teachers scoped to branch & FY
+  let teachersQuery = supabase
     .from('teachers')
     .select('id')
     .eq('status', 'active');
+
+  if (branchId) teachersQuery = teachersQuery.eq('branch_id', branchId);
+  if (financialYearId) teachersQuery = teachersQuery.eq('financial_year_id', financialYearId);
+
+  const { data: teachers, error } = await teachersQuery;
   if (error) throw error;
 
   const results = [];
@@ -126,26 +260,34 @@ export async function generateAllSalaries(month, year, context) {
 }
 
 // ─── GET ACTIVE TEACHERS WITH SALARY SETTINGS ─────────────
-export async function getTeachersForSalary() {
-  const { data, error } = await supabase
+export async function getTeachersForSalary(branchId, financialYearId) {
+  let query = supabase
     .from('teachers')
-    .select('id, first_name, last_name, employee_code, salary_type, monthly_salary, per_lecture_rate, tds_percentage')
+    .select(
+      'id, first_name, last_name, employee_code, salary_type, monthly_salary, per_lecture_rate, tds_percentage'
+    )
     .eq('status', 'active')
     .order('first_name');
+
+  if (branchId) query = query.eq('branch_id', branchId);
+  if (financialYearId) query = query.eq('financial_year_id', financialYearId);
+
+  const { data, error } = await query;
   if (error) throw error;
   return data || [];
 }
 
 // ─── ALIAS for SalarySetup (same as getTeachersForSalary) ──
-export async function getActiveTeachers() {
-  return getTeachersForSalary();
+export async function getActiveTeachers(branchId, financialYearId) {
+  return getTeachersForSalary(branchId, financialYearId);
 }
 
 // ─── UPDATE TEACHER SALARY SETTINGS (used in SalarySetup) ──
 // context: { branchId, financialYearId }
 export async function updateTeacherSalary(teacherId, payload, context) {
   const { branchId, financialYearId } = context;
-  const { data, error } = await supabase
+
+  let query = supabase
     .from('teachers')
     .update({
       salary_type: payload.salary_type,
@@ -155,9 +297,12 @@ export async function updateTeacherSalary(teacherId, payload, context) {
       branch_id: branchId,
       financial_year_id: financialYearId,
     })
-    .eq('id', teacherId)
-    .select()
-    .single();
+    .eq('id', teacherId);
+
+  if (branchId) query = query.eq('branch_id', branchId);
+  if (financialYearId) query = query.eq('financial_year_id', financialYearId);
+
+  const { data, error } = await query.select().single();
   if (error) throw error;
   return data;
 }

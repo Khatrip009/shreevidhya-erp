@@ -1,12 +1,19 @@
 import React, { useState } from 'react';
 import { supabase } from '../api/supabase';
 import { useAuth } from '../context/AuthContext';
-import { useOrg } from '../context/OrganizationContext';   // NEW
+import { useOrg } from '../context/OrganizationContext';
+import { useTheme } from '../context/ThemeContext'; // ✅ dynamic theme
 import toast from 'react-hot-toast';
 
 export default function CreateOnlineClass() {
   const { profile } = useAuth();
-  const { branch, selectedFinancialYear } = useOrg();      // NEW
+  const { branch, selectedFinancialYear } = useOrg();
+  const theme = useTheme(); // ✅ theme hook
+  const branchId = branch?.id;
+  const financialYearId = selectedFinancialYear?.id;
+
+  const headingFont = theme?.font_heading || "Righteous";
+  const bodyFont = theme?.font_body || "Montserrat";
 
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -15,18 +22,21 @@ export default function CreateOnlineClass() {
   const [batchId, setBatchId] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // Fetch active batches for dropdown
+  // Fetch active batches for dropdown – now scoped
   const [batches, setBatches] = useState([]);
   React.useEffect(() => {
+    if (!branchId || !financialYearId) return;
     const fetchBatches = async () => {
       const { data } = await supabase
         .from('batches')
         .select('id, batch_name')
-        .eq('status', 'active');
+        .eq('status', 'active')
+        .eq('branch_id', branchId)
+        .eq('financial_year_id', financialYearId);
       setBatches(data || []);
     };
     fetchBatches();
-  }, []);
+  }, [branchId, financialYearId]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -40,12 +50,14 @@ export default function CreateOnlineClass() {
       // Generate a unique room name (using timestamp)
       const roomName = `class-${Date.now()}-${Math.random().toString(36).substring(7)}`;
 
-      // Get teacher ID from profile
+      // Get teacher ID from profile – scoped to current branch & FY
       const { data: teacherData } = await supabase
         .from('teachers')
         .select('id')
         .eq('user_id', profile.id)
-        .single();
+        .eq('branch_id', branchId)
+        .eq('financial_year_id', financialYearId)
+        .maybeSingle();
 
       const { data, error } = await supabase
         .from('online_classes')
@@ -58,8 +70,8 @@ export default function CreateOnlineClass() {
           teacher_id: teacherData?.id || null,
           room_name: roomName,
           status: 'scheduled',
-          branch_id: branch?.id,                         // NEW
-          financial_year_id: selectedFinancialYear?.id,  // NEW
+          branch_id: branchId,
+          financial_year_id: financialYearId,
         })
         .select()
         .single();
@@ -67,7 +79,7 @@ export default function CreateOnlineClass() {
       if (error) throw error;
 
       toast.success('Class created!');
-      // Optionally clear form
+      // Clear form
       setTitle('');
       setDescription('');
       setStartTime('');
@@ -82,55 +94,90 @@ export default function CreateOnlineClass() {
 
   return (
     <div className="max-w-2xl mx-auto p-6 bg-white rounded-xl shadow">
-      <h2 className="text-2xl font-bold mb-4">Create Online Class</h2>
+      <h2
+        className="text-2xl font-bold mb-4 text-primary"
+        style={{ fontFamily: headingFont }}
+      >
+        Create Online Class
+      </h2>
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
-          <label className="block text-sm font-medium">Title *</label>
+          <label
+            className="block text-sm font-medium text-primary-dark"
+            style={{ fontFamily: bodyFont }}
+          >
+            Title *
+          </label>
           <input
             type="text"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            className="w-full border rounded p-2"
+            className="w-full border rounded p-2 text-primary-dark bg-white"
             required
+            style={{ fontFamily: bodyFont }}
           />
         </div>
         <div>
-          <label className="block text-sm font-medium">Description</label>
+          <label
+            className="block text-sm font-medium text-primary-dark"
+            style={{ fontFamily: bodyFont }}
+          >
+            Description
+          </label>
           <textarea
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            className="w-full border rounded p-2"
+            className="w-full border rounded p-2 text-primary-dark bg-white"
             rows="3"
+            style={{ fontFamily: bodyFont }}
           />
         </div>
         <div>
-          <label className="block text-sm font-medium">Start Time *</label>
+          <label
+            className="block text-sm font-medium text-primary-dark"
+            style={{ fontFamily: bodyFont }}
+          >
+            Start Time *
+          </label>
           <input
             type="datetime-local"
             value={startTime}
             onChange={(e) => setStartTime(e.target.value)}
-            className="w-full border rounded p-2"
+            className="w-full border rounded p-2 text-primary-dark bg-white"
             required
+            style={{ fontFamily: bodyFont }}
           />
         </div>
         <div>
-          <label className="block text-sm font-medium">Duration (minutes)</label>
+          <label
+            className="block text-sm font-medium text-primary-dark"
+            style={{ fontFamily: bodyFont }}
+          >
+            Duration (minutes)
+          </label>
           <input
             type="number"
             value={duration}
             onChange={(e) => setDuration(e.target.value)}
-            className="w-full border rounded p-2"
+            className="w-full border rounded p-2 text-primary-dark bg-white"
             min="15"
             step="5"
+            style={{ fontFamily: bodyFont }}
           />
         </div>
         <div>
-          <label className="block text-sm font-medium">Select Batch *</label>
+          <label
+            className="block text-sm font-medium text-primary-dark"
+            style={{ fontFamily: bodyFont }}
+          >
+            Select Batch *
+          </label>
           <select
             value={batchId}
             onChange={(e) => setBatchId(e.target.value)}
-            className="w-full border rounded p-2"
+            className="w-full border rounded p-2 text-primary-dark bg-white"
             required
+            style={{ fontFamily: bodyFont }}
           >
             <option value="">-- Choose batch --</option>
             {batches.map((b) => (
@@ -144,6 +191,7 @@ export default function CreateOnlineClass() {
           type="submit"
           disabled={loading}
           className="bg-primary text-white px-4 py-2 rounded hover:bg-primary-dark disabled:opacity-50"
+          style={{ fontFamily: bodyFont }}
         >
           {loading ? 'Creating...' : 'Create Class'}
         </button>

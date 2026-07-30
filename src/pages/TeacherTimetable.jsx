@@ -1,57 +1,70 @@
 // src/pages/TeacherTimetable.jsx
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "../api/supabase";
-import AdminLayout from "../layouts/AdminLayout";
+
 import BackButton from "../components/BackButton";
 
 import { useAuth } from "../context/AuthContext";
 import { Clock } from "lucide-react";
-import { useOrg } from "../context/OrganizationContext";   // NEW (for consistency)
+import { useOrg } from "../context/OrganizationContext";
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const TIME_SLOTS = Array.from({ length: 14 }, (_, i) => `${i + 7}:00`);
 
 export default function TeacherTimetable() {
   const { user } = useAuth();
-  useOrg(); 
 
-  // 1. Fetch teacher ID
+  // ── Branch & Financial Year context ──
+  const { branch, selectedFinancialYear } = useOrg();
+  const branchId = branch?.id;
+  const financialYearId = selectedFinancialYear?.id;
+
+  // 1. Fetch teacher ID – scoped to current branch & FY
   const { data: teacherId, isLoading: idLoading } = useQuery({
-    queryKey: ["teacher-id", user?.id],
+    queryKey: ["teacher-id", user?.id, branchId, financialYearId],
     queryFn: async () => {
-      if (!user?.id) return null;
+      if (!user?.id || !branchId || !financialYearId) return null;
       const { data, error } = await supabase
         .from("teachers")
         .select("id")
         .eq("user_id", user.id)
+        .eq("branch_id", branchId)
+        .eq("financial_year_id", financialYearId)
         .maybeSingle();
       if (error) throw error;
       return data?.id || null;
     },
-    enabled: !!user?.id,
+    enabled: !!user?.id && !!branchId && !!financialYearId,
+    staleTime: 5 * 60 * 1000,
   });
 
-  // 2. Fetch batch IDs assigned to this teacher
+  // 2. Fetch batch IDs assigned to this teacher – scoped
   const { data: assignedBatchIds = [], isLoading: idsLoading } = useQuery({
-    queryKey: ["teacher-batch-ids", teacherId],
+    queryKey: ["teacher-batch-ids", teacherId, branchId, financialYearId],
     queryFn: async () => {
-      if (!teacherId) return [];
-      const { data, error } = await supabase
+      if (!teacherId || !branchId || !financialYearId) return [];
+      let query = supabase
         .from("batch_teachers")
         .select("batch_id")
         .eq("teacher_id", teacherId);
+
+      if (branchId) query = query.eq("branch_id", branchId);
+      if (financialYearId) query = query.eq("financial_year_id", financialYearId);
+
+      const { data, error } = await query;
       if (error) throw error;
       // Unique batch IDs
       return [...new Set(data.map((row) => row.batch_id))];
     },
-    enabled: !!teacherId,
+    enabled: !!teacherId && !!branchId && !!financialYearId,
+    staleTime: 5 * 60 * 1000,
   });
 
-  // 3. Fetch full batch data (now includes medium name)
+  // 3. Fetch full batch data – scoped
   const { data: batches = [], isLoading: batchesLoading } = useQuery({
-    queryKey: ["teacher-batches-timetable", assignedBatchIds],
+    queryKey: ["teacher-batches-timetable", assignedBatchIds, branchId, financialYearId],
     queryFn: async () => {
-      if (assignedBatchIds.length === 0) return [];
+      if (assignedBatchIds.length === 0 || !branchId || !financialYearId) return [];
       const { data, error } = await supabase
         .from("batches")
         .select(`
@@ -62,11 +75,14 @@ export default function TeacherTimetable() {
         `)
         .in("id", assignedBatchIds)
         .eq("status", "active")
+        .eq("branch_id", branchId)
+        .eq("financial_year_id", financialYearId)
         .order("batch_name");
       if (error) throw error;
       return data || [];
     },
-    enabled: assignedBatchIds.length > 0,
+    enabled: assignedBatchIds.length > 0 && !!branchId && !!financialYearId,
+    staleTime: 5 * 60 * 1000,
   });
 
   const batchOnDay = (batch, day) =>
@@ -99,18 +115,18 @@ export default function TeacherTimetable() {
 
   if (idLoading || idsLoading || batchesLoading) {
     return (
-      <AdminLayout>
-      <BackButton to="/teacher" label="My Dashboard" />
-        <div className="p-8 text-center">Loading your timetable…</div>
-      </AdminLayout>
+      <div className="space-y-6 px-4 sm:px-6 lg:px-0">
+        <BackButton to="/teacher" label="My Dashboard" />
+        <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading your timetable…</div>
+      </div>
     );
   }
 
   return (
-    <AdminLayout>
+    <div className="space-y-6 px-4 sm:px-6 lg:px-0">
       <div className="mb-6">
-        <h1 className="text-3xl font-righteous text-primary-dark">My Timetable</h1>
-        <p className="text-sm text-secondary-dark font-montserrat mt-1">
+        <h1 className="text-3xl font-heading text-primary">My Timetable</h1>
+        <p className="text-sm text-gray-600 dark:text-gray-400 font-body mt-1">
           Your weekly teaching schedule
         </p>
       </div>
@@ -118,13 +134,13 @@ export default function TeacherTimetable() {
       <div className="overflow-x-auto">
         <div className="min-w-[900px]">
           <div className="grid grid-cols-7 gap-1 mb-1">
-            <div className="p-2 font-semibold text-sm text-secondary-dark bg-slate-100 rounded">
+            <div className="p-2 font-semibold text-sm text-gray-700 dark:text-gray-200 bg-gray-50 dark:bg-gray-700 rounded">
               Time
             </div>
             {DAYS.map((day) => (
               <div
                 key={day}
-                className="p-2 font-semibold text-sm text-secondary-dark bg-slate-100 rounded text-center"
+                className="p-2 font-semibold text-sm text-gray-700 dark:text-gray-200 bg-gray-50 dark:bg-gray-700 rounded text-center"
               >
                 {day}
               </div>
@@ -135,7 +151,7 @@ export default function TeacherTimetable() {
             const hour = parseInt(hourStr);
             return (
               <div key={hourStr} className="grid grid-cols-7 gap-1 mb-1">
-                <div className="p-2 text-xs font-medium text-secondary bg-gray-50 rounded flex items-center justify-center">
+                <div className="p-2 text-xs font-medium text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-700 rounded flex items-center justify-center">
                   <Clock size={14} className="mr-1" />
                   {hourStr}
                 </div>
@@ -144,26 +160,25 @@ export default function TeacherTimetable() {
                   return (
                     <div
                       key={`${day}-${hourStr}`}
-                      className="p-1 rounded border border-secondary-light min-h-[60px] bg-white hover:shadow-sm transition"
+                      className="p-1 rounded border border-gray-200 dark:border-gray-700 min-h-[60px] bg-white dark:bg-accent hover:shadow-sm transition"
                     >
                       {batchesInSlot.map((batch) => (
                         <div
                           key={batch.id}
-                          className="bg-primary-bg text-primary-dark p-2 rounded mb-1 text-xs"
+                          className="bg-primary-bg text-primary p-2 rounded mb-1 text-xs"
                         >
                           <div className="font-semibold">{batch.batch_name}</div>
-                          <div className="text-secondary">
+                          <div className="text-gray-600 dark:text-gray-400">
                             {batch.courses?.course_name}
                           </div>
-                          {/* Medium name (if available) */}
                           {batch.mediums?.name && (
-                            <div className="text-secondary-dark text-xs">
+                            <div className="text-gray-600 dark:text-gray-400 text-xs">
                               Medium: {batch.mediums.name}
                             </div>
                           )}
                           <div className="mt-1 space-y-0.5">
                             {batch.batch_teachers.map((bt) => (
-                              <div key={bt.subject_id} className="text-secondary">
+                              <div key={bt.subject_id} className="text-gray-500 dark:text-gray-400">
                                 {bt.subjects?.subject_name}
                               </div>
                             ))}
@@ -178,6 +193,6 @@ export default function TeacherTimetable() {
           })}
         </div>
       </div>
-    </AdminLayout>
+    </div>
   );
 }

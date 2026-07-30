@@ -1,9 +1,15 @@
 // src/pages/DebitNotes.jsx
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getDebitNotes, createDebitNote, finalizeDebitNote, deleteDebitNote } from "../services/debitNoteService";
+import {
+  getDebitNotes,
+  createDebitNote,
+  finalizeDebitNote,
+  deleteDebitNote,
+} from "../services/debitNoteService";
 import { supabase } from "../api/supabase";
-import { useOrg } from "../context/OrganizationContext";   // NEW
+import { useOrg } from "../context/OrganizationContext";
+import { useTheme } from "../context/ThemeContext"; // ✅ dynamic theme
 import toast from "react-hot-toast";
 import AdminLayout from "../layouts/AdminLayout";
 import {
@@ -19,8 +25,14 @@ export default function DebitNotes() {
   const queryClient = useQueryClient();
 
   // ── Organisation / Branch / Financial Year context ──
-  const { branch, selectedFinancialYear } = useOrg();   // NEW
-  const ctx = { branchId: branch?.id, financialYearId: selectedFinancialYear?.id };
+  const { branch, selectedFinancialYear } = useOrg();
+  const theme = useTheme();
+  const branchId = branch?.id;
+  const financialYearId = selectedFinancialYear?.id;
+  const ctx = { branchId, financialYearId };
+
+  const headingFont = theme?.font_heading || "Righteous";
+  const bodyFont = theme?.font_body || "Montserrat";
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
@@ -42,20 +54,24 @@ export default function DebitNotes() {
   });
   const [submitting, setSubmitting] = useState(false);
 
-  // Fetch debit notes
+  // Fetch debit notes – now scoped
   const { data: notes = [], isLoading } = useQuery({
-    queryKey: ["debit-notes", statusFilter],
-    queryFn: () => getDebitNotes({ status: statusFilter }),
+    queryKey: ["debit-notes", statusFilter, branchId, financialYearId],
+    queryFn: () =>
+      getDebitNotes({ status: statusFilter }, branchId, financialYearId),
+    enabled: !!branchId && !!financialYearId,
     staleTime: 2 * 60 * 1000,
   });
 
-  // Fetch students
+  // Fetch students – now scoped
   const { data: students = [] } = useQuery({
-    queryKey: ["students-debit", studentSearch],
+    queryKey: ["students-debit", studentSearch, branchId, financialYearId],
     queryFn: async () => {
       let query = supabase
         .from("students")
         .select("id, first_name, last_name, admission_no, gstin")
+        .eq("branch_id", branchId)
+        .eq("financial_year_id", financialYearId)
         .order("first_name");
       if (studentSearch) {
         query = query.or(
@@ -65,14 +81,18 @@ export default function DebitNotes() {
       const { data } = await query;
       return data || [];
     },
+    enabled: !!branchId && !!financialYearId,
     staleTime: 5 * 60 * 1000,
   });
 
   const handleInvoiceSelect = async (invoiceId) => {
+    // Fetch invoice scoped by branch & FY
     const { data: invoice } = await supabase
       .from("invoices")
       .select("*")
       .eq("id", invoiceId)
+      .eq("branch_id", branchId)
+      .eq("financial_year_id", financialYearId)
       .single();
 
     setSelectedInvoice(invoice);
@@ -105,13 +125,17 @@ export default function DebitNotes() {
       cgst: selectedInvoice.total_cgst * ratio,
       sgst: selectedInvoice.total_sgst * ratio,
       igst: selectedInvoice.total_igst * ratio,
-      total_tax_amount: (selectedInvoice.total_cgst + selectedInvoice.total_sgst + selectedInvoice.total_igst) * ratio,
+      total_tax_amount:
+        (selectedInvoice.total_cgst +
+          selectedInvoice.total_sgst +
+          selectedInvoice.total_igst) *
+        ratio,
     });
   };
 
-  // Mutations – only create needs context
+  // Mutations – now all pass the required scope
   const createMutation = useMutation({
-    mutationFn: (payload) => createDebitNote(payload, ctx),   // pass context
+    mutationFn: (payload) => createDebitNote(payload, ctx),
     onSuccess: () => {
       toast.success("Debit note created");
       queryClient.invalidateQueries(["debit-notes"]);
@@ -122,7 +146,7 @@ export default function DebitNotes() {
   });
 
   const finalizeMutation = useMutation({
-    mutationFn: finalizeDebitNote,   // no context needed
+    mutationFn: (id) => finalizeDebitNote(id, ctx),
     onSuccess: () => {
       toast.success("Debit note finalized");
       queryClient.invalidateQueries(["debit-notes"]);
@@ -131,7 +155,7 @@ export default function DebitNotes() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: deleteDebitNote,
+    mutationFn: (id) => deleteDebitNote(id, branchId, financialYearId),
     onSuccess: () => {
       toast.success("Debit note deleted");
       queryClient.invalidateQueries(["debit-notes"]);
@@ -189,7 +213,11 @@ export default function DebitNotes() {
   };
 
   const handleFinalize = (id) => {
-    if (window.confirm("Finalize this debit note? This action cannot be undone.")) {
+    if (
+      window.confirm(
+        "Finalize this debit note? This action cannot be undone."
+      )
+    ) {
       finalizeMutation.mutate(id);
     }
   };
@@ -214,10 +242,16 @@ export default function DebitNotes() {
   return (
     <AdminLayout>
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
-        <h1 className="text-3xl font-righteous text-primary-dark">Debit Notes</h1>
+        <h1
+          className="text-3xl font-bold text-primary"
+          style={{ fontFamily: headingFont }}
+        >
+          Debit Notes
+        </h1>
         <button
           onClick={() => setShowModal(true)}
-          className="bg-primary text-white px-4 py-2 rounded-lg text-sm flex items-center gap-2"
+          className="bg-primary hover:bg-primary-light text-white px-4 py-2 rounded-lg text-sm flex items-center gap-2 transition-colors"
+          style={{ fontFamily: bodyFont }}
         >
           <Plus size={16} /> New Debit Note
         </button>
@@ -226,19 +260,24 @@ export default function DebitNotes() {
       {/* Filters */}
       <div className="flex flex-col sm:flex-row gap-3 mb-4">
         <div className="relative flex-1">
-          <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-secondary" />
+          <Search
+            size={18}
+            className="absolute left-3 top-1/2 -translate-y-1/2 text-primary-dark/60"
+          />
           <input
             type="text"
             placeholder="Search by note number, student..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-10 pr-4 py-2.5 border rounded-lg text-sm"
+            className="w-full pl-10 pr-4 py-2.5 border border-primary-bg bg-white text-primary-dark rounded-lg text-sm"
+            style={{ fontFamily: bodyFont }}
           />
         </div>
         <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
-          className="border rounded-lg px-4 py-2.5 text-sm"
+          className="border border-primary-bg bg-white text-primary-dark rounded-lg px-4 py-2.5 text-sm"
+          style={{ fontFamily: bodyFont }}
         >
           <option value="">All Statuses</option>
           <option value="Draft">Draft</option>
@@ -248,43 +287,108 @@ export default function DebitNotes() {
       </div>
 
       {/* Table */}
-      <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+      <div className="bg-white rounded-xl shadow-sm border border-primary-bg overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[700px]">
-            <thead className="bg-slate-100">
+            <thead className="bg-primary-bg">
               <tr>
-                <th className="p-3 text-left text-sm">Note No</th>
-                <th className="p-3 text-left text-sm">Against Invoice</th>
-                <th className="p-3 text-left text-sm">Student</th>
-                <th className="p-3 text-right text-sm">Amount</th>
-                <th className="p-3 text-left text-sm">Reason</th>
-                <th className="p-3 text-left text-sm">Status</th>
-                <th className="p-3 text-left text-sm">Actions</th>
+                <th
+                  className="p-3 text-left text-sm font-medium text-primary-dark"
+                  style={{ fontFamily: bodyFont }}
+                >
+                  Note No
+                </th>
+                <th
+                  className="p-3 text-left text-sm font-medium text-primary-dark"
+                  style={{ fontFamily: bodyFont }}
+                >
+                  Against Invoice
+                </th>
+                <th
+                  className="p-3 text-left text-sm font-medium text-primary-dark"
+                  style={{ fontFamily: bodyFont }}
+                >
+                  Student
+                </th>
+                <th
+                  className="p-3 text-right text-sm font-medium text-primary-dark"
+                  style={{ fontFamily: bodyFont }}
+                >
+                  Amount
+                </th>
+                <th
+                  className="p-3 text-left text-sm font-medium text-primary-dark"
+                  style={{ fontFamily: bodyFont }}
+                >
+                  Reason
+                </th>
+                <th
+                  className="p-3 text-left text-sm font-medium text-primary-dark"
+                  style={{ fontFamily: bodyFont }}
+                >
+                  Status
+                </th>
+                <th
+                  className="p-3 text-left text-sm font-medium text-primary-dark"
+                  style={{ fontFamily: bodyFont }}
+                >
+                  Actions
+                </th>
               </tr>
             </thead>
             <tbody>
               {isLoading ? (
-                <tr><td colSpan={7} className="p-6 text-center text-secondary">Loading…</td></tr>
+                <tr>
+                  <td
+                    colSpan={7}
+                    className="p-6 text-center text-primary-dark/60"
+                    style={{ fontFamily: bodyFont }}
+                  >
+                    Loading…
+                  </td>
+                </tr>
               ) : filteredNotes.length === 0 ? (
-                <tr><td colSpan={7} className="p-6 text-center text-secondary">No debit notes found.</td></tr>
+                <tr>
+                  <td
+                    colSpan={7}
+                    className="p-6 text-center text-primary-dark/60"
+                    style={{ fontFamily: bodyFont }}
+                  >
+                    No debit notes found.
+                  </td>
+                </tr>
               ) : (
                 filteredNotes.map((note) => (
-                  <tr key={note.id} className="border-t hover:bg-gray-50 transition">
-                    <td className="p-3 text-sm font-medium">{note.debit_note_number}</td>
-                    <td className="p-3 text-sm">{note.invoices?.invoice_number || "—"}</td>
-                    <td className="p-3 text-sm">
-                      {note.invoices?.students?.first_name} {note.invoices?.students?.last_name}
+                  <tr
+                    key={note.id}
+                    className="border-t border-primary-bg hover:bg-primary-bg transition"
+                  >
+                    <td className="p-3 text-sm font-medium text-primary" style={{ fontFamily: bodyFont }}>
+                      {note.debit_note_number}
                     </td>
-                    <td className="p-3 text-right text-sm font-medium">
+                    <td className="p-3 text-sm text-primary-dark" style={{ fontFamily: bodyFont }}>
+                      {note.invoices?.invoice_number || "—"}
+                    </td>
+                    <td className="p-3 text-sm text-primary-dark" style={{ fontFamily: bodyFont }}>
+                      {note.invoices?.students?.first_name}{" "}
+                      {note.invoices?.students?.last_name}
+                    </td>
+                    <td className="p-3 text-right text-sm font-medium text-primary" style={{ fontFamily: bodyFont }}>
                       ₹ {Number(note.total_amount).toLocaleString("en-IN")}
                     </td>
-                    <td className="p-3 text-sm">{note.reason || "—"}</td>
+                    <td className="p-3 text-sm text-primary-dark" style={{ fontFamily: bodyFont }}>
+                      {note.reason || "—"}
+                    </td>
                     <td className="p-3 text-sm">
-                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                        note.status === "Final" ? "bg-green-100 text-green-700" :
-                        note.status === "Draft" ? "bg-yellow-100 text-yellow-700" :
-                        "bg-red-100 text-red-700"
-                      }`}>
+                      <span
+                        className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                          note.status === "Final"
+                            ? "bg-primary-bg text-primary-dark"
+                            : note.status === "Draft"
+                            ? "bg-accent-bg text-accent-dark"
+                            : "bg-accent text-white"
+                        }`}
+                      >
                         {note.status}
                       </span>
                     </td>
@@ -294,14 +398,14 @@ export default function DebitNotes() {
                           <>
                             <button
                               onClick={() => handleFinalize(note.id)}
-                              className="text-green-600 hover:underline"
+                              className="text-primary hover:underline"
                               title="Finalize"
                             >
                               <CheckCircle size={15} />
                             </button>
                             <button
                               onClick={() => handleDelete(note.id)}
-                              className="text-red-600 hover:underline"
+                              className="text-accent hover:underline"
                               title="Delete"
                             >
                               <Trash2 size={15} />
@@ -318,34 +422,42 @@ export default function DebitNotes() {
         </div>
       </div>
 
-      {/* Create Modal – unchanged except createMutation already passes ctx */}
+      {/* Create Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-xl">
-            <div className="sticky top-0 bg-white px-6 py-4 border-b flex items-center justify-between rounded-t-xl">
-              <h2 className="text-xl font-righteous text-primary-dark">New Debit Note</h2>
+          <div className="bg-white rounded-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-xl border border-primary-bg">
+            <div className="sticky top-0 bg-white px-6 py-4 border-b border-primary-bg flex items-center justify-between rounded-t-xl">
+              <h2
+                className="text-xl font-bold text-primary"
+                style={{ fontFamily: headingFont }}
+              >
+                New Debit Note
+              </h2>
               <button
                 onClick={() => {
                   setShowModal(false);
                   resetForm();
                 }}
-                className="p-2 hover:bg-secondary-bg rounded-lg"
+                className="p-2 hover:bg-primary-bg rounded-lg transition-colors"
               >
-                <X size={20} className="text-secondary-dark" />
+                <X size={20} className="text-primary-dark" />
               </button>
             </div>
 
             <form onSubmit={handleSubmit} className="p-6 space-y-4">
               {/* Student & Invoice Selection */}
               <div>
-                <label className="block text-sm font-montserrat text-secondary-dark mb-1">
+                <label
+                  className="block text-sm text-primary-dark mb-1"
+                  style={{ fontFamily: bodyFont }}
+                >
                   Student / Invoice *
                 </label>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <select
                     value={form.invoice_id}
                     onChange={(e) => handleInvoiceSelect(e.target.value)}
-                    className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary"
+                    className="w-full border border-primary-bg bg-white text-primary-dark rounded p-2.5 focus:ring-1 focus:ring-primary"
                     required
                   >
                     <option value="">Select Invoice</option>
@@ -356,13 +468,17 @@ export default function DebitNotes() {
                     ))}
                   </select>
                   <div className="relative">
-                    <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-secondary" />
+                    <Search
+                      size={16}
+                      className="absolute left-3 top-1/2 -translate-y-1/2 text-primary-dark/60"
+                    />
                     <input
                       type="text"
                       placeholder="Search student..."
                       value={studentSearch}
                       onChange={(e) => setStudentSearch(e.target.value)}
-                      className="w-full pl-9 pr-4 py-2.5 border rounded-lg text-sm"
+                      className="w-full pl-9 pr-4 py-2.5 border border-primary-bg bg-white text-primary-dark rounded-lg text-sm"
+                      style={{ fontFamily: bodyFont }}
                     />
                   </div>
                 </div>
@@ -370,23 +486,36 @@ export default function DebitNotes() {
 
               {/* Selected Invoice Details */}
               {selectedInvoice && (
-                <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
-                  <p className="text-sm font-medium text-blue-800">
+                <div className="bg-primary-bg p-4 rounded-lg border border-primary-bg">
+                  <p className="text-sm font-medium text-primary" style={{ fontFamily: headingFont }}>
                     Invoice: {selectedInvoice.invoice_number}
                   </p>
                   <div className="grid grid-cols-3 gap-2 text-sm mt-1">
-                    <span>Taxable: ₹ {selectedInvoice.total_taxable_amount?.toLocaleString("en-IN")}</span>
-                    <span>CGST: ₹ {selectedInvoice.total_cgst?.toLocaleString("en-IN")}</span>
-                    <span>SGST: ₹ {selectedInvoice.total_sgst?.toLocaleString("en-IN")}</span>
-                    <span>IGST: ₹ {selectedInvoice.total_igst?.toLocaleString("en-IN")}</span>
-                    <span className="col-span-2 font-medium">Total: ₹ {selectedInvoice.grand_total?.toLocaleString("en-IN")}</span>
+                    <span className="text-primary-dark">
+                      Taxable: ₹ {selectedInvoice.total_taxable_amount?.toLocaleString("en-IN")}
+                    </span>
+                    <span className="text-primary-dark">
+                      CGST: ₹ {selectedInvoice.total_cgst?.toLocaleString("en-IN")}
+                    </span>
+                    <span className="text-primary-dark">
+                      SGST: ₹ {selectedInvoice.total_sgst?.toLocaleString("en-IN")}
+                    </span>
+                    <span className="text-primary-dark">
+                      IGST: ₹ {selectedInvoice.total_igst?.toLocaleString("en-IN")}
+                    </span>
+                    <span className="col-span-2 font-medium text-primary">
+                      Total: ₹ {selectedInvoice.grand_total?.toLocaleString("en-IN")}
+                    </span>
                   </div>
                 </div>
               )}
 
               {/* Amount to Debit */}
               <div>
-                <label className="block text-sm font-montserrat text-secondary-dark mb-1">
+                <label
+                  className="block text-sm text-primary-dark mb-1"
+                  style={{ fontFamily: bodyFont }}
+                >
                   Debit Amount (₹) *
                 </label>
                 <input
@@ -396,7 +525,7 @@ export default function DebitNotes() {
                     setForm((prev) => ({ ...prev, total_amount: e.target.value }));
                     handleAmountChange(e.target.value);
                   }}
-                  className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary"
+                  className="w-full border border-primary-bg bg-white text-primary rounded p-2.5 focus:ring-1 focus:ring-primary"
                   placeholder="Enter amount to debit"
                   min="0"
                   step="0.01"
@@ -406,71 +535,101 @@ export default function DebitNotes() {
 
               {/* Calculated Tax Breakdown */}
               {parseFloat(form.total_amount) > 0 && (
-                <div className="bg-gray-50 rounded-lg p-3 space-y-1 text-sm">
-                  <p className="font-medium text-secondary-dark">Tax Breakdown</p>
+                <div className="bg-primary-bg rounded-lg p-3 space-y-1 text-sm">
+                  <p className="font-medium text-primary-dark" style={{ fontFamily: bodyFont }}>
+                    Tax Breakdown
+                  </p>
                   <div className="grid grid-cols-2 gap-2">
-                    <span className="text-gray-600">Taxable Amount:</span>
-                    <span className="font-medium text-right">₹ {calculatedTax.taxable_amount.toFixed(2)}</span>
+                    <span className="text-primary-dark">Taxable Amount:</span>
+                    <span className="font-medium text-right text-primary">
+                      ₹ {calculatedTax.taxable_amount.toFixed(2)}
+                    </span>
                     {calculatedTax.cgst > 0 && (
                       <>
-                        <span className="text-gray-600">CGST:</span>
-                        <span className="font-medium text-right">₹ {calculatedTax.cgst.toFixed(2)}</span>
+                        <span className="text-primary-dark">CGST:</span>
+                        <span className="font-medium text-right text-primary">
+                          ₹ {calculatedTax.cgst.toFixed(2)}
+                        </span>
                       </>
                     )}
                     {calculatedTax.sgst > 0 && (
                       <>
-                        <span className="text-gray-600">SGST:</span>
-                        <span className="font-medium text-right">₹ {calculatedTax.sgst.toFixed(2)}</span>
+                        <span className="text-primary-dark">SGST:</span>
+                        <span className="font-medium text-right text-primary">
+                          ₹ {calculatedTax.sgst.toFixed(2)}
+                        </span>
                       </>
                     )}
                     {calculatedTax.igst > 0 && (
                       <>
-                        <span className="text-gray-600">IGST:</span>
-                        <span className="font-medium text-right">₹ {calculatedTax.igst.toFixed(2)}</span>
+                        <span className="text-primary-dark">IGST:</span>
+                        <span className="font-medium text-right text-primary">
+                          ₹ {calculatedTax.igst.toFixed(2)}
+                        </span>
                       </>
                     )}
-                    <span className="text-gray-600 font-medium border-t pt-1">Total Tax:</span>
-                    <span className="font-medium text-right border-t pt-1">₹ {calculatedTax.total_tax_amount.toFixed(2)}</span>
-                    <span className="text-gray-600 font-bold border-t pt-1">Total Amount:</span>
-                    <span className="font-bold text-right border-t pt-1">₹ {Number(form.total_amount || 0).toFixed(2)}</span>
+                    <span className="text-primary-dark font-medium border-t border-primary-bg pt-1">
+                      Total Tax:
+                    </span>
+                    <span className="font-medium text-right border-t border-primary-bg pt-1 text-primary">
+                      ₹ {calculatedTax.total_tax_amount.toFixed(2)}
+                    </span>
+                    <span className="text-primary-dark font-bold border-t border-primary-bg pt-1">
+                      Total Amount:
+                    </span>
+                    <span className="font-bold text-right border-t border-primary-bg pt-1 text-primary">
+                      ₹ {Number(form.total_amount || 0).toFixed(2)}
+                    </span>
                   </div>
                 </div>
               )}
 
               {/* Reason */}
               <div>
-                <label className="block text-sm font-montserrat text-secondary-dark mb-1">
+                <label
+                  className="block text-sm text-primary-dark mb-1"
+                  style={{ fontFamily: bodyFont }}
+                >
                   Reason
                 </label>
                 <textarea
                   value={form.reason}
-                  onChange={(e) => setForm((prev) => ({ ...prev, reason: e.target.value }))}
+                  onChange={(e) =>
+                    setForm((prev) => ({ ...prev, reason: e.target.value }))
+                  }
                   rows={2}
-                  className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary"
+                  className="w-full border border-primary-bg bg-white text-primary-dark rounded p-2.5 focus:ring-1 focus:ring-primary"
                   placeholder="e.g., Additional charges, Course upgrade, etc."
+                  style={{ fontFamily: bodyFont }}
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-montserrat text-secondary-dark mb-1">
+                <label
+                  className="block text-sm text-primary-dark mb-1"
+                  style={{ fontFamily: bodyFont }}
+                >
                   Date
                 </label>
                 <input
                   type="date"
                   value={form.date}
-                  onChange={(e) => setForm((prev) => ({ ...prev, date: e.target.value }))}
-                  className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary"
+                  onChange={(e) =>
+                    setForm((prev) => ({ ...prev, date: e.target.value }))
+                  }
+                  className="w-full border border-primary-bg bg-white text-primary rounded p-2.5 focus:ring-1 focus:ring-primary"
                 />
               </div>
 
-              <div className="flex justify-end gap-3 pt-2 border-t">
+              <div className="flex justify-end gap-3 pt-2 border-t border-primary-bg">
                 <button
                   type="button"
                   onClick={() => {
                     setShowModal(false);
                     resetForm();
                   }}
-                  className="border border-secondary-light px-4 py-2 rounded-lg text-sm hover:bg-secondary-bg transition"
+                  className="border border-primary-bg px-4 py-2 rounded-lg text-sm text-primary-dark hover:bg-primary-bg transition-colors"
+                  style={{ fontFamily: bodyFont }}
                 >
                   Cancel
                 </button>
@@ -478,6 +637,7 @@ export default function DebitNotes() {
                   type="submit"
                   disabled={submitting || createMutation.isPending}
                   className="bg-primary hover:bg-primary-light text-white px-6 py-2 rounded-lg text-sm flex items-center gap-2 transition disabled:opacity-50"
+                  style={{ fontFamily: bodyFont }}
                 >
                   {submitting || createMutation.isPending ? (
                     <Loader className="w-4 h-4 animate-spin" />

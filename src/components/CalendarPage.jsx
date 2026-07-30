@@ -8,12 +8,17 @@ import AdminLayout from "../layouts/AdminLayout";
 import { useQuery } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import { Layers } from "lucide-react";
+import { useOrg } from "../context/OrganizationContext";
 
 export default function CalendarPage() {
+  const { branch, selectedFinancialYear } = useOrg();
+  const branchId = branch?.id;
+  const financialYearId = selectedFinancialYear?.id;
+
   const [events, setEvents] = useState([]);
   const [selectedMediumId, setSelectedMediumId] = useState("");
 
-  // Fetch mediums for filter dropdown
+  // Fetch mediums for filter dropdown (org‑wide, unchanged)
   const { data: mediums = [] } = useQuery({
     queryKey: ["calendar-mediums"],
     queryFn: async () => {
@@ -22,9 +27,9 @@ export default function CalendarPage() {
     },
   });
 
-  // Fetch batches with course, teacher, and medium info
+  // Fetch batches with course, teacher, and medium info – NOW SCOPED
   const { data: batches, isLoading } = useQuery({
-    queryKey: ["calendar-batches", selectedMediumId],
+    queryKey: ["calendar-batches", selectedMediumId, branchId, financialYearId],
     queryFn: async () => {
       let query = supabase
         .from("batches")
@@ -34,7 +39,9 @@ export default function CalendarPage() {
           medium:mediums(id, name),
           batch_teachers(teacher:teachers(id, first_name, last_name))
         `)
-        .eq("status", "active");
+        .eq("status", "active")
+        .eq("branch_id", branchId)
+        .eq("financial_year_id", financialYearId);
 
       if (selectedMediumId) {
         query = query.eq("medium_id", selectedMediumId);
@@ -44,6 +51,7 @@ export default function CalendarPage() {
       if (error) throw error;
       return data;
     },
+    enabled: !!branchId && !!financialYearId,
   });
 
   // Convert batches to FullCalendar events (handling repeat days)
@@ -96,7 +104,7 @@ export default function CalendarPage() {
               start_time,
               end_time,
               days,
-              medium_name: medium?.name || "",    // NEW
+              medium_name: medium?.name || "",
             },
           });
         }
@@ -123,16 +131,16 @@ export default function CalendarPage() {
 
   return (
     <AdminLayout>
-      <div className="p-4 bg-white rounded-xl shadow-sm">
+      <div className="p-4 bg-white dark:bg-accent rounded-xl shadow-sm">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-4">
-          <h1 className="text-2xl font-righteous text-primary-dark">Class Calendar</h1>
-          {/* Medium Filter – NEW */}
+          <h1 className="text-2xl font-heading text-primary">Class Calendar</h1>
+          {/* Medium Filter */}
           <div className="flex items-center gap-2">
-            <Layers size={18} className="text-secondary" />
+            <Layers size={18} className="text-gray-600 dark:text-gray-400" />
             <select
               value={selectedMediumId}
               onChange={(e) => setSelectedMediumId(e.target.value)}
-              className="border border-secondary-light rounded-lg p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none"
+              className="border border-gray-300 dark:border-gray-600 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-primary outline-none bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
             >
               <option value="">All Mediums</option>
               {mediums.map((m) => (
@@ -145,7 +153,7 @@ export default function CalendarPage() {
         </div>
 
         {isLoading ? (
-          <div className="text-center py-10">Loading calendar...</div>
+          <div className="text-center py-10 text-gray-500 dark:text-gray-400">Loading calendar...</div>
         ) : (
           <FullCalendar
             plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}

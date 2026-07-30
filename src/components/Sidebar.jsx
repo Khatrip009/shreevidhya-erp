@@ -4,21 +4,28 @@ import {
   ChevronDown, Bell, X, Wallet, Building, Video, FileText,
   PanelLeftOpen, PanelLeftClose, BarChart3, Shield, Layers,
   Calendar, CalendarCheck, BookOpen, Award, ClipboardCheck,
-  MessageSquare, Palette,Activity,
+  MessageSquare, Palette, Activity,
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { useState, useEffect } from "react";
 import { useAuth } from "../context/AuthContext";
 import { useOrg } from "../context/OrganizationContext";
+import { useTheme } from "../context/ThemeContext"; // ✅ dynamic theme
 import { supabase } from "../api/supabase";
+import ScopeSelector from "./ScopeSelector";
 
 function normaliseRole(rawRole) {
   return (rawRole || "").toLowerCase().replace(/\s+/g, "_");
 }
 
 function SectionLabel({ children }) {
+  const { theme } = useTheme();
+  const bodyFont = theme?.font_body || "Montserrat";
   return (
-    <p className="px-4 pt-4 pb-1 text-[10px] font-montserrat font-semibold uppercase tracking-wider text-secondary-light">
+    <p
+      className="px-4 pt-4 pb-1 text-[10px] font-semibold uppercase tracking-wider text-primary-bg/70"
+      style={{ fontFamily: bodyFont }}
+    >
       {children}
     </p>
   );
@@ -34,7 +41,7 @@ function SidebarLink({ to, icon: Icon, children, end }) {
         `flex items-center gap-3 px-4 py-2.5 rounded-lg transition-colors ${
           isActive
             ? "bg-primary-light text-white"
-            : "hover:bg-primary-light/50 text-secondary-light hover:text-white"
+            : "text-primary-bg/70 hover:bg-primary-light/50 hover:text-white"
         }`
       }
     >
@@ -50,14 +57,17 @@ function AccordionSection({ icon: Icon, label, open, onClick, collapsed, childre
       <button
         onClick={onClick}
         title={collapsed ? label : undefined}
-        className="w-full flex items-center justify-between gap-3 px-4 py-2.5 rounded-lg hover:bg-primary-light/50 transition-colors text-secondary-light hover:text-white"
+        className="w-full flex items-center justify-between gap-3 px-4 py-2.5 rounded-lg hover:bg-primary-light/50 transition-colors text-primary-bg/70 hover:text-white"
       >
         <span className="flex items-center gap-3 truncate">
           <Icon size={18} className="flex-shrink-0" />
           {!collapsed && <span>{label}</span>}
         </span>
         {!collapsed && (
-          <ChevronDown size={16} className={`transition-transform ${open ? "rotate-180" : ""}`} />
+          <ChevronDown
+            size={16}
+            className={`transition-transform ${open ? "rotate-180" : ""}`}
+          />
         )}
       </button>
       {open && !collapsed && <div className="ml-6 space-y-1">{children}</div>}
@@ -68,14 +78,11 @@ function AccordionSection({ icon: Icon, label, open, onClick, collapsed, childre
 export default function Sidebar({ onClose, collapsed, onToggleCollapse }) {
   const { profile } = useAuth();
   const orgContext = useOrg();
+  const theme = useTheme(); // ✅ dynamic theme
   const [org, setOrg] = useState(orgContext?.org || null);
 
-  // Financial year from context
-  const {
-    financialYears,
-    selectedFinancialYear,
-    switchFinancialYear,
-  } = orgContext || {};
+  // Financial year from context (kept for any remaining usage, but selection is now via ScopeSelector)
+  const { financialYears, selectedFinancialYear, switchFinancialYear } = orgContext || {};
 
   const [academicOpen, setAcademicOpen] = useState(false);
 
@@ -112,7 +119,7 @@ export default function Sidebar({ onClose, collapsed, onToggleCollapse }) {
         style={{ width: collapsed ? 64 : 288 }}
       >
         <div className="flex items-center justify-center h-full">
-          <p className="text-sm text-secondary-light">Loading…</p>
+          <p className="text-sm text-primary-bg/70">Loading…</p>
         </div>
       </aside>
     );
@@ -200,13 +207,8 @@ export default function Sidebar({ onClose, collapsed, onToggleCollapse }) {
       <SidebarLink to="/branches" icon={Building}>Branches</SidebarLink>
       <SidebarLink to="/settings-hub" icon={Settings}>Settings</SidebarLink>
       <SidebarLink to="/activity-logs" icon={Activity}>Activity Logs</SidebarLink>
-      
     </>
   );
-
-  // ── Financial Year selector (bottom) ──
-  const isAdminOrStaff = ["admin", "super_admin", "organization_admin", "branch_admin", "teacher"].includes(role);
-  const showFYSelector = isAdminOrStaff && financialYears && financialYears.length > 0;
 
   return (
     <aside
@@ -217,12 +219,12 @@ export default function Sidebar({ onClose, collapsed, onToggleCollapse }) {
       <div className="flex items-center justify-between p-2">
         <button
           onClick={onToggleCollapse}
-          className="hidden lg:block text-white/80 hover:text-white p-1 rounded hover:bg-primary-light"
+          className="hidden lg:block text-primary-bg/80 hover:text-white p-1 rounded hover:bg-primary-light"
           title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
         >
           {collapsed ? <PanelLeftOpen size={20} /> : <PanelLeftClose size={20} />}
         </button>
-        <button onClick={onClose} className="lg:hidden text-white/80 hover:text-white p-1 ml-auto">
+        <button onClick={onClose} className="lg:hidden text-primary-bg/80 hover:text-white p-1 ml-auto">
           <X size={24} />
         </button>
       </div>
@@ -243,37 +245,33 @@ export default function Sidebar({ onClose, collapsed, onToggleCollapse }) {
         {(role === "admin" || role === "super_admin" || role === "organization_admin") && adminLinks}
       </nav>
 
-      {/* Financial Year Selector */}
-      {showFYSelector && (
-        <div className="px-3 py-3 border-t border-primary-dark">
-          {collapsed ? (
-            <div className="flex justify-center" title={selectedFinancialYear?.name || "Select FY"}>
-              <Calendar size={20} className="text-white/70" />
-            </div>
-          ) : (
-            <div className="flex items-center gap-2 text-sm">
-              <Calendar size={16} className="text-white/60" />
-              <select
-                value={selectedFinancialYear?.id || ""}
-                onChange={(e) => {
-                  const id = Number(e.target.value);
-                  if (id && switchFinancialYear) switchFinancialYear(id);
-                }}
-                className="bg-primary-light text-white border border-primary-dark rounded px-2 py-1 text-xs w-full focus:outline-none"
-              >
-                {!selectedFinancialYear && (
-                  <option value="" disabled>Select FY</option>
-                )}
-                {financialYears.map((fy) => (
-                  <option key={fy.id} value={fy.id}>
-                    {fy.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-        </div>
-      )}
+      {/* ── Universal Scope Selector (Branch + Financial Year) ── */}
+      {/* It will automatically appear only when there are branches/FYs to choose */}
+      <div className="border-t border-primary-dark px-2 py-3">
+        <ScopeSelector />
+      </div>
+
+      {/* ── Custom scrollbar styles ── */}
+      <style>{`
+        .sidebar-scroll::-webkit-scrollbar {
+          width: 4px;
+        }
+        .sidebar-scroll::-webkit-scrollbar-track {
+          background: transparent;
+        }
+        .sidebar-scroll::-webkit-scrollbar-thumb {
+          background: rgba(255,255,255,0.2);
+          border-radius: 2px;
+        }
+        .sidebar-scroll::-webkit-scrollbar-thumb:hover {
+          background: rgba(255,255,255,0.4);
+        }
+        /* Firefox */
+        .sidebar-scroll {
+          scrollbar-width: thin;
+          scrollbar-color: rgba(255,255,255,0.2) transparent;
+        }
+      `}</style>
     </aside>
   );
 }

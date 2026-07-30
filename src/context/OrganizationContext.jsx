@@ -8,105 +8,69 @@ const OrgContext = createContext();
 export function OrganizationProvider({ children }) {
   const { user } = useAuth();
   const [org, setOrg] = useState(null);
-  const [theme, setTheme] = useState(null);            // ← NEW
   const [branch, setBranch] = useState(null);
   const [branches, setBranches] = useState([]);
   const [financialYears, setFinancialYears] = useState([]);
   const [selectedFinancialYear, setSelectedFinancialYear] = useState(null);
-
-  // Apply theme CSS variables whenever the theme changes
-  useEffect(() => {
-    if (!theme) return;
-    const root = document.documentElement;
-    root.style.setProperty("--color-primary", theme.primary_color);
-    root.style.setProperty("--color-primary-light", theme.primary_light_color);
-    root.style.setProperty("--color-primary-dark", theme.primary_dark_color);
-    root.style.setProperty("--color-accent", theme.accent_color);
-    root.style.setProperty("--color-accent-light", theme.accent_light_color);
-    root.style.setProperty("--color-accent-dark", theme.accent_dark_color);
-    root.style.setProperty("--font-heading", theme.font_heading);
-    root.style.setProperty("--font-body", theme.font_body);
-  }, [theme]);
+  const [mediums, setMediums] = useState([]);
 
   useEffect(() => {
-    // ── USER LOGGED OUT ──
-    if (!user) {
-      setOrg(null);
-      setTheme(null);
-      setBranch(null);
-      setBranches([]);
-      setFinancialYears([]);
-      setSelectedFinancialYear(null);
+    let cancelled = false;
 
-      // Domain matching for public pages (only when no user)
-      const hostname = window.location.hostname;
-      if (hostname !== "app.shreevidhyaerp.online" && hostname !== "localhost") {
-        (async () => {
-          try {
-            const { data: orgData } = await supabase
-              .from("organization")
-              .select("*, organization_domains!inner(domain)")
-              .eq("organization_domains.domain", hostname)
-              .single();
-            if (orgData) {
-              setOrg(orgData);
-              const { data: branchList } = await supabase
-                .from("branches")
-                .select("*")
-                .eq("organization_id", orgData.id);
-              setBranches(branchList || []);
-              if (branchList?.length) setBranch(branchList[0]);
-            }
-          } catch {
-            // ignore
-          }
-        })();
-      }
-      return;
-    }
-
-    // ── USER LOGGED IN ──
-    async function loadOrganization() {
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("organization_id, selected_financial_year_id")
-        .eq("id", user.id)
+    async function loadOrg() {
+      const { data: orgData } = await supabase
+        .from("organization")
+        .select("*")
+        .eq("id", 1)
         .single();
 
-      if (!profile?.organization_id) return;
-
-      // Fetch org, theme, branches, and financial years in parallel
-      const [
-        { data: orgData },
-        { data: themeData },
-        { data: branchList },
-        { data: fys },
-      ] = await Promise.all([
-        supabase.from("organization").select("*").eq("id", profile.organization_id).single(),
-        supabase.from("themes").select("*").eq("org_id", profile.organization_id).maybeSingle(),
-        supabase.from("branches").select("*").eq("organization_id", profile.organization_id),
-        supabase.from("financial_years")
-          .select("*")
-          .eq("organization_id", profile.organization_id)
-          .order("start_date", { ascending: false }),
-      ]);
+      if (!orgData || cancelled) return;
 
       setOrg(orgData);
-      setTheme(themeData || null);
-      setBranches(branchList || []);
-      setFinancialYears(fys || []);
 
+      const [{ data: branchList }, { data: fys }, { data: mediumRows }] = await Promise.all([
+        supabase.from("branches").select("*").eq("organization_id", orgData.id),
+        supabase.from("financial_years").select("*").eq("organization_id", orgData.id).order("start_date", { ascending: false }),
+        supabase.from("organization_mediums").select("medium_id, mediums(name)").eq("org_id", orgData.id),
+      ]);
+
+      if (cancelled) return;
+
+      setBranches(branchList || []);
       if (branchList?.length) setBranch(branchList[0]);
 
-      if (fys && fys.length > 0) {
-        const current = fys.find(fy => fy.id === profile.selected_financial_year_id) || null;
-        setSelectedFinancialYear(current);
-      } else {
-        setSelectedFinancialYear(null);
+      setFinancialYears(fys || []);
+      if (fys?.length) setSelectedFinancialYear(fys[0]);
+
+      const mediumList = (mediumRows || []).map((row) => ({
+        id: row.medium_id,
+        name: row.mediums?.name || "",
+      }));
+      setMediums(mediumList);
+
+      // If user is logged in, silently fix missing org/branch/FY
+      if (user) {
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("organization_id, branch_id, selected_financial_year_id")
+          .eq("id", user.id)
+          .single();
+
+        if (profile && (!profile.organization_id || !profile.branch_id || !profile.selected_financial_year_id)) {
+          await supabase
+            .from("profiles")
+            .update({
+              organization_id: 1,
+              branch_id: branchList?.[0]?.id || null,
+              selected_financial_year_id: fys?.[0]?.id || null,
+            })
+            .eq("id", user.id);
+        }
       }
     }
 
-    loadOrganization();
+    loadOrg();
+    return () => { cancelled = true; };
   }, [user]);
 
   const switchFinancialYear = useCallback(
@@ -126,13 +90,14 @@ export function OrganizationProvider({ children }) {
     <OrgContext.Provider
       value={{
         org,
-        theme,   // ← exposed
         branch,
         setBranch,
         branches,
         financialYears,
         selectedFinancialYear,
         switchFinancialYear,
+        mediums,
+        organizationId: org?.id ?? null,
       }}
     >
       {children}

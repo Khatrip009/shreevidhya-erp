@@ -1,22 +1,21 @@
 // src/services/feeService.js
 import { supabase } from "../api/supabase";
+import { createInvoice } from "./invoiceService";
+import { sendFeeReceiptEmail } from "./emailService";
 
-// ========================
-// HELPERS
-// ========================
+// ============================================================
+// 1.  HELPER FUNCTIONS
+// ============================================================
 
 export function calculateFeeWithTax(amount, taxRateId, taxRates, taxInclusive = true) {
   if (!taxRateId) {
     return { baseAmount: amount, taxAmount: 0, total: amount };
   }
-
   const taxRate = taxRates.find(t => t.id === taxRateId);
   if (!taxRate) {
     return { baseAmount: amount, taxAmount: 0, total: amount };
   }
-
   const rate = taxRate.rate / 100;
-
   if (taxInclusive) {
     const baseAmount = amount / (1 + rate);
     const taxAmount = amount - baseAmount;
@@ -36,21 +35,40 @@ export function calculateFeeWithTax(amount, taxRateId, taxRates, taxInclusive = 
   }
 }
 
-// ========================
-// TAX RATES
-// ========================
+async function getOrganizationFromBranch(branchId) {
+  const { data: branch, error: branchError } = await supabase
+    .from("branches")
+    .select("organization_id")
+    .eq("id", branchId)
+    .single();
+  if (branchError) throw branchError;
+  const { data: org, error: orgError } = await supabase
+    .from("organization")
+    .select("id, company_name")
+    .eq("id", branch.organization_id)
+    .single();
+  if (orgError) throw orgError;
+  return org;
+}
 
-export async function getTaxRates() {
-  const { data, error } = await supabase
+// ============================================================
+// 2.  TAX RATES
+// ============================================================
+
+export async function getTaxRates({ search = "", branchId, financialYearId } = {}) {
+  let query = supabase
     .from("tax_rates")
     .select("*")
     .eq("is_active", true)
-    .order("rate");
+    .order("rate", { ascending: true });
+  if (branchId) query = query.eq("branch_id", branchId);
+  if (financialYearId) query = query.eq("financial_year_id", financialYearId);
+  if (search) query = query.ilike("name", `%${search}%`);
+  const { data, error } = await query;
   if (error) throw error;
-  return data;
+  return data || [];
 }
 
-// context: { branchId, financialYearId }
 export async function createTaxRate(payload, context) {
   const { branchId, financialYearId } = context;
   const { data, error } = await supabase
@@ -62,7 +80,6 @@ export async function createTaxRate(payload, context) {
   return data;
 }
 
-// context: { branchId, financialYearId }
 export async function updateTaxRate(id, payload, context) {
   const { branchId, financialYearId } = context;
   const { data, error } = await supabase
@@ -75,54 +92,46 @@ export async function updateTaxRate(id, payload, context) {
   return data;
 }
 
-// Hard delete – RLS protects
-export async function deleteTaxRate(id) {
-  const { error } = await supabase
-    .from("tax_rates")
-    .delete()
-    .eq("id", id);
+export async function deleteTaxRate(id, context) {
+  const { branchId, financialYearId } = context;
+  let query = supabase.from("tax_rates").delete().eq("id", id);
+  if (branchId) query = query.eq("branch_id", branchId);
+  if (financialYearId) query = query.eq("financial_year_id", financialYearId);
+  const { error } = await query;
   if (error) throw error;
 }
 
-// ========================
-// FEE STRUCTURES
-// ========================
+// ============================================================
+// 3.  FEE STRUCTURES
+// ============================================================
 
-export async function getFeeStructures() {
-  const { data, error } = await supabase
+export async function getFeeStructures({ search = "", branchId, financialYearId } = {}) {
+  let query = supabase
     .from("fee_structures")
     .select(`
       *,
-      courses (
+      courses ( id, course_name, medium_id, mediums ( name ) ),
+      tax_rates ( id, name, rate ),
+      fee_structure_components (
         id,
-        course_name,
-        medium_id,
-        mediums ( name )
-      ),
-      tax_rates (
-        id,
-        name,
-        rate
+        component_name,
+        amount,
+        is_taxable,
+        sort_order,
+        tax_rate_id,
+        tax_inclusive,
+        tax_rates ( id, name, rate )
       )
     `)
     .order("id", { ascending: false });
+  if (branchId) query = query.eq("branch_id", branchId);
+  if (financialYearId) query = query.eq("financial_year_id", financialYearId);
+  if (search) query = query.or(`courses.course_name.ilike.%${search}%`);
+  const { data, error } = await query;
   if (error) throw error;
   return data || [];
 }
 
-// context: { branchId, financialYearId }
-export async function createFeeStructure(payload, context) {
-  const { branchId, financialYearId } = context;
-  const { data, error } = await supabase
-    .from("fee_structures")
-    .insert([{ ...payload, branch_id: branchId, financial_year_id: financialYearId }])
-    .select()
-    .single();
-  if (error) throw error;
-  return data;
-}
-
-// context: { branchId, financialYearId }
 export async function updateFeeStructure(id, payload, context) {
   const { branchId, financialYearId } = context;
   const { data, error } = await supabase
@@ -135,26 +144,91 @@ export async function updateFeeStructure(id, payload, context) {
   return data;
 }
 
-// Soft delete – context required for RLS on update
-// context: { branchId, financialYearId }
 export async function deleteFeeStructure(id, context) {
   const { branchId, financialYearId } = context;
-  const { error } = await supabase
+  let query = supabase
     .from("fee_structures")
-    .update({
-      deleted_at: new Date().toISOString(),
-      branch_id: branchId,
-      financial_year_id: financialYearId,
-    })
+    .update({ deleted_at: new Date().toISOString(), branch_id: branchId, financial_year_id: financialYearId })
     .eq("id", id);
+  if (branchId) query = query.eq("branch_id", branchId);
+  if (financialYearId) query = query.eq("financial_year_id", financialYearId);
+  const { error } = await query;
   if (error) throw error;
 }
 
-// ========================
-// STUDENT FEES (with tax AND course)
-// ========================
+// ============================================================
+// 4.  STUDENT FEE COMPONENTS
+// ============================================================
 
-export async function getStudentFees({ pageParam = 0, filters = {} } = {}) {
+export async function getStudentFeeComponents(studentFeeId, branchId, financialYearId) {
+  let query = supabase
+    .from("student_fee_components")
+    .select(`
+      *,
+      fee_structure_components (
+        component_name,
+        amount,
+        is_taxable,
+        tax_rate_id,
+        tax_inclusive,
+        tax_rates ( id, name, rate )
+      )
+    `)
+    .eq("student_fee_id", studentFeeId)
+    .eq("branch_id", branchId)
+    .eq("financial_year_id", financialYearId)
+    .order("id");
+  const { data, error } = await query;
+  if (error) throw error;
+  return data || [];
+}
+
+/**
+ * Internal helper: create student_fee_components from a fee structure,
+ * computing the total due_amount including tax (if exclusive).
+ * Kept in scope, called by createStudentFee.
+ */
+async function createStudentFeeComponents(studentFeeId, feeStructureId, context) {
+  const { branchId, financialYearId } = context;
+
+  // Fetch fee structure components with tax info
+  const { data: components, error: compFetchError } = await supabase
+    .from("fee_structure_components")
+    .select("*, tax_rates(rate)")
+    .eq("fee_structure_id", feeStructureId)
+    .eq("branch_id", branchId)
+    .eq("financial_year_id", financialYearId)
+    .order("sort_order");
+
+  if (compFetchError) throw compFetchError;
+  if (!components || components.length === 0) return;
+
+  const studentFeeComponents = components.map(comp => {
+    const rate = comp.tax_rates?.rate ? Number(comp.tax_rates.rate) / 100 : 0;
+    const baseAmount = Number(comp.amount);
+    const dueAmount = comp.tax_inclusive ? baseAmount : baseAmount * (1 + rate);
+
+    return {
+      student_fee_id: studentFeeId,
+      fee_structure_component_id: comp.id,
+      due_amount: dueAmount,
+      paid_amount: 0,
+      branch_id: branchId,
+      financial_year_id: financialYearId,
+    };
+  });
+
+  const { error: insertError } = await supabase
+    .from("student_fee_components")
+    .insert(studentFeeComponents);
+  if (insertError) throw insertError;
+}
+
+// ============================================================
+// 5.  STUDENT FEES
+// ============================================================
+
+export async function getStudentFees({ pageParam = 0, filters = {}, branchId, financialYearId } = {}) {
   const limit = 10;
   const from = pageParam * limit;
   const to = from + limit - 1;
@@ -178,10 +252,12 @@ export async function getStudentFees({ pageParam = 0, filters = {} } = {}) {
     .order("id", { ascending: false })
     .range(from, to);
 
+  if (branchId) query = query.eq("branch_id", branchId);
+  if (financialYearId) query = query.eq("financial_year_id", financialYearId);
+  query = query.is("deleted_at", null);
+
   if (filters.search) {
-    query = query.or(
-      `students.first_name.ilike.%${filters.search}%,students.last_name.ilike.%${filters.search}%`
-    );
+    query = query.or(`students.first_name.ilike.%${filters.search}%,students.last_name.ilike.%${filters.search}%`);
   }
 
   const { data, error, count } = await query;
@@ -192,10 +268,8 @@ export async function getStudentFees({ pageParam = 0, filters = {} } = {}) {
     const totalPaid = payments.reduce((sum, p) => sum + Number(p.amount), 0);
     const totalBasePaid = payments.reduce((sum, p) => sum + Number(p.base_amount || 0), 0);
     const totalTaxPaid = payments.reduce((sum, p) => sum + Number(p.tax_amount || 0), 0);
-    const pending = Math.max(Number(fee.final_fee) - totalPaid, 0);
-    const installments = [...(fee.fee_installments || [])].sort(
-      (a, b) => a.installment_number - b.installment_number
-    );
+    const pending = Math.max(Number(fee.final_fee) - totalBasePaid, 0);
+    const installments = [...(fee.fee_installments || [])].sort((a, b) => a.installment_number - b.installment_number);
     return {
       ...fee,
       total_paid: totalPaid,
@@ -205,11 +279,10 @@ export async function getStudentFees({ pageParam = 0, filters = {} } = {}) {
       installments,
     };
   });
-
   return { data: enriched, count };
 }
 
-export async function getAllStudentFeesForExport(filters = {}) {
+export async function getAllStudentFeesForExport(filters = {}, branchId, financialYearId) {
   let query = supabase
     .from("student_fees")
     .select(
@@ -225,34 +298,32 @@ export async function getAllStudentFeesForExport(filters = {}) {
        fee_payments ( amount )`
     )
     .order("id", { ascending: false });
-
+  if (branchId) query = query.eq("branch_id", branchId);
+  if (financialYearId) query = query.eq("financial_year_id", financialYearId);
+  query = query.is("deleted_at", null);
   if (filters.search) {
-    query = query.or(
-      `students.first_name.ilike.%${filters.search}%,students.last_name.ilike.%${filters.search}%`
-    );
+    query = query.or(`students.first_name.ilike.%${filters.search}%,students.last_name.ilike.%${filters.search}%`);
   }
-
   const { data, error } = await query;
   if (error) throw error;
 
   return data.map((fee) => {
     const totalPaid = (fee.fee_payments || []).reduce((sum, p) => sum + Number(p.amount), 0);
-    const pending = Math.max(Number(fee.final_fee) - totalPaid, 0);
+    const totalBasePaid = (fee.fee_payments || []).reduce((sum, p) => sum + Number(p.base_amount || 0), 0);
+    const pending = Math.max(Number(fee.final_fee) - totalBasePaid, 0);
     return { ...fee, total_paid: totalPaid, pending };
   });
 }
 
-// context: { branchId, financialYearId }
 export async function createStudentFee(payload, context) {
   const { branchId, financialYearId } = context;
-  const { installment_data, ...feeData } = payload;
+  const { installment_data, fee_structure_id, ...feeData } = payload;
 
-  // No longer fetch fee structure or calculate tax – the DB trigger does it
   const { data: fee, error } = await supabase
     .from("student_fees")
     .insert([{
       student_id: feeData.student_id,
-      fee_structure_id: feeData.fee_structure_id,
+      fee_structure_id: fee_structure_id,
       total_fee: feeData.total_fee,
       discount: feeData.discount,
       final_fee: feeData.final_fee,
@@ -264,7 +335,18 @@ export async function createStudentFee(payload, context) {
     .single();
   if (error) throw error;
 
-  // Installments (unchanged)
+  // ✅ Create student fee components (if fee structure provided)
+  if (fee_structure_id) {
+    try {
+      await createStudentFeeComponents(fee.id, fee_structure_id, context);
+    } catch (compError) {
+      console.error("Failed to create student fee components:", compError);
+      // You may choose to re-throw the error if you want to rollback the fee creation.
+      // For now we log it, but ideally you'd want to handle it (maybe delete the fee record).
+    }
+  }
+
+  // Installments
   if (installment_data && installment_data.length > 0) {
     const inserts = installment_data.map((inst) => ({
       student_fee_id: fee.id,
@@ -275,21 +357,17 @@ export async function createStudentFee(payload, context) {
       branch_id: branchId,
       financial_year_id: financialYearId,
     }));
-    const { error: instError } = await supabase
-      .from("fee_installments")
-      .insert(inserts);
+    const { error: instError } = await supabase.from("fee_installments").insert(inserts);
     if (instError) throw instError;
   }
 
   return fee;
 }
 
-// context: { branchId, financialYearId }
 export async function updateStudentFee(id, payload, context) {
   const { branchId, financialYearId } = context;
   const { installment_data, ...feeData } = payload;
 
-  // No tax recalculation here – the trigger will update base_amount / tax_amount
   const updateData = {
     student_id: feeData.student_id,
     fee_structure_id: feeData.fee_structure_id,
@@ -300,24 +378,20 @@ export async function updateStudentFee(id, payload, context) {
     branch_id: branchId,
     financial_year_id: financialYearId,
   };
-
-  // Remove undefined keys
   Object.keys(updateData).forEach(key => updateData[key] === undefined && delete updateData[key]);
 
-  const { data: fee, error } = await supabase
-    .from("student_fees")
-    .update(updateData)
-    .eq("id", id)
-    .select()
-    .single();
+  let updateQuery = supabase.from("student_fees").update(updateData).eq("id", id);
+  if (branchId) updateQuery = updateQuery.eq("branch_id", branchId);
+  if (financialYearId) updateQuery = updateQuery.eq("financial_year_id", financialYearId);
+  const { data: fee, error } = await updateQuery.select().single();
   if (error) throw error;
 
-  // Installment update logic (unchanged)
+  // Installment update
   if (installment_data !== undefined) {
-    await supabase
-      .from("fee_installments")
-      .delete()
-      .eq("student_fee_id", id);
+    let deleteQuery = supabase.from("fee_installments").delete().eq("student_fee_id", id);
+    if (branchId) deleteQuery = deleteQuery.eq("branch_id", branchId);
+    if (financialYearId) deleteQuery = deleteQuery.eq("financial_year_id", financialYearId);
+    await deleteQuery;
 
     if (installment_data && installment_data.length > 0) {
       const inserts = installment_data.map((inst) => ({
@@ -329,166 +403,217 @@ export async function updateStudentFee(id, payload, context) {
         branch_id: branchId,
         financial_year_id: financialYearId,
       }));
-      const { error: instError } = await supabase
-        .from("fee_installments")
-        .insert(inserts);
+      const { error: instError } = await supabase.from("fee_installments").insert(inserts);
       if (instError) throw instError;
     }
   }
 
   return fee;
 }
-// Soft delete – context needed for RLS on update
-// context: { branchId, financialYearId }
+
 export async function deleteStudentFee(id, context) {
   const { branchId, financialYearId } = context;
-  const { error } = await supabase
+  let query = supabase
     .from("student_fees")
-    .update({
-      deleted_at: new Date().toISOString(),
-      branch_id: branchId,
-      financial_year_id: financialYearId,
-    })
+    .update({ deleted_at: new Date().toISOString(), branch_id: branchId, financial_year_id: financialYearId })
     .eq("id", id);
+  if (branchId) query = query.eq("branch_id", branchId);
+  if (financialYearId) query = query.eq("financial_year_id", financialYearId);
+  const { error } = await query;
   if (error) throw error;
 }
 
-// ========================
-// PAYMENTS & RECEIPTS
-// ========================
+// ============================================================
+// 6.  PAYMENTS & ALLOCATIONS
+// ============================================================
 
-export async function getPayments(studentFeeId) {
-  const { data, error } = await supabase
-    .from("fee_payments")
-    .select("*")
-    .eq("student_fee_id", studentFeeId)
-    .order("payment_date", { ascending: false });
-  if (error) throw error;
-  return data;
-}
-
-// ─── INTERNAL: Update fee status after payment ──────────────
-// Note: This function only updates statuses, doesn't need context injection because updates are already within the same org/branch via RLS.
-async function updateFeeStatusAutomatically(studentFeeId) {
-  const { data: payments } = await supabase
-    .from("fee_payments")
-    .select("amount")
-    .eq("student_fee_id", studentFeeId);
-  const totalPaid = (payments || []).reduce((sum, p) => sum + Number(p.amount), 0);
-
-  const { data: fee } = await supabase
-    .from("student_fees")
-    .select("final_fee")
-    .eq("id", studentFeeId)
-    .single();
-  if (!fee) return;
-
-  const newStatus = totalPaid >= Number(fee.final_fee) ? "Paid" : "Pending";
-  await supabase
-    .from("student_fees")
-    .update({ status: newStatus })
-    .eq("id", studentFeeId);
-
-  const { data: installments } = await supabase
-    .from("fee_installments")
-    .select("*")
-    .eq("student_fee_id", studentFeeId)
-    .order("installment_number");
-
-  if (installments && installments.length > 0) {
-    let runningTotal = 0;
-    for (const inst of installments) {
-      const alreadyAccounted = installments
-        .filter((_, i) => i < installments.indexOf(inst))
-        .reduce((s, i) => s + Number(i.amount), 0);
-      const remaining = totalPaid - alreadyAccounted;
-      const newInstStatus = remaining >= Number(inst.amount) ? "Paid" : "Pending";
-
-      if (inst.status !== newInstStatus) {
-        await supabase
-          .from("fee_installments")
-          .update({ status: newInstStatus })
-          .eq("id", inst.id);
-      }
-    }
-  }
-}
-
-// ─── PUBLIC: Collect payment (supports optional invoice linkage) ──
-
-// context: { branchId, financialYearId }
-export async function collectPayment(paymentPayload, studentId, invoiceId = null, context) {
-  if (!context) throw new Error("Context with branchId and financialYearId required");
-  if (invoiceId) {
-    return collectPaymentWithInvoice(paymentPayload, studentId, invoiceId, context);
-  }
-
+export async function collectPaymentWithAllocation({
+  studentFeeId,
+  paymentDate,
+  paymentMode,
+  transactionNo,
+  remarks,
+  installmentId,
+  allocations,
+  generatedBy,
+  invoiceId = null,
+}, context) {
   const { branchId, financialYearId } = context;
 
-  // Fallback: no invoice
-  const { data: payment, error } = await supabase
+  // 1. Fetch all tax rates (for fallback calculation)
+  const { data: taxRates } = await supabase
+    .from("tax_rates")
+    .select("id, rate, name")
+    .eq("branch_id", branchId)
+    .eq("financial_year_id", financialYearId);
+
+  // 2. Fetch component details (including tax info)
+  const componentIds = allocations.map(a => a.studentFeeComponentId);
+  const { data: components, error: compError } = await supabase
+    .from("student_fee_components")
+    .select(`
+      *,
+      fee_structure_components (
+        component_name,
+        is_taxable,
+        tax_rate_id,
+        tax_inclusive,
+        tax_rates ( id, rate, name )
+      )
+    `)
+    .in("id", componentIds)
+    .eq("branch_id", branchId)
+    .eq("financial_year_id", financialYearId);
+  if (compError) throw compError;
+
+  // 3. Build allocation details – use provided base/tax if present, else compute
+  let totalAllocated = 0;
+  let totalBase = 0;
+  let totalTax = 0;
+  const allocationDetails = allocations.map(alloc => {
+    const comp = components.find(c => c.id === alloc.studentFeeComponentId);
+    if (!comp) throw new Error(`Component ${alloc.studentFeeComponentId} not found`);
+
+    let baseAmount = Number(alloc.baseAmount);
+    let taxAmount = Number(alloc.taxAmount);
+    let allocatedAmount = Number(alloc.amount);
+
+    // If base/tax not provided, compute from amount and component's tax inclusive flag
+    if (isNaN(baseAmount) || isNaN(taxAmount) || isNaN(allocatedAmount)) {
+      const taxRateId = comp.fee_structure_components?.tax_rate_id || null;
+      const taxInclusive = comp.fee_structure_components?.tax_inclusive !== undefined
+        ? comp.fee_structure_components.tax_inclusive
+        : true; // fallback
+      const taxRate = taxRates.find(t => t.id === taxRateId);
+      const rate = taxRate ? taxRate.rate / 100 : 0;
+      const amount = Number(alloc.amount) || 0;
+      if (taxInclusive) {
+        allocatedAmount = amount;
+        if (rate > 0) {
+          baseAmount = amount / (1 + rate);
+          taxAmount = amount - baseAmount;
+        } else {
+          baseAmount = amount;
+          taxAmount = 0;
+        }
+      } else {
+        // Exclusive: amount is base, tax added on top
+        baseAmount = amount;
+        taxAmount = amount * rate;
+        allocatedAmount = baseAmount + taxAmount;
+      }
+      baseAmount = Math.round(baseAmount * 100) / 100;
+      taxAmount = Math.round(taxAmount * 100) / 100;
+      allocatedAmount = Math.round(allocatedAmount * 100) / 100;
+    }
+
+    totalAllocated += allocatedAmount;
+    totalBase += baseAmount;
+    totalTax += taxAmount;
+
+    return {
+      studentFeeComponentId: comp.id,
+      allocatedAmount,
+      baseAmount,
+      taxAmount,
+      taxRateId: comp.fee_structure_components?.tax_rate_id || null,
+    };
+  });
+
+  // 4. Insert fee_payment
+  const receiptNo = "RCPT-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6);
+  const paymentPayload = {
+    student_fee_id: studentFeeId,
+    payment_date: paymentDate || new Date().toISOString().split("T")[0],
+    amount: Math.round(totalAllocated * 100) / 100,
+    base_amount: Math.round(totalBase * 100) / 100,
+    tax_amount: Math.round(totalTax * 100) / 100,
+    payment_mode: paymentMode,
+    transaction_no: transactionNo || null,
+    remarks: remarks || null,
+    installment_id: installmentId || null,
+    receipt_number: receiptNo,
+    invoice_id: invoiceId || null,
+    branch_id: branchId,
+    financial_year_id: financialYearId,
+  };
+
+  const { data: payment, error: payError } = await supabase
     .from("fee_payments")
-    .insert([{ ...paymentPayload, branch_id: branchId, financial_year_id: financialYearId }])
+    .insert([paymentPayload])
     .select()
     .single();
-  if (error) throw error;
+  if (payError) throw payError;
 
-  const receiptNo = "RCPT-" + Date.now();
-  await supabase.from("receipts").insert([
-    {
-      receipt_no: receiptNo,
-      student_id: studentId,
-      payment_id: payment.id,
-      receipt_date: paymentPayload.payment_date,
-      amount: paymentPayload.amount,
-      generated_by: null,
-      branch_id: branchId,
-      financial_year_id: financialYearId,
-    },
-  ]);
+  // 5. Insert payment allocations
+  const allocInserts = allocationDetails.map(d => ({
+    payment_id: payment.id,
+    student_fee_component_id: d.studentFeeComponentId,
+    allocated_amount: d.allocatedAmount,
+    base_amount: d.baseAmount,
+    tax_amount: d.taxAmount,
+    tax_rate_id: d.taxRateId,
+    branch_id: branchId,
+    financial_year_id: financialYearId,
+  }));
+  const { error: allocError } = await supabase
+    .from("payment_allocations")
+    .insert(allocInserts);
+  if (allocError) throw allocError;
 
-  await supabase.from("income").insert([
-    {
-      income_date: paymentPayload.payment_date,
-      category: "Student Fees",
-      amount: paymentPayload.amount,
-      base_amount: paymentPayload.base_amount || 0,
-      tax_amount: paymentPayload.tax_amount || 0,
-      payment_mode: paymentPayload.payment_mode,
-      description: `Payment for Student Fee ID ${paymentPayload.student_fee_id} — Auto receipt ${receiptNo}`,
-      branch_id: branchId,
-      financial_year_id: financialYearId,
-    },
-  ]);
+  // 6. Update student_fee_components paid_amount and status
+  for (const alloc of allocationDetails) {
+    const comp = components.find(c => c.id === alloc.studentFeeComponentId);
+    const newPaid = (comp.paid_amount || 0) + alloc.allocatedAmount;
+    const newStatus = newPaid >= comp.due_amount ? "Paid" : "Partial";
+    const { error: updErr } = await supabase
+      .from("student_fee_components")
+      .update({ paid_amount: newPaid, status: newStatus })
+      .eq("id", comp.id)
+      .eq("branch_id", branchId)
+      .eq("financial_year_id", financialYearId);
+    if (updErr) throw updErr;
+  }
 
-  await updateFeeStatusAutomatically(paymentPayload.student_fee_id);
+  // 7. Update fee status (via existing helper)
+  await updateFeeStatusAutomatically(studentFeeId, context);
+
+  // 8. If invoiceId provided, update invoice
+  if (invoiceId) {
+    await updateInvoiceAfterPayment(invoiceId, payment.amount, context);
+  }
+
+  // ❌ Removed: manual income insertion (step 9). The DB trigger auto_post_fee_payment now handles the journal entry.
+  // Previously the code inserted into 'income' here, but that would duplicate income.
+
+  // 10. Send receipt email (non‑blocking)
+  try {
+    const org = await getOrganizationFromBranch(branchId);
+    await sendFeeReceiptEmail(payment.id, org);
+  } catch (emailError) {
+    console.error("❌ Failed to send fee receipt email:", emailError);
+  }
+
   return payment;
 }
 
-// ─── Helper: Collect payment linked to an invoice ────────────
-
-// context: { branchId, financialYearId }
-export async function collectPaymentWithInvoice(paymentPayload, studentId, invoiceId, context) {
+/**
+ * Update invoice paid_amount and status after a payment.
+ */
+async function updateInvoiceAfterPayment(invoiceId, paidAmount, context) {
   const { branchId, financialYearId } = context;
-
-  // Insert payment with invoice_id
-  const { data: payment, error } = await supabase
-    .from("fee_payments")
-    .insert([{ ...paymentPayload, invoice_id: invoiceId, branch_id: branchId, financial_year_id: financialYearId }])
-    .select()
-    .single();
-  if (error) throw error;
-
-  // Update invoice paid amount and status
-  const { data: invoice } = await supabase
+  const { data: inv } = await supabase
     .from("invoices")
-    .select("grand_total, paid_amount, balance_due, status")
+    .select("grand_total, paid_amount, status")
     .eq("id", invoiceId)
+    .eq("branch_id", branchId)
+    .eq("financial_year_id", financialYearId)
     .single();
+  if (!inv) return;
 
-  const newPaid = (invoice.paid_amount || 0) + paymentPayload.amount;
-  const balance = invoice.grand_total - newPaid;
-  let newStatus = invoice.status;
+  const newPaid = (inv.paid_amount || 0) + paidAmount;
+  const balance = inv.grand_total - newPaid;
+  let newStatus = inv.status;
   if (balance <= 0) newStatus = "Paid";
   else if (newPaid > 0) newStatus = "Partially Paid";
 
@@ -499,32 +624,155 @@ export async function collectPaymentWithInvoice(paymentPayload, studentId, invoi
       balance_due: balance,
       status: newStatus,
       updated_at: new Date(),
-      branch_id: branchId,
-      financial_year_id: financialYearId,
     })
-    .eq("id", invoiceId);
+    .eq("id", invoiceId)
+    .eq("branch_id", branchId)
+    .eq("financial_year_id", financialYearId);
+}
 
-  // Auto-receipt will be created by trigger (trg_receipt_auto) but we also need to update fee status
-  await updateFeeStatusAutomatically(paymentPayload.student_fee_id);
+/**
+ * Update student_fee status (Paid/Pending) based on total payments.
+ */
+async function updateFeeStatusAutomatically(studentFeeId, context) {
+  const { branchId, financialYearId } = context;
 
+  const { data: payments } = await supabase
+    .from("fee_payments")
+    .select("amount")
+    .eq("student_fee_id", studentFeeId)
+    .eq("branch_id", branchId)
+    .eq("financial_year_id", financialYearId);
+  const totalPaid = (payments || []).reduce((sum, p) => sum + Number(p.amount), 0);
+
+  const { data: fee } = await supabase
+    .from("student_fees")
+    .select("final_fee")
+    .eq("id", studentFeeId)
+    .eq("branch_id", branchId)
+    .eq("financial_year_id", financialYearId)
+    .single();
+  if (!fee) return;
+
+  const newStatus = totalPaid >= Number(fee.final_fee) ? "Paid" : "Pending";
+  await supabase
+    .from("student_fees")
+    .update({ status: newStatus })
+    .eq("id", studentFeeId)
+    .eq("branch_id", branchId)
+    .eq("financial_year_id", financialYearId);
+
+  // Update installments similarly
+  const { data: installments } = await supabase
+    .from("fee_installments")
+    .select("*")
+    .eq("student_fee_id", studentFeeId)
+    .eq("branch_id", branchId)
+    .eq("financial_year_id", financialYearId)
+    .order("installment_number");
+  if (installments && installments.length > 0) {
+    let runningTotal = 0;
+    for (const inst of installments) {
+      const alreadyAccounted = installments
+        .filter((_, i) => i < installments.indexOf(inst))
+        .reduce((s, i) => s + Number(i.amount), 0);
+      const remaining = totalPaid - alreadyAccounted;
+      const newInstStatus = remaining >= Number(inst.amount) ? "Paid" : "Pending";
+      if (inst.status !== newInstStatus) {
+        await supabase
+          .from("fee_installments")
+          .update({ status: newInstStatus })
+          .eq("id", inst.id)
+          .eq("branch_id", branchId)
+          .eq("financial_year_id", financialYearId);
+      }
+    }
+  }
+}
+
+// ============================================================
+// 7.  LEGACY PAYMENT (without allocations)
+// ============================================================
+
+export async function collectPayment(paymentPayload, studentId, generatedBy, invoiceId = null, context) {
+  console.warn("collectPayment is deprecated. Use collectPaymentWithAllocation instead.");
+  const { branchId, financialYearId } = context;
+  const fullPayload = {
+    ...paymentPayload,
+    receipt_number: "AUTO-" + Date.now() + "-" + Math.random().toString(36).slice(2),
+    branch_id: branchId,
+    financial_year_id: financialYearId,
+  };
+  const { data: payment, error } = await supabase
+    .from("fee_payments")
+    .insert([fullPayload])
+    .select()
+    .single();
+  if (error) throw error;
+
+  await updateFeeStatusAutomatically(paymentPayload.student_fee_id, context);
+
+  try {
+    const org = await getOrganizationFromBranch(branchId);
+    await sendFeeReceiptEmail(payment.id, org);
+  } catch (emailError) {
+    console.error("❌ Failed to send fee receipt email:", emailError);
+  }
   return payment;
 }
 
-// ─── Get remaining balance for an invoice ────────────────────
+// ============================================================
+// 8.  OTHER FUNCTIONS
+// ============================================================
 
-export async function getInvoiceBalance(invoiceId) {
-  const { data, error } = await supabase
-    .from("invoices")
-    .select("grand_total, paid_amount, balance_due")
-    .eq("id", invoiceId)
-    .single();
+export async function getPayments(studentFeeId, branchId, financialYearId) {
+  let query = supabase
+    .from("fee_payments")
+    .select("*")
+    .eq("student_fee_id", studentFeeId)
+    .order("payment_date", { ascending: false });
+  if (branchId) query = query.eq("branch_id", branchId);
+  if (financialYearId) query = query.eq("financial_year_id", financialYearId);
+  const { data, error } = await query;
   if (error) throw error;
   return data;
 }
 
-// ─── Submit online payment request (student portal) ─────────
+export async function getPaymentAllocations(paymentId, branchId, financialYearId) {
+  let query = supabase
+    .from("payment_allocations")
+    .select(`
+      *,
+      student_fee_components (
+        id,
+        due_amount,
+        paid_amount,
+        fee_structure_components (
+          component_name,
+          tax_rate_id,
+          tax_rates ( name, rate )
+        )
+      )
+    `)
+    .eq("payment_id", paymentId)
+    .eq("branch_id", branchId)
+    .eq("financial_year_id", financialYearId);
+  const { data, error } = await query;
+  if (error) throw error;
+  return data || [];
+}
 
-// context: { branchId, financialYearId }
+export async function getInvoiceBalance(invoiceId, branchId, financialYearId) {
+  let query = supabase
+    .from("invoices")
+    .select("grand_total, paid_amount, balance_due")
+    .eq("id", invoiceId);
+  if (branchId) query = query.eq("branch_id", branchId);
+  if (financialYearId) query = query.eq("financial_year_id", financialYearId);
+  const { data, error } = await query.single();
+  if (error) throw error;
+  return data;
+}
+
 export async function submitPaymentRequest({ student_fee_id, amount, transaction_no, remarks, installment_id }, context) {
   const { branchId, financialYearId } = context;
   const { data, error } = await supabase
@@ -549,92 +797,76 @@ export async function submitPaymentRequest({ student_fee_id, amount, transaction
   return data;
 }
 
-// ─── Generate invoice from student fee (uses createInvoice from invoiceService, which also needs context) ──
-// We'll assume invoiceService.createInvoice now accepts context as well, but for now we'll just pass context through.
-// Since this service doesn't import createInvoice, we'll need to modify that call in the actual page that uses it, but for service completeness we'll accept context and pass it if possible. However, we'll leave the invoice generation logic as is and note that the context must be provided when calling generateInvoiceFromStudentFee.
+// ============================================================
+// 9.  GENERATE INVOICE
+// ============================================================
 
-// For now, we'll update generateInvoiceFromStudentFee to accept context and pass it to createInvoice.
-// But createInvoice is imported from invoiceService, which we haven't updated yet. For coherence, we'll add context parameter and assume invoiceService is similarly updated.
-
-// We'll add placeholder comments to indicate that.
-/**
- * Generate a single invoice for the entire student fee.
- * Requires context: { branchId, financialYearId }
- */
 export async function generateInvoiceFromStudentFee(studentFeeId, installmentId = null, context) {
-  // This function relies on invoiceService.createInvoice, which will also need context.
-  // For now we just pass context through. If invoiceService is not yet updated, you'll need to update that service.
   const { branchId, financialYearId } = context;
-
-  const { data: fee, error } = await supabase
+  const { data: fee, error: feeError } = await supabase
     .from("student_fees")
     .select(`
       *,
-      students(id, first_name, last_name, admission_no, gstin, state_code, billing_address),
-      fee_structures(
-        id,
+      students ( id, first_name, last_name, admission_no, gstin, state_code ),
+      fee_structures (
+        fee_amount,
         tax_rate_id,
         tax_inclusive,
-        tax_rates(id, name, rate),
-        fee_structure_components(component_name, amount, is_taxable, tax_rate_id)
+        courses ( course_name )
       )
     `)
     .eq("id", studentFeeId)
+    .eq("branch_id", branchId)
+    .eq("financial_year_id", financialYearId)
     .single();
-  if (error) throw error;
+  if (feeError) throw feeError;
 
-  let amount = 0;
-  let components = [];
-  if (installmentId) {
-    const { data: installment } = await supabase
-      .from("fee_installments")
-      .select("*")
-      .eq("id", installmentId)
-      .single();
-    if (!installment) throw new Error("Installment not found");
-    amount = installment.amount;
-    const totalFee = fee.final_fee || fee.fee_structures.fee_amount;
-    const ratio = amount / totalFee;
-    components = fee.fee_structures.fee_structure_components.map(comp => ({
-      ...comp,
-      amount: comp.amount * ratio,
-    }));
-  } else {
-    amount = fee.final_fee;
-    components = fee.fee_structures.fee_structure_components;
-  }
-
-  const invoiceItems = components.map(comp => ({
-    item_type: "fee_component",
-    item_id: comp.id,
-    description: comp.component_name,
-    quantity: 1,
-    unit_price: comp.amount,
-    tax_rate_id: comp.tax_rate_id || fee.fee_structures.tax_rate_id,
-  }));
+  const invoiceItems = [
+    {
+      item_type: "fee_payment",
+      description: `Fee Payment - ${fee.fee_structures?.courses?.course_name || "N/A"}`,
+      quantity: 1,
+      unit_price: fee.final_fee,
+      tax_rate_id: fee.fee_structures?.tax_rate_id,
+    },
+  ];
 
   const invoicePayload = {
     student_id: fee.student_id,
     invoice_date: new Date().toISOString().split("T")[0],
     due_date: installmentId ? new Date(Date.now() + 30*24*60*60*1000).toISOString().split("T")[0] : null,
     payment_terms: "Standard",
-    gst_applicable: !!fee.students.gstin,
-    place_of_supply: fee.students.state_code || "",
+    gst_applicable: !!fee.students?.gstin,
+    place_of_supply: fee.students?.state_code || "",
     reverse_charge: false,
     items: invoiceItems,
+    student_fee_id: studentFeeId,
+    fee_installment_id: installmentId || null,
     branch_id: branchId,
     financial_year_id: financialYearId,
   };
 
-  // Note: createInvoice is from invoiceService which must also accept context.
-  // For now we'll call it with context, assuming it has been updated.
-  const { createInvoice } = await import("./invoiceService");  // dynamic import to avoid circular dependency issues? Actually it's fine since it's already imported elsewhere, but we'll handle it by accepting an optional createInvoiceFn parameter or we'll just comment that it needs to be called with context.
-  // For safety, we'll use supabase directly to insert invoice as a stopgap? We'll just throw error if not provided. But better: we'll leave as is and note that the page should call createInvoice with context separately. So we'll remove the actual invoice creation and just return data for external usage.
-  // We'll comment it out and note that the caller should use invoiceService.
-
-  throw new Error("generateInvoiceFromStudentFee requires invoiceService to be updated with context. Use invoiceService.createInvoice directly with context.");
+  return await createInvoice(invoicePayload, context);
 }
 
 export async function generateInvoicesForInstallments(studentFeeId, context) {
-  throw new Error("generateInvoicesForInstallments requires invoiceService to be updated with context.");
+  const { branchId, financialYearId } = context;
+  let instQuery = supabase
+    .from("fee_installments")
+    .select("id")
+    .eq("student_fee_id", studentFeeId)
+    .eq("branch_id", branchId)
+    .eq("financial_year_id", financialYearId)
+    .order("installment_number");
+  const { data: installments, error } = await instQuery;
+  if (error) throw error;
+  if (!installments || installments.length === 0) {
+    return await generateInvoiceFromStudentFee(studentFeeId, null, context);
+  }
+  const results = [];
+  for (const inst of installments) {
+    const inv = await generateInvoiceFromStudentFee(studentFeeId, inst.id, context);
+    results.push(inv);
+  }
+  return results;
 }
