@@ -3,12 +3,19 @@ import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import { supabase } from "../api/supabase";
 
-// ─── Helpers ──────────────────────────────────────────────
-function formatDate(dateStr) {
-  if (!dateStr) return '-';
-  const parts = dateStr.split('-');
-  if (parts.length === 3) return `${parts[2]}-${parts[1]}-${parts[0]}`;
-  return dateStr;
+/* ------------------------------------------------------------------ */
+/*  Helpers                                                           */
+/* ------------------------------------------------------------------ */
+
+async function loadImageAsBase64(url) {
+  const response = await fetch(url);
+  const blob = await response.blob();
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
 }
 
 function createRupeeSymbolImage() {
@@ -16,7 +23,7 @@ function createRupeeSymbolImage() {
   canvas.width = 30;
   canvas.height = 30;
   const ctx = canvas.getContext('2d');
-  ctx.font = 'bold 24px sans-serif';
+  ctx.font = 'bold 24px serif';
   ctx.fillStyle = '#000';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
@@ -30,11 +37,13 @@ function getRupeeImage() {
   return rupeeImage;
 }
 
-function drawCurrency(doc, amount, x, y, fontSize = 10, align = 'left', color = '#000') {
+function drawCurrency(doc, amount, x, y, fontSize = 10, align = 'left', color = '#333') {
   const img = getRupeeImage();
+  doc.setFont('helvetica', 'normal');
   doc.setFontSize(fontSize);
   doc.setTextColor(color);
-  const amountText = amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  const amountText = amount.toLocaleString('en-IN');
   if (align === 'left') {
     doc.addImage(img, 'PNG', x, y - fontSize * 0.35, 4, 4);
     doc.text(amountText, x + 5, y);
@@ -60,380 +69,358 @@ function numberToWords(num) {
     if (n < 10000000) return convert(Math.floor(n / 100000)) + " Lakh" + (n % 100000 ? " " + convert(n % 100000) : "");
     return convert(Math.floor(n / 10000000)) + " Crore" + (n % 10000000 ? " " + convert(n % 10000000) : "");
   }
+
   return num === 0 ? "Zero" : convert(num);
 }
 
-async function loadImageAsBase64(url) {
-  try {
-    const response = await fetch(url);
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const blob = await response.blob();
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onloadend = () => resolve(reader.result);
-      reader.onerror = reject;
-      reader.readAsDataURL(blob);
-    });
-  } catch (err) {
-    console.warn("Could not load logo image:", err);
-    return null;
-  }
-}
-
-async function getOrganization(orgId = 3) {
-  const { data, error } = await supabase
+/* ------------------------------------------------------------------ */
+/*  Main PDF Generator – A5 format                                   */
+/* ------------------------------------------------------------------ */
+export async function generateReceiptPdf(receipt) {
+  // ---------- 1. Organisation ----------
+  const { data: org } = await supabase
     .from("organization")
-    .select("*")
-    .eq("id", orgId)
+    .select("company_name, letterhead_url")
+    .eq("id", 1)
     .single();
-  if (error) throw error;
-  return data;
-}
 
-async function getBranch(branchId) {
-  const { data, error } = await supabase
-    .from("branches")
-    .select("branch_name, address, city, state, phone, email")
-    .eq("id", branchId)
-    .single();
-  if (error) throw error;
-  return data;
-}
+  const letterheadUrl = org?.letterhead_url || null;
+  const academyName = org?.company_name || "ShreeVidhya Academy";
 
-// ─── Main PDF Generator ────────────────────────────────────
-export async function generateReceiptPdf(receipt, options = {}) {
-  const { org: passedOrg, theme } = options;
-
-  let org = passedOrg;
-  if (!org || !org.id) {
-    org = await getOrganization(3);
+  // Load letterhead
+  let letterheadBase64 = null;
+  if (letterheadUrl) {
+    try {
+      letterheadBase64 = await loadImageAsBase64(letterheadUrl);
+    } catch (err) {
+      console.warn("Letterhead could not be loaded for receipt PDF", err);
+    }
   }
 
-  const student = receipt.students;
-  let branch = null;
-  if (student?.branch_id) {
-    branch = await getBranch(student.branch_id);
+  // ---------- 2. Student details ----------
+  const studentId = receipt.students?.id;
+  let mediumName = "", batchName = "", courseName = "";
+
+  if (studentId) {
+    const { data: s } = await supabase
+      .from("students")
+      .select("*, mediums(name)")
+      .eq("id", studentId)
+      .single();
+    if (s) mediumName = s.mediums?.name || "";
+
+    const { data: sb } = await supabase
+      .from("student_batches")
+      .select("batch_id, batches(batch_name, courses(course_name))")
+      .eq("student_id", studentId)
+      .eq("status", "active")
+      .maybeSingle();
+    if (sb) {
+      batchName = sb.batches?.batch_name || "";
+      courseName = sb.batches?.courses?.course_name || "";
+    }
   }
 
-  const companyName = org?.company_name || "ShreeVidhya Academy";
-  const address = org?.address || "";
-  const gstin = org?.gstin || "";
-  const stateCode = org?.state_code || "";
-  const placeOfSupply = org?.place_of_supply || "";
-  const registrationType = org?.registration_type || "";
-  const logoUrl = org?.logo_dark_url || org?.logo_light_url || null;
-
-  const accentColor = "#000000";
-  const fontBody = theme?.font_body || "helvetica";
-
-  const doc = new jsPDF({ unit: 'mm', format: 'a5', orientation: 'landscape' });
-  const pageWidth = doc.internal.pageSize.getWidth();   // 210 mm
-  const pageHeight = doc.internal.pageSize.getHeight(); // 148 mm
-  const margin = 10; // same left/right margin for all content
-
-  let logoBase64 = null;
-  if (logoUrl) {
-    logoBase64 = await loadImageAsBase64(logoUrl);
-  }
-
+  // ---------- 3. Fee data, tax, installments ----------
   const payment = receipt.fee_payments;
-  const studentName = `${student?.first_name || ""} ${student?.last_name || ""}`.trim();
-  const admissionNo = student?.admission_no || "";
-  const studentAddress = student?.address || "";
-  const studentMobile = student?.mobile || "";
+  let installments = [], totalFee = 0, paidSoFar = 0;
+  let taxRateName = "", taxRateValue = 0, taxInclusive = true;
+  let baseAmount = 0, taxAmount = 0, totalDisplay = 0;
 
-  // ── Payment allocations ──
-  let allocations = [];
-  let totalBase = 0;
-  let totalTax = 0;
-  let totalAllocated = 0;
-
-  const { data: allocData, error: allocError } = await supabase
-    .from("payment_allocations")
-    .select(`
-      *,
-      student_fee_components (
-        id,
-        due_amount,
-        paid_amount,
-        fee_structure_components (
-          component_name,
+  if (payment?.student_fee_id) {
+    const { data: studentFee } = await supabase
+      .from("student_fees")
+      .select(`
+        *,
+        fee_structures!inner (
+          fee_amount,
           tax_rate_id,
-          tax_rates ( id, name, rate )
-        )
-      )
-    `)
-    .eq("payment_id", receipt.payment_id)
-    .eq("branch_id", receipt.branch_id)
-    .eq("financial_year_id", receipt.financial_year_id);
+          tax_inclusive
+        ),
+        fee_installments(*)
+      `)
+      .eq("id", payment.student_fee_id)
+      .single();
 
-  if (!allocError && allocData) {
-    allocations = allocData;
-    allocations.forEach(a => {
-      totalBase += Number(a.base_amount || 0);
-      totalTax += Number(a.tax_amount || 0);
-      totalAllocated += Number(a.allocated_amount || 0);
-    });
+    if (studentFee) {
+      totalFee = Number(studentFee.final_fee);
+      // ONLY keep paid installments
+      installments = (studentFee.fee_installments || []).filter(inst => inst.status === 'Paid');
+      const feeStructure = studentFee.fee_structures;
+      if (feeStructure) {
+        taxInclusive = feeStructure.tax_inclusive !== undefined ? feeStructure.tax_inclusive : true;
+
+        // Fetch tax rate explicitly using tax_rate_id
+        if (feeStructure.tax_rate_id) {
+          const { data: taxRateData } = await supabase
+            .from("tax_rates")
+            .select("name, rate")
+            .eq("id", feeStructure.tax_rate_id)
+            .single();
+
+          if (taxRateData) {
+            taxRateName = taxRateData.name || "";
+            taxRateValue = Number(taxRateData.rate) || 0;
+          }
+        }
+      }
+      const { data: allPayments } = await supabase
+        .from("fee_payments")
+        .select("amount")
+        .eq("student_fee_id", payment.student_fee_id);
+      paidSoFar = allPayments?.reduce((sum, p) => sum + Number(p.amount), 0) || 0;
+    }
   }
 
-  const useFallback = allocations.length === 0;
   const amount = Number(receipt.amount);
+  const amountWords = numberToWords(amount) + " Only";
+  const balance = totalFee - paidSoFar;
 
-  // ── Build table rows ──
-  let tableRows = [];
-  if (useFallback) {
-    tableRows = [["1", "Fee Payment", "—", amount, "—", amount]];
+  // Tax calculation
+  if (taxRateValue > 0) {
+    const rate = taxRateValue / 100;
+    if (taxInclusive) {
+      baseAmount = amount / (1 + rate);
+      taxAmount = amount - baseAmount;
+      totalDisplay = amount;
+    } else {
+      baseAmount = amount;
+      taxAmount = amount * rate;
+      totalDisplay = amount + taxAmount;
+    }
+    baseAmount = Math.round(baseAmount * 100) / 100;
+    taxAmount = Math.round(taxAmount * 100) / 100;
+    totalDisplay = Math.round(totalDisplay * 100) / 100;
   } else {
-    allocations.forEach((alloc, idx) => {
-      const comp = alloc.student_fee_components;
-      const name = comp?.fee_structure_components?.component_name || `Component ${idx + 1}`;
-      const base = Number(alloc.base_amount || 0);
-      const tax = Number(alloc.tax_amount || 0);
-      const total = Number(alloc.allocated_amount || 0);
-      const rate = comp?.fee_structure_components?.tax_rates?.rate || 0;
-      const rateDisplay = rate > 0 ? `${rate}%` : "—";
-      tableRows.push([(idx + 1).toString(), name, base, tax, rateDisplay, total]);
-    });
+    baseAmount = amount;
+    taxAmount = 0;
+    totalDisplay = amount;
   }
 
-  // ── Header ──
-  let y = 10;
+  // ─── PDF Setup (A5) ────────────────────────────────────────────
+  const doc = new jsPDF({ unit: 'mm', format: 'a5' });
+  const pageWidth = doc.internal.pageSize.getWidth();   // 148 mm
+  const pageHeight = doc.internal.pageSize.getHeight(); // 210 mm
 
-  const logoWidth = 35;
-  const logoHeight = 14;
-  if (logoBase64) {
-    doc.addImage(logoBase64, 'PNG', margin, y, logoWidth, logoHeight);
-  }
-  const textX = margin + (logoBase64 ? logoWidth + 4 : 0);
-  const textY = y + 1;
-  doc.setFont(fontBody, 'bold');
-  doc.setFontSize(14);
-  doc.setTextColor(accentColor);
-  doc.text(companyName, textX, textY);
-  doc.setFont(fontBody, 'normal');
-  doc.setFontSize(7);
-  doc.setTextColor('#000');
-  let detailY = textY + 4.5;
-  if (address) {
-    const addrLines = doc.splitTextToSize(address, pageWidth - textX - margin - 10);
-    doc.text(addrLines, textX, detailY);
-    detailY += addrLines.length * 3.5 + 1;
-  }
-  if (gstin) {
-    doc.text(`GSTIN: ${gstin}`, textX, detailY);
-    detailY += 4;
-  }
-  if (stateCode) {
-    doc.text(`State Code: ${stateCode}  |  Place of Supply: ${placeOfSupply}`, textX, detailY);
-    detailY += 4;
-  }
-  if (registrationType) {
-    doc.text(`Registration Type: ${registrationType}`, textX, detailY);
-  }
+  // Letterhead on every page
+  const addLetterhead = () => {
+    if (letterheadBase64) {
+      doc.addImage(letterheadBase64, "PNG", 0, 0, pageWidth, pageHeight);
+    }
+  };
+  addLetterhead();
 
-  const headerHeight = Math.max(logoHeight + 4, detailY - textY + 4);
-  y += headerHeight + 2;
+  const margin = 12;
+  const topMargin = 45;
+  let y = topMargin;
 
-  doc.setDrawColor(accentColor);
-  doc.line(margin, y, pageWidth - margin, y);
-  y += 4;
-
-  doc.setFont(fontBody, 'bold');
+  // ========== TITLE ==========
+  doc.setFont("helvetica", "bold");
   doc.setFontSize(16);
-  doc.setTextColor(accentColor);
-  doc.text("FEE RECEIPT", pageWidth / 2, y, { align: 'center' });
-  y += 8;
+  doc.setTextColor("#0D47A1");
+  doc.text("FEE RECEIPT", pageWidth / 2, y, { align: "center" });
+  y += 10;
 
-  // ── Two‑column Info ──
-  const col1X = margin;
-  const col2X = pageWidth - margin - 70;
+  // ========== TWO‑COLUMN INFO ==========
+  const leftColX = margin;
+  const rightColX = pageWidth - margin - 55;
+  const studentName = `${receipt.students?.first_name || ""} ${receipt.students?.last_name || ""}`.trim();
 
-  doc.setFont(fontBody, 'bold');
+  doc.setFont("helvetica", "bold");
   doc.setFontSize(10);
-  doc.setTextColor(accentColor);
-  doc.text("Student Details", col1X, y);
-  doc.setFont(fontBody, 'normal');
+  doc.setTextColor("#0D47A1");
+  doc.text("Student Details", leftColX, y);
+  doc.setFont("helvetica", "normal");
   doc.setFontSize(9);
-  doc.setTextColor('#000');
-  let colY = y + 5;
-  doc.text(`Name: ${studentName}`, col1X, colY);
-  colY += 5;
-  doc.text(`Admission No: ${admissionNo}`, col1X, colY);
-  colY += 5;
-  if (studentAddress) {
-    const addrLines = doc.splitTextToSize(studentAddress, 70);
-    doc.text(addrLines, col1X, colY);
-    colY += addrLines.length * 4 + 2;
-  }
-  doc.text(`Mobile: ${studentMobile}`, col1X, colY);
-  colY += 5;
+  doc.setTextColor("#333");
+  doc.text(`Student: ${studentName}`, leftColX, y + 5);
+  doc.text(`Admission No: ${receipt.students?.admission_no || "-"}`, leftColX, y + 10);
+  if (courseName) doc.text(`Course: ${courseName}`, leftColX, y + 15);
 
-  doc.setFont(fontBody, 'bold');
+  doc.setFont("helvetica", "bold");
   doc.setFontSize(10);
-  doc.setTextColor(accentColor);
-  doc.text("Receipt Details", col2X, y);
-  doc.setFont(fontBody, 'normal');
+  doc.setTextColor("#0D47A1");
+  doc.text("Receipt Details", rightColX, y);
+  doc.setFont("helvetica", "normal");
   doc.setFontSize(9);
-  doc.setTextColor('#000');
-  let col2Y = y + 5;
-  doc.text(`Receipt No: ${receipt.receipt_no}`, col2X, col2Y);
-  col2Y += 5;
-  doc.text(`Date: ${formatDate(receipt.receipt_date)}`, col2X, col2Y);
-  col2Y += 5;
-  if (payment?.payment_mode) {
-    doc.text(`Payment Mode: ${payment.payment_mode}`, col2X, col2Y);
-    col2Y += 5;
+  doc.setTextColor("#333");
+  doc.text(`Receipt No: ${receipt.receipt_no}`, rightColX, y + 5);
+  doc.text(`Date: ${receipt.receipt_date}`, rightColX, y + 10);
+
+  const studentBlockLines = courseName ? 3 : 2;
+  y += 8 + studentBlockLines * 5;
+
+  // ========== ITEM TABLE (with tax rows) ==========
+  const itemBody = [];
+  itemBody.push({ sr: "1", desc: "Fee Payment", amount: amount });
+  if (taxRateValue > 0) {
+    itemBody.push({ sr: "", desc: `Base Amount (${taxRateName} ${taxRateValue}%)`, amount: baseAmount });
+    itemBody.push({ sr: "", desc: "Tax Amount", amount: taxAmount });
   }
-  if (payment?.transaction_no) {
-    doc.text(`Transaction No: ${payment.transaction_no}`, col2X, col2Y);
-  }
 
-  y = Math.max(colY, col2Y) + 4;
-
-  // ── Table (centered, full available width, no double data) ──
-  const availableWidth = pageWidth - 2 * margin;   // 190 mm
-  const tableStartY = y;
-
-  let tableHead;
-  let columnStyles;
-
-  if (useFallback) {
-    // Total width must be exactly availableWidth = 190
-    // #=9, Particular=91, Amount=28, Tax=28, Total=34 → 190
-    tableHead = ["#", "Particular", "Amount", "Tax", "Total"];
-    columnStyles = {
-      0: { cellWidth: 9, halign: 'center' },
-      1: { cellWidth: 91, halign: 'left' },
-      2: { cellWidth: 28, halign: 'right' },
-      3: { cellWidth: 28, halign: 'right' },
-      4: { cellWidth: 34, halign: 'right' },
-    };
-  } else {
-    // #=10, Component=66, Base=29, Tax=29, Rate=23, Total=33 → 190
-    tableHead = ["#", "Component", "Base", "Tax", "Rate", "Total"];
-    columnStyles = {
-      0: { cellWidth: 10, halign: 'center' },
-      1: { cellWidth: 66, halign: 'left' },
-      2: { cellWidth: 29, halign: 'right' },
-      3: { cellWidth: 29, halign: 'right' },
-      4: { cellWidth: 23, halign: 'center' },
-      5: { cellWidth: 33, halign: 'right' },
-    };
-  }
+  const tableRows = itemBody.map(item => [item.sr, item.desc, item.amount.toLocaleString('en-IN')]);
 
   autoTable(doc, {
-    startY: tableStartY,
-    head: [tableHead],
+    startY: y,
+    head: [["Sr. No.", "Description", "Amount"]],
     body: tableRows,
-    theme: 'plain',
-    styles: {
-      fontSize: 7,
-      cellPadding: 1.5,
-      overflow: 'linebreak',
-      textColor: [0, 0, 0],
-      fillColor: [255, 255, 255],
-      lineColor: [0, 0, 0],
-      lineWidth: 0.2,
+    theme: "grid",
+    styles: { fontSize: 9, cellPadding: 3 },
+    headStyles: { fillColor: "#0D47A1", textColor: "#FFFFFF" },
+    columnStyles: {
+      0: { cellWidth: 12, halign: 'center' },
+      1: { cellWidth: 'auto' },
+      2: { cellWidth: 35, halign: 'right' }
     },
-    headStyles: {
-      textColor: [0, 0, 0],
-      fontStyle: 'bold',
-      fontSize: 7,
-      fillColor: [255, 255, 255],
-      lineWidth: 0.2,               // all header borders visible
-      lineColor: [0, 0, 0],
-    },
-    columnStyles,
-    margin: { left: margin, right: margin },   // centered, same as summary
-    willDrawCell: (data) => {
-      // Prevent raw number from being drawn in currency columns
-      let currencyCols = useFallback ? [2, 3, 4] : [2, 3, 5];
-      if (currencyCols.includes(data.column.index) && typeof data.cell.raw === 'number') {
-        data.cell.text = '';   // clear text, will be drawn in didDrawCell
-      }
-    },
+    margin: { left: margin, right: margin },
     didDrawCell: (data) => {
-      let currencyCols = useFallback ? [2, 3, 4] : [2, 3, 5];
-      if (currencyCols.includes(data.column.index) && typeof data.cell.raw === 'number') {
-        const x = data.cell.x + 2;
-        const yPos = data.cell.y + data.cell.height / 2 + 1.5;
-        drawCurrency(doc, data.cell.raw, x, yPos, 7, 'left', '#000');
+      if (data.column.index === 2 && data.cell.raw) {
+        const raw = data.cell.raw;
+        const num = parseFloat(raw.replace(/,/g, ''));
+        if (!isNaN(num)) {
+          const cell = data.cell;
+          if (cell.text) cell.text = [];
+          const x = cell.x + 2;
+          const yPos = cell.y + cell.height / 2 + 1.5;
+          doc.setFillColor(255, 255, 255);
+          doc.rect(cell.x, cell.y, cell.width, cell.height, 'F');
+          drawCurrency(doc, num, x, yPos, 9, 'left', '#333');
+        }
       }
-    },
+    }
   });
+  y = doc.lastAutoTable.finalY + 8;
 
-  const tableEndY = doc.lastAutoTable.finalY;
+  // ========== TOTALS & PAYMENT INFO ==========
+  doc.setFillColor(245, 245, 245);
+  doc.rect(margin, y, pageWidth - 2 * margin, 30, 'F');
 
-  // ── Summary Box (same width, same left/right margins → perfectly aligned) ──
-  const summaryStartY = tableEndY + 4;
-  const summaryWidth = availableWidth;   // exactly the same as table
-  const summaryX = margin;               // same left edge
+  const totalX = margin + 4;
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(12);
+  doc.setTextColor("#0D47A1");
+  doc.text("Total Amount Paid:", totalX, y + 10);
+  drawCurrency(doc, totalDisplay, totalX + 52, y + 10, 12, 'left', '#0D47A1');
 
-  let totalSubtotal = 0, totalTaxAmount = 0, totalGrand = 0;
-  if (!useFallback) {
-    totalSubtotal = totalBase;
-    totalTaxAmount = totalTax;
-    totalGrand = totalAllocated;
-  } else {
-    totalSubtotal = Number(payment?.base_amount || amount);
-    totalTaxAmount = Number(payment?.tax_amount || 0);
-    totalGrand = amount;
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(7);
+  doc.setTextColor("#555");
+  doc.text(`In Words: ${amountWords}`, totalX, y + 19);
+
+  // Move payment details to the far right
+  const detailsX = pageWidth - margin - 45;   // 10mm more to the right
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.setTextColor("#333");
+  let detailY = y + 8;
+  doc.text(`Mode: ${payment?.payment_mode || "N/A"}`, detailsX, detailY);
+  detailY += 4;
+  doc.text(`Txn No: ${payment?.transaction_no || "-"}`, detailsX, detailY);
+  if (payment?.remarks) {
+    detailY += 4;
+    doc.text(`Remarks: ${payment.remarks}`, detailsX, detailY);
   }
 
-  const roundOff = Math.round(totalGrand) - totalGrand;
-  const grandTotal = totalGrand + roundOff;
+  y += 36;   // increased to account for taller rectangle
 
-  const summaryHeight = 5 + 4 * 4.5 + 4;
-  doc.setDrawColor('#000');
-  doc.setFillColor(255, 255, 255);
-  doc.rect(summaryX, summaryStartY, summaryWidth, summaryHeight, 'FD');
-
-  let sY = summaryStartY + 3;
-  doc.setFont(fontBody, 'bold');
+  // ========== SIGNATURES ==========
   doc.setFontSize(9);
-  doc.setTextColor('#000');
-  doc.text("Summary", summaryX + 3, sY);
-  sY += 5;
+  doc.setTextColor("#333");
+  doc.text("Authorized Signatory", margin, y);
+  doc.line(margin, y + 5, margin + 35, y + 5);
+  doc.text("Parent / Guardian", pageWidth - margin - 35, y);
+  doc.line(pageWidth - margin - 35, y + 5, pageWidth - margin, y + 5);
+  y += 14;
 
-  doc.setFont(fontBody, 'normal');
-  doc.setFontSize(7);
-  doc.setTextColor('#000');
+  // ========== PAGE 2 – PAID INSTALLMENTS ONLY (if any) ==========
+  if (installments.length > 0) {
+    doc.addPage();
+    addLetterhead();
+    y = topMargin;
 
-  const summaryItems = [
-    { label: "Total Base Amount", value: totalSubtotal },
-    { label: "Total Tax Amount", value: totalTaxAmount },
-    { label: "Round Off", value: roundOff },
-    { label: "Grand Total", value: grandTotal, bold: true },
-  ];
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(12);
+    doc.setTextColor("#0D47A1");
+    doc.text("Paid Installments", margin, y);   // renamed
+    y += 6;
 
-  summaryItems.forEach((item) => {
-    const labelX = summaryX + 3;
-    const valueX = summaryX + summaryWidth - 3;
-    doc.setFont(fontBody, item.bold ? 'bold' : 'normal');
-    doc.setTextColor('#000');
-    doc.text(item.label, labelX, sY);
-    drawCurrency(doc, item.value, valueX, sY, 7, 'right', '#000');
-    sY += 4.5;
-  });
+    const installmentBody = installments.map((inst, i) => [
+      i + 1,
+      inst.due_date || "-",
+      Number(inst.amount).toLocaleString('en-IN'),
+      inst.status || "Paid",
+    ]);
 
-  // ── Amount in Words ──
-  const wordsY = summaryStartY + summaryHeight + 6;
-  doc.setFont(fontBody, 'italic');
-  doc.setFontSize(8);
-  doc.setTextColor('#000');
-  const words = numberToWords(grandTotal);
-  doc.text(`Amount in words: ${words} Only`, pageWidth / 2, wordsY, { align: 'center' });
+    autoTable(doc, {
+      startY: y,
+      head: [["Sr.", "Due Date", "Amount", "Status"]],
+      body: installmentBody,
+      theme: "striped",
+      styles: { fontSize: 8, cellPadding: 2.5 },
+      headStyles: { fillColor: "#0D47A1", textColor: "#FFFFFF" },
+      columnStyles: {
+        0: { cellWidth: 10, halign: 'center' },
+        1: { cellWidth: 30 },
+        2: { cellWidth: 35, halign: 'right' },
+        3: { cellWidth: 25 },
+      },
+      margin: { left: margin, right: margin },
+      didDrawCell: (data) => {
+        if (data.column.index === 2 && data.cell.raw) {
+          const raw = data.cell.raw;
+          const num = parseFloat(raw.replace(/,/g, ''));
+          if (!isNaN(num)) {
+            const cell = data.cell;
+            if (cell.text) cell.text = [];
+            doc.setFillColor(255, 255, 255);
+            doc.rect(cell.x, cell.y, cell.width, cell.height, 'F');
+            drawCurrency(doc, num, cell.x + 2, cell.y + cell.height / 2 + 1.5, 8, 'left', '#333');
+          }
+        }
+      }
+    });
+    y = doc.lastAutoTable.finalY + 8;
 
-  // ── Footer Signatures ──
-  const footerY = pageHeight - 10;
-  doc.setDrawColor('#000');
-  doc.line(margin, footerY, margin + 40, footerY);
-  doc.line(pageWidth - margin - 40, footerY, pageWidth - margin, footerY);
-  doc.setFont(fontBody, 'normal');
-  doc.setFontSize(6);
-  doc.setTextColor('#000');
-  doc.text("Authorized Signatory", margin + 10, footerY + 4);
-  doc.text("Student/Parent", pageWidth - margin - 30, footerY + 4);
+    // Fee Summary (always show, even if only paid installments)
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(12);
+    doc.text("Fee Summary", margin, y);
+    y += 6;
 
+    const summaryBody = [
+      ["Total Fee", totalFee.toLocaleString('en-IN')],
+      ["Paid Till Date", paidSoFar.toLocaleString('en-IN')],
+      ["Balance", balance.toLocaleString('en-IN')],
+    ];
+
+    autoTable(doc, {
+      startY: y,
+      head: [["Description", "Amount"]],
+      body: summaryBody,
+      theme: "grid",
+      styles: { fontSize: 9, cellPadding: 3 },
+      headStyles: { fillColor: "#0D47A1", textColor: "#FFFFFF" },
+      columnStyles: {
+        0: { cellWidth: 50 },
+        1: { cellWidth: 40, halign: 'right' }
+      },
+      margin: { left: margin, right: margin },
+      didDrawCell: (data) => {
+        if (data.column.index === 1 && data.cell.raw) {
+          const raw = data.cell.raw;
+          const num = parseFloat(raw.replace(/,/g, ''));
+          if (!isNaN(num)) {
+            const cell = data.cell;
+            if (cell.text) cell.text = [];
+            doc.setFillColor(255, 255, 255);
+            doc.rect(cell.x, cell.y, cell.width, cell.height, 'F');
+            drawCurrency(doc, num, cell.x + 2, cell.y + cell.height / 2 + 1.5, 9, 'left', '#333');
+          }
+        }
+      }
+    });
+  }
+
+  // Save
   doc.save(`Receipt_${receipt.receipt_no}.pdf`);
 }

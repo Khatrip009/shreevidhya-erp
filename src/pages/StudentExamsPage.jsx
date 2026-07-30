@@ -1,88 +1,107 @@
-// src/pages/StudentExamsPage.jsx
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "../api/supabase";
-import { useOrg } from "../context/OrganizationContext";
-import { useTheme } from "../context/ThemeContext";               // ✅ dynamic theme
+import AdminLayout from "../layouts/AdminLayout";
+import BackButton from "../components/BackButton";
+
+import { useAuth } from "../context/AuthContext";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 import { Award, Calendar, Layers, BookOpen } from "lucide-react";
 
-export default function StudentExamsPage({ studentId: propStudentId = null, standalone = true }) {
+export default function StudentExamsPage() {
+  const { user } = useAuth();
+
+  // ── Branch & Financial Year context ──
   const { branch, selectedFinancialYear } = useOrg();
-  const theme = useTheme();                                     // ✅ theme hook
   const branchId = branch?.id;
   const financialYearId = selectedFinancialYear?.id;
 
-  const headingFont = theme?.font_heading || "Righteous";
-  const bodyFont = theme?.font_body || "Montserrat";
-
-  const effectiveStudentId = propStudentId;
-
-  // 1. Get active batch IDs for the student
-  const { data: batchIds = [], isLoading: batchesLoading } = useQuery({
-    queryKey: ["student-batch-ids-exams", effectiveStudentId, branchId, financialYearId],
+  // 1. Get student ID – scoped to current branch & FY
+  const { data: studentId, isLoading: idLoading } = useQuery({
+    queryKey: ["student-id", user?.id, branchId, financialYearId],
     queryFn: async () => {
-      if (!effectiveStudentId || !branchId || !financialYearId) return [];
-      let query = supabase
-        .from("student_batches")
-        .select("batch_id")
-        .eq("student_id", effectiveStudentId)
-        .eq("status", "active");
-      if (branchId) query = query.eq("branch_id", branchId);
-      if (financialYearId) query = query.eq("financial_year_id", financialYearId);
-      const { data } = await query;
-      return data.map((row) => row.batch_id);
+      if (!user?.id || !branchId || !financialYearId) return null;
+      const { data } = await supabase
+        .from("students")
+        .select("id")
+        .eq("user_id", user.id)
+        .eq("branch_id", branchId)
+        .eq("financial_year_id", financialYearId)
+        .maybeSingle();
+      return data?.id || null;
     },
-    enabled: !!effectiveStudentId && !!branchId && !!financialYearId,
+    enabled: !!user?.id && !!branchId && !!financialYearId,
     staleTime: 5 * 60 * 1000,
   });
 
-  // 2. Get all exams for those batches (both upcoming and past)
+  // 2. Get active batch IDs – scoped
+  const { data: batchIds = [], isLoading: batchesLoading } = useQuery({
+    queryKey: ["student-batch-ids", studentId, branchId, financialYearId],
+    queryFn: async () => {
+      if (!studentId || !branchId || !financialYearId) return [];
+      const { data } = await supabase
+        .from("student_batches")
+        .select("batch_id")
+        .eq("student_id", studentId)
+        .eq("status", "active")
+        .eq("branch_id", branchId)
+        .eq("financial_year_id", financialYearId);
+      return data.map((row) => row.batch_id);
+    },
+    enabled: !!studentId && !!branchId && !!financialYearId,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  // 3. Get upcoming exams for those batches – scoped
   const today = new Date().toISOString().split("T")[0];
   const { data: exams = [], isLoading: examsLoading } = useQuery({
     queryKey: ["student-exams", batchIds, branchId, financialYearId],
     queryFn: async () => {
       if (batchIds.length === 0 || !branchId || !financialYearId) return [];
-      let query = supabase
+      const { data } = await supabase
         .from("exams")
         .select(`*, batches(batch_name, courses(course_name), mediums(name))`)
-        .in("batch_id", batchIds);
-      if (branchId) query = query.eq("branch_id", branchId);
-      if (financialYearId) query = query.eq("financial_year_id", financialYearId);
-      const { data } = await query.order("exam_date", { ascending: true });
+        .in("batch_id", batchIds)
+        .gte("exam_date", today)
+        .eq("branch_id", branchId)
+        .eq("financial_year_id", financialYearId)
+        .order("exam_date", { ascending: true });
       return data || [];
     },
     enabled: batchIds.length > 0 && !!branchId && !!financialYearId,
     staleTime: 2 * 60 * 1000,
   });
 
-  const isLoading = batchesLoading || examsLoading;
+  if (idLoading || batchesLoading || examsLoading) {
+    return <AdminLayout>
+      <BackButton to="/student" label="My Dashboard" /><div className="p-8 text-center">Loading exams…</div></AdminLayout>;
+  }
 
-  const content = (
-    <div>
-      {isLoading ? (
-        <div className="p-4 text-center text-primary-dark/60" style={{ fontFamily: bodyFont }}>
-          Loading exams…
-        </div>
-      ) : exams.length === 0 ? (
-        <div className="bg-white rounded-xl p-8 shadow-sm border border-primary-bg text-center">
-          <Award size={32} className="text-primary-dark/40 mx-auto mb-2" />
-          <p className="text-primary-dark/60" style={{ fontFamily: bodyFont }}>
-            No exams found for this student.
-          </p>
+  return (
+    <AdminLayout>
+      <div className="mb-6">
+        <h1 className="text-3xl font-righteous text-primary-dark">My Exams</h1>
+        <p className="text-sm text-secondary-dark font-montserrat mt-1">
+          Upcoming exams for your batches
+        </p>
+      </div>
+
+      {exams.length === 0 ? (
+        <div className="bg-white rounded-xl p-8 shadow-sm border border-secondary-light text-center">
+          <Award size={32} className="text-secondary-light mx-auto mb-2" />
+          <p className="text-secondary">No upcoming exams.</p>
         </div>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-4">
           {exams.map((exam) => (
             <div
               key={exam.id}
-              className="bg-white rounded-xl p-4 shadow-sm border border-primary-bg"
+              className="bg-white rounded-xl p-5 shadow-sm border border-secondary-light"
             >
-              <div className="flex items-center gap-2 mb-1">
+              <div className="flex items-center gap-2 mb-2">
                 <Award size={18} className="text-primary" />
-                <h3 className="font-bold text-primary" style={{ fontFamily: headingFont }}>
-                  {exam.exam_name}
-                </h3>
+                <h2 className="font-bold text-lg text-primary-dark">{exam.exam_name}</h2>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-sm text-primary-dark" style={{ fontFamily: bodyFont }}>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-sm text-secondary-dark">
                 <div className="flex items-center gap-1">
                   <Layers size={16} /> {exam.batches?.batch_name}
                 </div>
@@ -93,10 +112,10 @@ export default function StudentExamsPage({ studentId: propStudentId = null, stan
                   <Calendar size={16} /> {exam.exam_date}
                 </div>
               </div>
-              <div className="flex flex-wrap items-center gap-3 mt-2 text-xs text-primary-dark/80" style={{ fontFamily: bodyFont }}>
+              <div className="flex flex-wrap items-center gap-3 mt-2 text-xs text-secondary-dark">
                 <span>Total Marks: {exam.total_marks || "N/A"}</span>
                 {exam.batches?.mediums?.name && (
-                  <span className="bg-accent-bg text-accent-dark px-2 py-0.5 rounded-full">
+                  <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">
                     {exam.batches.mediums.name}
                   </span>
                 )}
@@ -105,16 +124,6 @@ export default function StudentExamsPage({ studentId: propStudentId = null, stan
           ))}
         </div>
       )}
-    </div>
-  );
-
-  if (!standalone) return <div>{content}</div>;
-  return (
-    <div className="p-6">
-      <h1 className="text-3xl font-bold text-primary mb-4" style={{ fontFamily: headingFont }}>
-        My Exams
-      </h1>
-      {content}
-    </div>
+    </AdminLayout>
   );
 }

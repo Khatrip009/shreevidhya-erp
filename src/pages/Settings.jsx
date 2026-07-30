@@ -1,4 +1,3 @@
-// src/pages/Settings.jsx
 import { useState, useRef, useEffect } from "react";
 import toast from "react-hot-toast";
 import {
@@ -10,26 +9,16 @@ import {
   Lock,
   Save,
   Upload,
-  Mail as MailIcon,
 } from "lucide-react";
-
+import AdminLayout from "../layouts/AdminLayout";
 import BackButton from "../components/BackButton";
+
 import { useAuth } from "../context/AuthContext";
-import { useOrg } from "../context/OrganizationContext";
-import { useTheme } from "../context/ThemeContext"; // ✅ dynamic theme
 import { supabase } from "../api/supabase";
-import { sendEmail } from "../services/emailService";
 
 export default function Settings() {
   const { user, profile, loadUser } = useAuth();
-  const { org } = useOrg();
-  const theme = useTheme(); // ✅ theme hook
-
-  const headingFont = theme?.font_heading || "Righteous";
-  const bodyFont = theme?.font_body || "Montserrat";
-
   const fileInputRef = useRef(null);
-  const [sendingReport, setSendingReport] = useState(false);
 
   // Profile form
   const [profileForm, setProfileForm] = useState({
@@ -60,51 +49,7 @@ export default function Settings() {
     }
   }, [profile]);
 
-  // ─── Send Profile Report Email ──────────────────────────────────────
-  const sendProfileReport = async () => {
-    if (!user?.email) {
-      toast.error("No email address associated with your account.");
-      return;
-    }
-
-    setSendingReport(true);
-    try {
-      const orgName = org?.company_name || "Academy";
-      const userRole = profile?.role || "User";
-      const fullName = profileForm.full_name || "Not set";
-      const mobile = profileForm.mobile || "Not set";
-      const avatarUrl = profileForm.avatar_url || "No avatar uploaded";
-
-      const htmlBody = `
-        <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
-          <h2 style="color:#0D47A1;">Your Profile Report</h2>
-          <p><strong>Organization:</strong> ${orgName}</p>
-          <p><strong>Email:</strong> ${user.email}</p>
-          <p><strong>Role:</strong> ${userRole}</p>
-          <p><strong>Full Name:</strong> ${fullName}</p>
-          <p><strong>Mobile:</strong> ${mobile}</p>
-          <p><strong>Avatar URL:</strong> ${avatarUrl}</p>
-          <hr />
-          <p style="color:#888;font-size:10px;">This is a computer‑generated profile report from ${orgName}.</p>
-        </div>
-      `;
-
-      await sendEmail({
-        to: user.email,
-        subject: `Your Profile Report - ${orgName}`,
-        html: htmlBody,
-      });
-
-      toast.success("Profile report sent to your email.");
-    } catch (err) {
-      console.error("Failed to send report:", err);
-      toast.error("Failed to send report.");
-    } finally {
-      setSendingReport(false);
-    }
-  };
-
-  // ─── Avatar upload (unchanged) ─────────────────────────────────────
+  // Handle avatar file selection and upload
   async function handleAvatarChange(e) {
     const file = e.target.files[0];
     if (!file) return;
@@ -141,7 +86,6 @@ export default function Settings() {
     }
   }
 
-  // ─── Profile update (unchanged) ──────────────────────────────────
   async function handleProfileUpdate(e) {
     e.preventDefault();
     setSavingProfile(true);
@@ -166,7 +110,6 @@ export default function Settings() {
     }
   }
 
-  // ─── Password change (unchanged) ──────────────────────────────────
   async function handlePasswordChange(e) {
     e.preventDefault();
     if (passwordForm.newPassword !== passwordForm.confirmPassword) {
@@ -193,42 +136,19 @@ export default function Settings() {
   }
 
   return (
-    <>
+    <AdminLayout>
       <BackButton to="/settings-hub" label="Settings" />
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-8 gap-3">
-        <div>
-          <h1
-            className="text-3xl text-primary"
-            style={{ fontFamily: headingFont }}
-          >
-            Settings
-          </h1>
-          <p
-            className="text-sm text-primary-dark mt-1"
-            style={{ fontFamily: bodyFont }}
-          >
-            Manage your account
-          </p>
-        </div>
-        {/* Send Report button */}
-        <button
-          onClick={sendProfileReport}
-          disabled={sendingReport}
-          className="bg-accent hover:bg-accent-dark text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 disabled:opacity-50"
-          style={{ fontFamily: bodyFont }}
-        >
-          <MailIcon size={16} />
-          {sendingReport ? "Sending..." : "Send My Profile Report"}
-        </button>
+      <div className="mb-8">
+        <h1 className="text-3xl font-righteous text-primary-dark">Settings</h1>
+        <p className="text-sm text-secondary-dark font-montserrat mt-1">
+          Manage your account
+        </p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* Profile Section */}
-        <div className="bg-white rounded-xl shadow-sm p-6 border border-primary-bg">
-          <h2
-            className="text-xl text-primary mb-6 flex items-center gap-2"
-            style={{ fontFamily: headingFont }}
-          >
+        <div className="bg-white rounded-xl shadow-sm p-6 border border-secondary-light">
+          <h2 className="text-xl font-righteous text-primary-dark mb-6 flex items-center gap-2">
             <User size={20} /> Profile
           </h2>
 
@@ -256,16 +176,10 @@ export default function Settings() {
               </button>
             </div>
             <div>
-              <p
-                className="font-medium text-primary-dark text-sm"
-                style={{ fontFamily: bodyFont }}
-              >
+              <p className="font-medium text-secondary-dark text-sm">
                 Profile photo
               </p>
-              <p
-                className="text-xs text-primary-dark/60 mt-1"
-                style={{ fontFamily: bodyFont }}
-              >
+              <p className="text-xs text-secondary-light mt-1">
                 Click the icon to upload a new avatar
               </p>
               <button
@@ -273,7 +187,6 @@ export default function Settings() {
                 onClick={() => fileInputRef.current?.click()}
                 className="text-primary text-sm hover:underline mt-1 flex items-center gap-1"
                 disabled={avatarUploading}
-                style={{ fontFamily: bodyFont }}
               >
                 <Upload size={14} />
                 {avatarUploading ? "Uploading..." : "Choose image"}
@@ -290,10 +203,7 @@ export default function Settings() {
 
           <form onSubmit={handleProfileUpdate} className="space-y-4">
             <div>
-              <label
-                className="block text-sm mb-1 text-primary-dark"
-                style={{ fontFamily: bodyFont }}
-              >
+              <label className="block text-sm font-montserrat text-secondary-dark mb-1">
                 <Mail size={14} className="inline mr-1" />
                 Email
               </label>
@@ -301,15 +211,11 @@ export default function Settings() {
                 type="email"
                 value={user?.email}
                 disabled
-                className="w-full border border-primary-bg rounded p-2.5 bg-primary-bg text-primary-dark cursor-not-allowed"
-                style={{ fontFamily: bodyFont }}
+                className="w-full border border-secondary-light rounded p-2.5 bg-gray-100 text-secondary-dark cursor-not-allowed"
               />
             </div>
             <div>
-              <label
-                className="block text-sm mb-1 text-primary-dark"
-                style={{ fontFamily: bodyFont }}
-              >
+              <label className="block text-sm font-montserrat text-secondary-dark mb-1">
                 <Shield size={14} className="inline mr-1" />
                 Role
               </label>
@@ -317,15 +223,11 @@ export default function Settings() {
                 type="text"
                 value={profile?.role || ""}
                 disabled
-                className="w-full border border-primary-bg rounded p-2.5 bg-primary-bg text-primary-dark cursor-not-allowed"
-                style={{ fontFamily: bodyFont }}
+                className="w-full border border-secondary-light rounded p-2.5 bg-gray-100 text-secondary-dark cursor-not-allowed"
               />
             </div>
             <div>
-              <label
-                className="block text-sm mb-1 text-primary-dark"
-                style={{ fontFamily: bodyFont }}
-              >
+              <label className="block text-sm font-montserrat text-secondary-dark mb-1">
                 <User size={14} className="inline mr-1" />
                 Full Name
               </label>
@@ -335,15 +237,11 @@ export default function Settings() {
                 onChange={(e) =>
                   setProfileForm({ ...profileForm, full_name: e.target.value })
                 }
-                className="w-full border border-primary-bg rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none text-primary-dark bg-white"
-                style={{ fontFamily: bodyFont }}
+                className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
               />
             </div>
             <div>
-              <label
-                className="block text-sm mb-1 text-primary-dark"
-                style={{ fontFamily: bodyFont }}
-              >
+              <label className="block text-sm font-montserrat text-secondary-dark mb-1">
                 <Phone size={14} className="inline mr-1" />
                 Mobile
               </label>
@@ -353,15 +251,13 @@ export default function Settings() {
                 onChange={(e) =>
                   setProfileForm({ ...profileForm, mobile: e.target.value })
                 }
-                className="w-full border border-primary-bg rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none text-primary-dark bg-white"
-                style={{ fontFamily: bodyFont }}
+                className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
               />
             </div>
             <button
               type="submit"
               disabled={savingProfile}
-              className="w-full sm:w-auto bg-primary hover:bg-primary-light text-white px-5 py-2.5 rounded-lg transition disabled:opacity-50 flex items-center justify-center gap-2"
-              style={{ fontFamily: bodyFont }}
+              className="w-full sm:w-auto bg-primary hover:bg-primary-light text-white px-5 py-2.5 rounded-lg font-montserrat transition disabled:opacity-50 flex items-center justify-center gap-2"
             >
               <Save size={16} />
               {savingProfile ? "Saving..." : "Save Changes"}
@@ -370,19 +266,13 @@ export default function Settings() {
         </div>
 
         {/* Password Section */}
-        <div className="bg-white rounded-xl shadow-sm p-6 border border-primary-bg">
-          <h2
-            className="text-xl text-primary mb-6 flex items-center gap-2"
-            style={{ fontFamily: headingFont }}
-          >
+        <div className="bg-white rounded-xl shadow-sm p-6 border border-secondary-light">
+          <h2 className="text-xl font-righteous text-primary-dark mb-6 flex items-center gap-2">
             <Lock size={20} /> Change Password
           </h2>
           <form onSubmit={handlePasswordChange} className="space-y-4">
             <div>
-              <label
-                className="block text-sm mb-1 text-primary-dark"
-                style={{ fontFamily: bodyFont }}
-              >
+              <label className="block text-sm font-montserrat text-secondary-dark mb-1">
                 New Password
               </label>
               <input
@@ -394,17 +284,13 @@ export default function Settings() {
                     newPassword: e.target.value,
                   })
                 }
-                className="w-full border border-primary-bg rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none text-primary-dark bg-white"
-                style={{ fontFamily: bodyFont }}
+                className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
                 required
                 minLength={6}
               />
             </div>
             <div>
-              <label
-                className="block text-sm mb-1 text-primary-dark"
-                style={{ fontFamily: bodyFont }}
-              >
+              <label className="block text-sm font-montserrat text-secondary-dark mb-1">
                 Confirm New Password
               </label>
               <input
@@ -416,8 +302,7 @@ export default function Settings() {
                     confirmPassword: e.target.value,
                   })
                 }
-                className="w-full border border-primary-bg rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none text-primary-dark bg-white"
-                style={{ fontFamily: bodyFont }}
+                className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
                 required
                 minLength={6}
               />
@@ -425,8 +310,7 @@ export default function Settings() {
             <button
               type="submit"
               disabled={savingPassword}
-              className="w-full sm:w-auto bg-primary hover:bg-primary-light text-white px-5 py-2.5 rounded-lg transition disabled:opacity-50 flex items-center justify-center gap-2"
-              style={{ fontFamily: bodyFont }}
+              className="w-full sm:w-auto bg-primary hover:bg-primary-light text-white px-5 py-2.5 rounded-lg font-montserrat transition disabled:opacity-50 flex items-center justify-center gap-2"
             >
               <Save size={16} />
               {savingPassword ? "Changing..." : "Change Password"}
@@ -434,6 +318,6 @@ export default function Settings() {
           </form>
         </div>
       </div>
-    </>
+    </AdminLayout>
   );
 }

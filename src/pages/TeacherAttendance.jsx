@@ -3,11 +3,10 @@ import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "../api/supabase";
 import toast from "react-hot-toast";
+import AdminLayout from "../layouts/AdminLayout";
 import { useAuth } from "../context/AuthContext";
-import { useOrg } from "../context/OrganizationContext";
-import { useTheme } from "../context/ThemeContext"; // already imported
-import { generateDailyTeacherAttendancePDF } from "../utils/teacherDailyAttendancePdf";
-import { Calendar, CheckCircle, XCircle, Clock, X, Download } from "lucide-react";
+import { useOrg } from "../context/OrganizationContext";   // NEW
+import { Calendar, CheckCircle, XCircle, Clock, X } from "lucide-react";
 
 export default function TeacherAttendance() {
   const qc = useQueryClient();
@@ -15,9 +14,8 @@ export default function TeacherAttendance() {
   const isAdmin = profile?.role === "admin" || profile?.role === "super_admin";
   const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
 
-  // ── Contexts ──
-  const { org: currentOrg, branch, selectedFinancialYear } = useOrg();
-  const { theme } = useTheme();
+  // ── Branch & Financial Year context ──
+  const { branch, selectedFinancialYear } = useOrg();   // NEW
   const branchId = branch?.id;
   const financialYearId = selectedFinancialYear?.id;
 
@@ -30,8 +28,8 @@ export default function TeacherAttendance() {
         .from("teachers")
         .select("id")
         .eq("user_id", profile.id)
-        .eq("branch_id", branchId)
-        .eq("financial_year_id", financialYearId)
+        .eq("branch_id", branchId)                 // scoped
+        .eq("financial_year_id", financialYearId) // scoped
         .single();
       return data?.id || null;
     },
@@ -48,6 +46,7 @@ export default function TeacherAttendance() {
         .eq("status", "active")
         .order("first_name");
 
+      // Scope to branch & FY
       if (branchId) query = query.eq("branch_id", branchId);
       if (financialYearId) query = query.eq("financial_year_id", financialYearId);
 
@@ -70,8 +69,8 @@ export default function TeacherAttendance() {
         .from("teacher_attendance")
         .select("*")
         .eq("attendance_date", date)
-        .eq("branch_id", branchId)
-        .eq("financial_year_id", financialYearId);
+        .eq("branch_id", branchId)                  // scoped
+        .eq("financial_year_id", financialYearId); // scoped
 
       if (!isAdmin && ownTeacherId) {
         query = query.eq("teacher_id", ownTeacherId);
@@ -101,8 +100,8 @@ export default function TeacherAttendance() {
       const payload = {
         status,
         updated_at: new Date().toISOString(),
-        branch_id: branchId,
-        financial_year_id: financialYearId,
+        branch_id: branchId,                  // NEW
+        financial_year_id: financialYearId,   // NEW
       };
       if (existing) {
         const { error } = await supabase
@@ -117,8 +116,8 @@ export default function TeacherAttendance() {
             teacher_id,
             attendance_date: date,
             status,
-            branch_id: branchId,
-            financial_year_id: financialYearId,
+            branch_id: branchId,               // NEW
+            financial_year_id: financialYearId,// NEW
           });
         if (error) throw error;
       }
@@ -163,133 +162,67 @@ export default function TeacherAttendance() {
     });
   };
 
-  // ── Monthly attendance PDF export ────────────────────────
-  const [exporting, setExporting] = useState(false);
-
-  const handleExportMonthlyPDF = async () => {
-    setExporting(true);
-    try {
-      const chosenDate = new Date(date);
-      const y = chosenDate.getFullYear();
-      const m = chosenDate.getMonth();
-      const start = `${y}-${String(m + 1).padStart(2, "0")}-01`;
-      const end = new Date(y, m + 1, 0).toISOString().split("T")[0];
-
-      let query = supabase
-        .from("teacher_attendance")
-        .select("attendance_date, teacher_id, status, teachers(first_name, last_name, employee_code)")
-        .gte("attendance_date", start)
-        .lte("attendance_date", end)
-        .eq("branch_id", branchId)
-        .eq("financial_year_id", financialYearId)
-        .order("attendance_date");
-
-      if (!isAdmin && ownTeacherId) {
-        query = query.eq("teacher_id", ownTeacherId);
-      }
-
-      const { data: monthlyData, error } = await query;
-      if (error) throw error;
-
-      if (!monthlyData || monthlyData.length === 0) {
-        toast.error("No attendance records for this month.");
-        return;
-      }
-
-      const transformed = monthlyData.map((row) => ({
-        date: row.attendance_date,
-        teacher_name: row.teachers
-          ? `${row.teachers.first_name} ${row.teachers.last_name}`
-          : "Unknown",
-        employee_code: row.teachers?.employee_code || "—",
-        status: row.status,
-      }));
-
-      await generateDailyTeacherAttendancePDF(transformed, start, end, {
-        org: currentOrg,
-        branch,
-        theme,
-      });
-
-      toast.success("Monthly attendance PDF downloaded");
-    } catch (err) {
-      toast.error("Failed to generate PDF");
-      console.error(err);
-    } finally {
-      setExporting(false);
-    }
-  };
-
   return (
-    <div className="space-y-6 px-4 sm:px-6 lg:px-0">
+    <AdminLayout>
       <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6">
-        <h1 className="text-3xl font-heading text-primary">
+        <h1 className="text-3xl font-righteous text-primary-dark">
           {isAdmin ? "Teacher Attendance" : "My Attendance"}
         </h1>
         <div className="flex items-center gap-3 mt-2 sm:mt-0">
           <div className="relative">
-            <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500 w-4 h-4" />
+            <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-secondary-light w-4 h-4" />
             <input
               type="date"
               value={date}
               onChange={(e) => setDate(e.target.value)}
-              className="pl-9 pr-4 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded-lg text-sm focus:ring-2 focus:ring-primary focus:border-primary outline-none"
+              className="pl-9 pr-4 py-2 border rounded-lg text-sm focus:ring-1 focus:ring-primary"
             />
           </div>
-
-          <button
-            onClick={handleExportMonthlyPDF}
-            disabled={exporting}
-            className="bg-primary hover:bg-primary-light text-white px-4 py-2 rounded-lg text-sm flex items-center gap-2 disabled:opacity-50 transition-colors"
-          >
-            <Download size={16} />
-            {exporting ? "Exporting…" : "Monthly Report"}
-          </button>
         </div>
       </div>
 
       {/* Stats Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 mb-6">
-        <div className="bg-white dark:bg-accent rounded-xl shadow-sm p-3 border border-gray-200 dark:border-gray-700">
-          <p className="text-xs text-gray-500 dark:text-gray-400">Total Teachers</p>
+        <div className="bg-white rounded-lg shadow-sm p-3 border">
+          <p className="text-xs text-secondary-light">Total Teachers</p>
           <p className="text-xl font-bold text-primary">{stats.total}</p>
         </div>
-        <div className="bg-white dark:bg-accent rounded-xl shadow-sm p-3 border border-gray-200 dark:border-gray-700">
-          <p className="text-xs text-gray-500 dark:text-gray-400">Marked</p>
-          <p className="text-xl font-bold text-primary">{stats.marked}</p>
+        <div className="bg-white rounded-lg shadow-sm p-3 border">
+          <p className="text-xs text-secondary-light">Marked</p>
+          <p className="text-xl font-bold">{stats.marked}</p>
         </div>
-        <div className="bg-white dark:bg-accent rounded-xl shadow-sm p-3 border border-accent">
-          <p className="text-xs text-accent">Present</p>
-          <p className="text-xl font-bold text-accent">{stats.present}</p>
+        <div className="bg-white rounded-lg shadow-sm p-3 border border-green-200">
+          <p className="text-xs text-green-600">Present</p>
+          <p className="text-xl font-bold text-green-700">{stats.present}</p>
         </div>
-        <div className="bg-white dark:bg-accent rounded-xl shadow-sm p-3 border border-accent-dark">
-          <p className="text-xs text-accent-dark">Absent</p>
-          <p className="text-xl font-bold text-accent-dark">{stats.absent}</p>
+        <div className="bg-white rounded-lg shadow-sm p-3 border border-red-200">
+          <p className="text-xs text-red-600">Absent</p>
+          <p className="text-xl font-bold text-red-700">{stats.absent}</p>
         </div>
-        <div className="bg-white dark:bg-accent rounded-xl shadow-sm p-3 border border-primary">
-          <p className="text-xs text-primary">Leave / Half-Day</p>
-          <p className="text-xl font-bold text-primary">{stats.leave + stats.halfDay}</p>
+        <div className="bg-white rounded-lg shadow-sm p-3 border border-yellow-200">
+          <p className="text-xs text-yellow-600">Leave / Half-Day</p>
+          <p className="text-xl font-bold text-yellow-700">{stats.leave + stats.halfDay}</p>
         </div>
       </div>
 
-      {/* Bulk Actions */}
+      {/* Bulk Actions – only for admin */}
       {isAdmin && (
         <div className="flex flex-wrap gap-2 mb-4">
           <button
             onClick={() => handleBulkStatus("present")}
-            className="bg-accent-bg text-accent px-3 py-1.5 rounded-lg text-sm hover:bg-accent-light transition flex items-center gap-1"
+            className="bg-green-100 text-green-700 px-3 py-1.5 rounded-lg text-sm hover:bg-green-200 transition flex items-center gap-1"
           >
             <CheckCircle className="w-4 h-4" /> Mark All Present
           </button>
           <button
             onClick={() => handleBulkStatus("absent")}
-            className="bg-accent-bg text-accent-dark px-3 py-1.5 rounded-lg text-sm hover:bg-accent-light transition flex items-center gap-1"
+            className="bg-red-100 text-red-700 px-3 py-1.5 rounded-lg text-sm hover:bg-red-200 transition flex items-center gap-1"
           >
             <XCircle className="w-4 h-4" /> Mark All Absent
           </button>
           <button
             onClick={() => handleBulkStatus("leave")}
-            className="bg-primary-bg text-primary px-3 py-1.5 rounded-lg text-sm hover:bg-primary-light transition flex items-center gap-1"
+            className="bg-yellow-100 text-yellow-700 px-3 py-1.5 rounded-lg text-sm hover:bg-yellow-200 transition flex items-center gap-1"
           >
             <Clock className="w-4 h-4" /> Mark All Leave
           </button>
@@ -297,7 +230,7 @@ export default function TeacherAttendance() {
             onClick={() => {
               teachers.forEach((t) => clearMutation.mutate(t.id));
             }}
-            className="bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 px-3 py-1.5 rounded-lg text-sm hover:bg-gray-200 dark:hover:bg-gray-600 transition flex items-center gap-1"
+            className="bg-gray-100 text-gray-700 px-3 py-1.5 rounded-lg text-sm hover:bg-gray-200 transition flex items-center gap-1"
           >
             <X className="w-4 h-4" /> Clear All
           </button>
@@ -305,33 +238,33 @@ export default function TeacherAttendance() {
       )}
 
       {/* Table */}
-      <div className="bg-white dark:bg-accent rounded-xl shadow-sm overflow-hidden border border-gray-200 dark:border-gray-700">
+      <div className="bg-white rounded-xl shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
-            <thead className="bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600">
+            <thead className="bg-slate-50 border-b">
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Teacher</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Employee Code</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Status</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Clear</th>
+                <th className="px-4 py-3 text-left text-sm font-medium text-secondary-dark">Teacher</th>
+                <th className="px-4 py-3 text-left text-sm font-medium text-secondary-dark">Employee Code</th>
+                <th className="px-4 py-3 text-left text-sm font-medium text-secondary-dark">Status</th>
+                <th className="px-4 py-3 text-left text-sm font-medium text-secondary-dark">Clear</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+            <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan={4} className="text-center py-8 text-gray-500 dark:text-gray-400">Loading...</td>
+                  <td colSpan={4} className="text-center py-8 text-secondary">Loading...</td>
                 </tr>
               ) : teachers.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="text-center py-8 text-gray-500 dark:text-gray-400">No active teachers.</td>
+                  <td colSpan={4} className="text-center py-8 text-secondary">No active teachers.</td>
                 </tr>
               ) : (
                 teachers.map((t) => (
-                  <tr key={t.id} className="hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
-                    <td className="px-4 py-3 text-sm font-medium text-gray-800 dark:text-gray-100">
+                  <tr key={t.id} className="border-t hover:bg-gray-50 transition">
+                    <td className="px-4 py-3 text-sm font-medium">
                       {t.first_name} {t.last_name}
                     </td>
-                    <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-200">{t.employee_code || "—"}</td>
+                    <td className="px-4 py-3 text-sm">{t.employee_code || "—"}</td>
                     <td className="px-4 py-3 text-sm">
                       <select
                         value={getStatus(t.id)}
@@ -341,7 +274,7 @@ export default function TeacherAttendance() {
                             markMutation.mutate({ teacher_id: t.id, status: newStatus });
                           }
                         }}
-                        className="border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded p-1.5 text-sm focus:ring-2 focus:ring-primary focus:border-primary outline-none"
+                        className="border rounded p-1.5 text-sm bg-white focus:ring-1 focus:ring-primary"
                       >
                         <option value="" disabled hidden>
                           Select status
@@ -356,7 +289,7 @@ export default function TeacherAttendance() {
                       {getStatus(t.id) && (
                         <button
                           onClick={() => clearMutation.mutate(t.id)}
-                          className="text-accent-dark hover:text-accent p-1 rounded"
+                          className="text-red-500 hover:text-red-700 p-1 rounded"
                           title="Clear attendance"
                         >
                           <X size={16} />
@@ -370,11 +303,11 @@ export default function TeacherAttendance() {
           </table>
         </div>
         {teachers.length > 0 && (
-          <div className="px-4 py-2 text-xs text-gray-500 dark:text-gray-400 border-t border-gray-200 dark:border-gray-700">
+          <div className="px-4 py-2 text-xs text-secondary-light border-t">
             {stats.marked} out of {teachers.length} teachers marked
           </div>
         )}
       </div>
-    </div>
+    </AdminLayout>
   );
 }

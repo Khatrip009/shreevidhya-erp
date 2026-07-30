@@ -3,20 +3,15 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import { Plus, Trash2, Save } from "lucide-react";
+import AdminLayout from "../layouts/AdminLayout";
 import { supabase } from "../api/supabase";
 import { useOrg } from "../context/OrganizationContext";
-import { useTheme } from "../context/ThemeContext";
-import { sendTemplateEmail } from "../services/emailService";
 
 export default function AddStock() {
   const queryClient = useQueryClient();
-  const { branch, selectedFinancialYear, org } = useOrg();
-  const theme = useTheme();
+  const { branch, selectedFinancialYear } = useOrg();
   const branchId = branch?.id;
   const financialYearId = selectedFinancialYear?.id;
-
-  const headingFont = theme?.font_heading || "Righteous";
-  const bodyFont = theme?.font_body || "Montserrat";
 
   const [vendor, setVendor] = useState("");
   const [reference, setReference] = useState("");
@@ -26,23 +21,7 @@ export default function AddStock() {
     { item_id: "", quantity: "1", unit_price: "", total: 0 },
   ]);
 
-  // ─── Helper: get admin emails ────────────────────────────────────
-  async function getAdminEmails() {
-    if (!org?.id) return [];
-    const { data, error } = await supabase
-      .from("profiles")
-      .select("email")
-      .eq("organization_id", org.id)
-      .in("role", ["admin", "super_admin", "organization_admin"])
-      .eq("is_active", true);
-    if (error) {
-      console.error("Failed to fetch admin emails:", error);
-      return [];
-    }
-    return data?.map(p => p.email).filter(Boolean) || [];
-  }
-
-  // ─── Items, Tax Rates, Accounts queries (unchanged) ─────────────
+  // Items – scoped
   const { data: items = [] } = useQuery({
     queryKey: ["inventory-items", branchId, financialYearId],
     queryFn: async () => {
@@ -58,6 +37,7 @@ export default function AddStock() {
     staleTime: 5 * 60 * 1000,
   });
 
+  // Tax rates – scoped
   const { data: taxRates = [] } = useQuery({
     queryKey: ["tax-rates", branchId, financialYearId],
     queryFn: async () => {
@@ -72,6 +52,7 @@ export default function AddStock() {
     enabled: !!branchId && !!financialYearId,
   });
 
+  // Fetch account IDs – scoped
   const { data: accounts } = useQuery({
     queryKey: ["account-ids-stock", branchId, financialYearId],
     queryFn: async () => {
@@ -114,7 +95,6 @@ export default function AddStock() {
     staleTime: Infinity,
   });
 
-  // ─── Mutation with email notification ────────────────────────────
   const addStockMutation = useMutation({
     mutationFn: async () => {
       const acc = accounts;
@@ -125,11 +105,6 @@ export default function AddStock() {
       const selectedTax = taxRates.find((t) => t.id == taxRateId);
       const taxRate = selectedTax ? parseFloat(selectedTax.rate) : 0;
 
-      let totalSubtotal = 0;
-      let totalTax = 0;
-      let totalGrand = 0;
-      let itemNames = [];
-
       for (const line of lines) {
         const itemId = parseInt(line.item_id, 10);
         const qty = parseInt(line.quantity, 10) || 0;
@@ -138,12 +113,7 @@ export default function AddStock() {
 
         if (!itemId || qty <= 0 || price <= 0) continue;
 
-        const item = items.find(i => i.id === itemId);
-        if (item) itemNames.push(`${item.item_name} x ${qty}`);
-
-        totalSubtotal += total;
-
-        // 1. Insert inventory transaction
+        // 1. Insert inventory transaction (already scoped)
         const { data: tx, error: txError } = await supabase
           .from("inventory_transactions")
           .insert({
@@ -159,13 +129,15 @@ export default function AddStock() {
           .select("id")
           .single();
 
-        if (txError) throw txError;
+        if (txError) {
+          console.error("TX insert error:", txError);
+          throw txError;
+        }
 
-        // 2. Journal entry
+        // 2. Journal entry (already scoped)
         if (taxRate > 0 && acc.inputCgstId && acc.inputSgstId) {
           const taxAmount = total * (taxRate / 100);
           const taxHalf = Math.round((taxAmount / 2) * 100) / 100;
-          totalTax += taxAmount;
 
           const { data: journal } = await supabase
             .from("journal_entries")
@@ -206,22 +178,9 @@ export default function AddStock() {
           ]);
         }
       }
-
-      totalGrand = totalSubtotal + totalTax;
-
-      return {
-        success: true,
-        vendor,
-        reference,
-        date,
-        totalSubtotal,
-        totalTax,
-        totalGrand,
-        taxRate,
-        itemNames,
-      };
+      return { success: true };
     },
-    onSuccess: async (result) => {
+    onSuccess: () => {
       toast.success("Stock added successfully");
       queryClient.invalidateQueries(["inventory-items"]);
       queryClient.invalidateQueries(["inventory-transactions"]);
@@ -229,46 +188,6 @@ export default function AddStock() {
       setVendor("");
       setReference("");
       setTaxRateId("");
-
-      // ─── Send email to admins ──────────────────────────────────
-      try {
-        if (!org?.id) {
-          console.warn("No organization ID, skipping admin notification.");
-          return;
-        }
-
-        const adminEmails = await getAdminEmails();
-        if (adminEmails.length === 0) {
-          console.warn("No admin emails found, skipping notification.");
-          return;
-        }
-
-        const message = `New stock has been added:\n` +
-          `Branch: ${branch?.branch_name || 'N/A'}\n` +
-          `Date: ${result.date}\n` +
-          `Vendor: ${result.vendor || 'N/A'}\n` +
-          `Reference: ${result.reference || 'N/A'}\n` +
-          `Items: ${result.itemNames.join(', ')}\n` +
-          `Subtotal: ₹${result.totalSubtotal.toLocaleString('en-IN')}\n` +
-          `Tax (${result.taxRate || 0}%): ₹${result.totalTax.toLocaleString('en-IN')}\n` +
-          `Grand Total: ₹${result.totalGrand.toLocaleString('en-IN')}`;
-
-        await sendTemplateEmail({
-          to: adminEmails,
-          organizationId: org.id,
-          slug: "system_announcement",
-          context: {
-            academyName: org.company_name || "Academy",
-            title: "New Stock Added",
-            message,
-            target_type: "Admin",
-          },
-          branchId,
-        });
-        console.log("✅ Admin stock notification sent.");
-      } catch (emailError) {
-        console.error("❌ Failed to send admin stock notification:", emailError);
-      }
     },
     onError: (err) => toast.error(err.message || "Failed to add stock"),
   });
@@ -302,194 +221,83 @@ export default function AddStock() {
   };
 
   return (
-    <div className="space-y-6 px-4 sm:px-6 lg:px-0">
-      {/* Header */}
-      <div>
-        <h1 className="text-2xl sm:text-3xl font-bold text-primary" style={{ fontFamily: headingFont }}>
-          Add Stock / Purchase
-        </h1>
-        <p className="text-sm text-primary-dark mt-1" style={{ fontFamily: bodyFont }}>
-          Record inventory purchases with tax
-        </p>
+    <AdminLayout>
+      <div className="mb-6">
+        <h1 className="text-3xl font-righteous text-primary-dark">Add Stock / Purchase</h1>
+        <p className="text-sm text-secondary-dark mt-1">Record inventory purchases with tax</p>
       </div>
 
-      {/* Form */}
-      <form onSubmit={handleSubmit} className="bg-white rounded-xl shadow-sm border border-primary-bg p-6 space-y-6">
-        {/* Top fields */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <form onSubmit={handleSubmit} className="bg-white rounded-xl p-6 shadow-sm space-y-6">
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
           <div>
-            <label className="block text-sm font-medium text-primary-dark mb-1" style={{ fontFamily: bodyFont }}>
-              Date
-            </label>
-            <input
-              type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              className="w-full border border-primary-bg bg-white text-primary rounded-lg p-2.5 text-sm"
-              required
-            />
+            <label className="block text-sm mb-1">Date</label>
+            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="w-full border rounded p-2.5 text-sm" required />
           </div>
           <div>
-            <label className="block text-sm font-medium text-primary-dark mb-1" style={{ fontFamily: bodyFont }}>
-              Vendor
-            </label>
-            <input
-              type="text"
-              value={vendor}
-              onChange={(e) => setVendor(e.target.value)}
-              placeholder="Vendor name"
-              className="w-full border border-primary-bg bg-white text-primary rounded-lg p-2.5 text-sm"
-            />
+            <label className="block text-sm mb-1">Vendor</label>
+            <input type="text" value={vendor} onChange={(e) => setVendor(e.target.value)} placeholder="Vendor name" className="w-full border rounded p-2.5 text-sm" />
           </div>
           <div>
-            <label className="block text-sm font-medium text-primary-dark mb-1" style={{ fontFamily: bodyFont }}>
-              Reference
-            </label>
-            <input
-              type="text"
-              value={reference}
-              onChange={(e) => setReference(e.target.value)}
-              placeholder="e.g., INV-001"
-              className="w-full border border-primary-bg bg-white text-primary rounded-lg p-2.5 text-sm"
-            />
+            <label className="block text-sm mb-1">Reference</label>
+            <input type="text" value={reference} onChange={(e) => setReference(e.target.value)} placeholder="e.g., INV-001" className="w-full border rounded p-2.5 text-sm" />
           </div>
           <div>
-            <label className="block text-sm font-medium text-primary-dark mb-1" style={{ fontFamily: bodyFont }}>
-              Tax Rate
-            </label>
-            <select
-              value={taxRateId}
-              onChange={(e) => setTaxRateId(e.target.value)}
-              className="w-full border border-primary-bg bg-white text-primary rounded-lg p-2.5 text-sm"
-            >
+            <label className="block text-sm mb-1">Tax Rate</label>
+            <select value={taxRateId} onChange={(e) => setTaxRateId(e.target.value)} className="w-full border rounded p-2.5 text-sm">
               <option value="">No Tax</option>
-              {taxRates.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name} ({t.rate}%)
-                </option>
-              ))}
+              {taxRates.map((t) => <option key={t.id} value={t.id}>{t.name} ({t.rate}%)</option>)}
             </select>
           </div>
         </div>
 
         {/* Items */}
         <div>
-          <h2 className="text-lg font-semibold text-primary mb-3" style={{ fontFamily: headingFont }}>
-            Items
-          </h2>
+          <h2 className="text-lg font-semibold mb-3">Items</h2>
           {lines.map((line, idx) => (
-            <div
-              key={idx}
-              className="grid grid-cols-1 sm:grid-cols-6 gap-2 items-end border border-primary-bg bg-primary-bg p-3 rounded-lg mb-2"
-            >
+            <div key={idx} className="grid grid-cols-6 gap-2 items-end border p-3 rounded mb-2">
               <div className="col-span-2">
-                <label className="text-xs font-medium text-primary-dark mb-1 block" style={{ fontFamily: bodyFont }}>
-                  Item *
-                </label>
-                <select
-                  value={line.item_id}
-                  onChange={(e) => updateLine(idx, "item_id", e.target.value)}
-                  className="w-full border border-primary-bg bg-white text-primary rounded p-2 text-sm"
-                  required
-                >
+                <label className="text-xs mb-1 block">Item *</label>
+                <select value={line.item_id} onChange={(e) => updateLine(idx, "item_id", e.target.value)} className="w-full border rounded p-2 text-sm" required>
                   <option value="">Select item</option>
-                  {items.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.item_name}
-                    </option>
-                  ))}
+                  {items.map((item) => <option key={item.id} value={item.id}>{item.item_name}</option>)}
                 </select>
               </div>
               <div>
-                <label className="text-xs font-medium text-primary-dark mb-1 block" style={{ fontFamily: bodyFont }}>
-                  Qty *
-                </label>
-                <input
-                  type="number"
-                  min="1"
-                  value={line.quantity}
-                  onChange={(e) => updateLine(idx, "quantity", e.target.value)}
-                  className="w-full border border-primary-bg bg-white text-primary rounded p-2 text-sm"
-                  required
-                />
+                <label className="text-xs mb-1 block">Qty *</label>
+                <input type="number" min="1" value={line.quantity} onChange={(e) => updateLine(idx, "quantity", e.target.value)} className="w-full border rounded p-2 text-sm" required />
               </div>
               <div>
-                <label className="text-xs font-medium text-primary-dark mb-1 block" style={{ fontFamily: bodyFont }}>
-                  Unit Price *
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={line.unit_price}
-                  onChange={(e) => updateLine(idx, "unit_price", e.target.value)}
-                  className="w-full border border-primary-bg bg-white text-primary rounded p-2 text-sm"
-                  required
-                />
+                <label className="text-xs mb-1 block">Unit Price *</label>
+                <input type="number" min="0" step="0.01" value={line.unit_price} onChange={(e) => updateLine(idx, "unit_price", e.target.value)} className="w-full border rounded p-2 text-sm" required />
               </div>
               <div>
-                <label className="text-xs font-medium text-primary-dark mb-1 block" style={{ fontFamily: bodyFont }}>
-                  Total
-                </label>
-                <input
-                  type="text"
-                  value={`₹ ${(parseFloat(line.total) || 0).toLocaleString("en-IN")}`}
-                  readOnly
-                  className="w-full border border-primary-bg bg-primary-bg text-primary-dark rounded p-2 text-sm"
-                />
+                <label className="text-xs mb-1 block">Total</label>
+                <input type="text" value={`₹ ${(parseFloat(line.total) || 0).toLocaleString("en-IN")}`} readOnly className="w-full border rounded p-2 text-sm bg-gray-50" />
               </div>
-              <div className="flex items-end justify-end sm:justify-start">
-                {lines.length > 1 && (
-                  <button type="button" onClick={() => removeLine(idx)} className="text-accent hover:text-accent-dark p-1 transition-colors">
-                    <Trash2 size={18} />
-                  </button>
-                )}
+              <div className="flex items-end">
+                {lines.length > 1 && <button type="button" onClick={() => removeLine(idx)} className="text-red-500 p-2"><Trash2 size={18} /></button>}
               </div>
             </div>
           ))}
-          <button
-            type="button"
-            onClick={addLine}
-            className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
-          >
-            <Plus size={16} /> Add Item
-          </button>
+          <button type="button" onClick={addLine} className="mt-2 text-primary text-sm flex items-center gap-1"><Plus size={16} /> Add Item</button>
         </div>
 
         {/* Totals */}
-        <div className="border-t border-primary-bg pt-4 flex flex-col items-end space-y-1 text-sm">
-          <div className="flex justify-between w-full sm:w-64">
-            <span className="text-primary-dark" style={{ fontFamily: bodyFont }}>Subtotal:</span>
-            <span className="font-medium text-primary">₹ {subtotal.toLocaleString("en-IN")}</span>
-          </div>
+        <div className="border-t pt-4 flex flex-col items-end space-y-1 text-sm">
+          <div className="flex justify-between w-64"><span>Subtotal:</span><span className="font-medium">₹ {subtotal.toLocaleString("en-IN")}</span></div>
           {taxPercent > 0 && (
             <>
-              <div className="flex justify-between w-full sm:w-64">
-                <span className="text-primary-dark" style={{ fontFamily: bodyFont }}>CGST ({taxPercent / 2}%)</span>
-                <span className="text-primary">₹ {(taxAmount / 2).toLocaleString("en-IN")}</span>
-              </div>
-              <div className="flex justify-between w-full sm:w-64">
-                <span className="text-primary-dark" style={{ fontFamily: bodyFont }}>SGST ({taxPercent / 2}%)</span>
-                <span className="text-primary">₹ {(taxAmount / 2).toLocaleString("en-IN")}</span>
-              </div>
+              <div className="flex justify-between w-64"><span>CGST ({taxPercent / 2}%):</span><span>₹ {(taxAmount / 2).toLocaleString("en-IN")}</span></div>
+              <div className="flex justify-between w-64"><span>SGST ({taxPercent / 2}%):</span><span>₹ {(taxAmount / 2).toLocaleString("en-IN")}</span></div>
             </>
           )}
-          <div className="flex justify-between w-full sm:w-64 font-bold text-lg border-t border-primary-bg pt-2">
-            <span className="text-primary" style={{ fontFamily: headingFont }}>Grand Total:</span>
-            <span className="text-primary">₹ {grandTotal.toLocaleString("en-IN")}</span>
-          </div>
+          <div className="flex justify-between w-64 font-bold text-lg border-t pt-2"><span>Grand Total:</span><span>₹ {grandTotal.toLocaleString("en-IN")}</span></div>
         </div>
 
-        <button
-          type="submit"
-          disabled={addStockMutation.isPending}
-          className="inline-flex items-center gap-2 px-6 py-2.5 bg-primary hover:bg-primary-light text-white rounded-lg transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-          style={{ fontFamily: bodyFont }}
-        >
-          <Save size={16} />
-          {addStockMutation.isPending ? "Saving…" : "Add Stock"}
+        <button type="submit" disabled={addStockMutation.isPending} className="bg-primary text-white px-6 py-2.5 rounded-lg text-sm flex items-center gap-2">
+          <Save size={16} /> {addStockMutation.isPending ? "Saving…" : "Add Stock"}
         </button>
       </form>
-    </div>
+    </AdminLayout>
   );
 }

@@ -3,52 +3,30 @@ import { getReportConfig } from '../utils/reportConfig';
 
 /**
  * Fetch data for a given report using its configuration and current filters.
- * Supports all three queryBuilder styles:
- * 1. Supabase query builder (thenable) → { data, error }
- * 2. Promise that resolves to an array (e.g., student_ledger)
- * 3. Promise that resolves to a plain object (e.g., account_ledger)
+ * 
+ * @param {string} reportId  - key of the report in reportConfig.js
+ * @param {object} filters   - key-value pairs of filter values
+ * @param {number|string} branchId - current branch id
+ * @param {number|string} financialYearId - current financial year id
+ * @returns {Promise<Array>} - transformed data ready for the table
  */
 export async function fetchReportData(reportId, filters = {}, branchId, financialYearId) {
   const config = getReportConfig(reportId);
   if (!config) throw new Error(`Unknown report: ${reportId}`);
 
-  const queryResult = config.queryBuilder(filters, branchId, financialYearId);
-  
-  // 1. If it's a thenable (Supabase query builder or any Promise), await it first
-  if (typeof queryResult?.then === 'function') {
-    const response = await queryResult;
+  // queryBuilder expects (filters, branchId, financialYearId)
+  const queryPromise = config.queryBuilder(filters, branchId, financialYearId);
 
-    // Supabase-style { data, error } response
-    if (response && typeof response === 'object' && 'data' in response) {
-      if (response.error) throw response.error;
-      const rawData = response.data;
-      console.log('Raw data (Supabase response):', rawData);
-      return config.transform ? config.transform(rawData) : rawData;
-    }
-
-    // If the resolved value is directly an array or object, handle below
-    // (fall through to the following checks)
-    return handleResult(response, config);
+  if (typeof queryPromise?.then !== 'function') {
+    throw new Error('queryBuilder must return a Promise');
   }
 
-  // 2. If it's not a thenable (sync return), handle directly
-  return handleResult(queryResult, config);
-}
+  const result = await queryPromise;
 
-function handleResult(result, config) {
-  console.log('Raw result:', result);
+  // Supabase queries resolve to { data, error }, other promises may resolve directly
+  if (result?.error) throw result.error;
+  const rawData = result?.data !== undefined ? result.data : result;
 
-  // Already an array (e.g., student_ledger)
-  if (Array.isArray(result)) {
-    console.log('Raw data (array):', result);
-    return config.transform ? config.transform(result) : result;
-  }
-
-  // Plain object (e.g., account_ledger returns { lines, ... })
-  if (typeof result === 'object' && result !== null) {
-    console.log('Raw data (object):', result);
-    return config.transform ? config.transform(result) : result;
-  }
-
-  throw new Error('Unsupported queryBuilder return type');
+  // Apply client‑side transformation if defined in the config
+  return config.transform ? config.transform(rawData) : rawData;
 }

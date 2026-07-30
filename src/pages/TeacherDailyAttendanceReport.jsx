@@ -5,16 +5,16 @@ import { supabase } from "../api/supabase";
 import { useAuth } from "../context/AuthContext";
 import { generateDailyTeacherAttendancePDF } from "../utils/teacherDailyAttendancePdf";
 import toast from "react-hot-toast";
+import AdminLayout from "../layouts/AdminLayout";
 import { Calendar, Download } from "lucide-react";
 import { useOrg } from "../context/OrganizationContext";
-import { useTheme } from "../context/ThemeContext";
 
 export default function TeacherDailyAttendanceReport() {
   const { profile } = useAuth();
   const isAdmin = profile?.role === "admin" || profile?.role === "super_admin";
 
+  // ── Branch & Financial Year context ──
   const { org: currentOrg, branch, selectedFinancialYear } = useOrg();
-  const { theme } = useTheme();
   const branchId = branch?.id;
   const financialYearId = selectedFinancialYear?.id;
 
@@ -97,67 +97,49 @@ export default function TeacherDailyAttendanceReport() {
     }));
   }, [attendance, teachers]);
 
-  // ── PDF Export – context driven ──
   const handleExportPDF = async () => {
     if (reportData.length === 0) {
       toast.error("No data to export");
       return;
     }
-    try {
-      await generateDailyTeacherAttendancePDF(reportData, startDate, endDate, {
-        org: currentOrg,
-        branch,
-        theme,
-      });
-      toast.success("PDF downloaded");
-    } catch (err) {
-      toast.error("Failed to generate PDF");
-      console.error(err);
-    }
-  };
+    // Fetch organisation info for PDF header – uses current org id
+    const { data: org } = await supabase
+      .from("organization")
+      .select("*")
+      .eq("id", currentOrg?.id)   // use current org id
+      .single();
 
-  // Status colour mapping using theme classes
-  const getStatusClass = (status) => {
-    switch (status) {
-      case "present":
-        return "bg-accent-bg text-accent";
-      case "absent":
-        return "bg-accent-bg text-accent-dark";
-      case "leave":
-        return "bg-primary-bg text-primary";
-      case "half_day":
-        return "bg-primary-bg text-primary-light";
-      default:
-        return "bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300";
-    }
+    const doc = await generateDailyTeacherAttendancePDF(reportData, startDate, endDate, org || {});
+    doc.save(`Teacher_Daily_Attendance_${startDate}_to_${endDate}.pdf`);
+    toast.success("PDF downloaded");
   };
 
   return (
-    <div className="space-y-6 px-4 sm:px-6 lg:px-0">
+    <AdminLayout>
       <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6">
-        <h1 className="text-3xl font-heading text-primary">
+        <h1 className="text-3xl font-righteous text-primary-dark">
           {isAdmin ? "Teacher Daily Attendance Report" : "My Daily Attendance"}
         </h1>
         <div className="flex flex-wrap gap-3 mt-2 sm:mt-0">
           <div className="flex items-center gap-2">
-            <Calendar className="text-gray-400 dark:text-gray-500 w-4 h-4" />
+            <Calendar className="text-secondary-light w-4 h-4" />
             <input
               type="date"
               value={startDate}
               onChange={(e) => setStartDate(e.target.value)}
-              className="border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded p-2 text-sm focus:ring-2 focus:ring-primary focus:border-primary outline-none"
+              className="border rounded p-2 text-sm"
             />
-            <span className="text-sm text-gray-600 dark:text-gray-400">to</span>
+            <span className="text-sm">to</span>
             <input
               type="date"
               value={endDate}
               onChange={(e) => setEndDate(e.target.value)}
-              className="border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded p-2 text-sm focus:ring-2 focus:ring-primary focus:border-primary outline-none"
+              className="border rounded p-2 text-sm"
             />
           </div>
           <button
             onClick={handleExportPDF}
-            className="bg-primary hover:bg-primary-light text-white px-4 py-2 rounded-lg text-sm flex items-center gap-2 transition-colors"
+            className="bg-primary text-white px-4 py-2 rounded-lg text-sm flex items-center gap-2"
           >
             <Download size={16} /> Export PDF
           </button>
@@ -165,40 +147,40 @@ export default function TeacherDailyAttendanceReport() {
       </div>
 
       {isLoading ? (
-        <div className="text-center py-8 text-gray-500 dark:text-gray-400">Loading…</div>
+        <div className="text-center py-8 text-secondary">Loading…</div>
       ) : reportData.length === 0 ? (
-        <div className="text-center py-8 text-gray-500 dark:text-gray-400">No attendance records found for the selected period.</div>
+        <div className="text-center py-8 text-secondary">No attendance records found for the selected period.</div>
       ) : (
-        <div className="bg-white dark:bg-accent rounded-xl shadow-sm overflow-hidden border border-gray-200 dark:border-gray-700">
+        <div className="bg-white rounded-xl shadow-sm overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full min-w-[600px]">
-              <thead className="bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600">
+              <thead className="bg-slate-50 border-b">
                 <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                    Date
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                    Teacher
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                    Code
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                    Status
-                  </th>
+                  <th className="px-4 py-3 text-left text-sm font-medium text-secondary-dark">Date</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium text-secondary-dark">Teacher</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium text-secondary-dark">Code</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium text-secondary-dark">Status</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+              <tbody>
                 {reportData.map((row, idx) => (
-                  <tr key={idx} className="hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
-                    <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-200">{row.date}</td>
-                    <td className="px-4 py-3 text-sm font-medium text-gray-800 dark:text-gray-100">
-                      {row.teacher_name}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-200">{row.employee_code}</td>
+                  <tr key={idx} className="border-t hover:bg-gray-50 transition">
+                    <td className="px-4 py-3 text-sm">{row.date}</td>
+                    <td className="px-4 py-3 text-sm font-medium">{row.teacher_name}</td>
+                    <td className="px-4 py-3 text-sm">{row.employee_code}</td>
                     <td className="px-4 py-3 text-sm">
                       <span
-                        className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${getStatusClass(row.status)}`}
+                        className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${
+                          row.status === "present"
+                            ? "bg-green-100 text-green-700"
+                            : row.status === "absent"
+                            ? "bg-red-100 text-red-700"
+                            : row.status === "leave"
+                            ? "bg-yellow-100 text-yellow-700"
+                            : row.status === "half_day"
+                            ? "bg-orange-100 text-orange-700"
+                            : "bg-gray-100 text-gray-700"
+                        }`}
                       >
                         {row.status === "present"
                           ? "Present"
@@ -216,11 +198,11 @@ export default function TeacherDailyAttendanceReport() {
               </tbody>
             </table>
           </div>
-          <div className="px-4 py-2 text-xs text-gray-500 dark:text-gray-400 border-t border-gray-200 dark:border-gray-700">
+          <div className="px-4 py-2 text-xs text-secondary-light border-t">
             {reportData.length} records | {startDate} to {endDate}
           </div>
         </div>
       )}
-    </div>
+    </AdminLayout>
   );
 }

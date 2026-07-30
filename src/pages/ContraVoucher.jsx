@@ -6,17 +6,12 @@ import AdminLayout from "../layouts/AdminLayout";
 import { getChartOfAccounts } from "../services/accountingService";
 import { createVoucher } from "../services/voucherService";
 import { useOrg } from "../context/OrganizationContext";
-import { useTheme } from "../context/ThemeContext";
 
 export default function ContraVoucher() {
   const queryClient = useQueryClient();
   const { branch, selectedFinancialYear } = useOrg();
-  const theme = useTheme();
   const branchId = branch?.id;
   const financialYearId = selectedFinancialYear?.id;
-
-  const headingFont = theme?.font_heading || "Righteous";
-  const bodyFont = theme?.font_body || "Montserrat";
 
   const context = { branchId, financialYearId };
 
@@ -68,55 +63,32 @@ export default function ContraVoucher() {
 
   return (
     <AdminLayout>
-      <h1
-        className="text-3xl font-bold text-primary-dark mb-6"
-        style={{ fontFamily: headingFont }}
-      >
-        Contra Voucher
-      </h1>
-      <form
-        onSubmit={handleSubmit}
-        className="bg-white rounded-xl p-6 shadow-sm space-y-4 max-w-lg border border-primary-bg"
-      >
+      <h1 className="text-3xl font-righteous text-primary-dark mb-6">Contra Voucher</h1>
+      <form onSubmit={handleSubmit} className="bg-white rounded-xl p-6 shadow-sm space-y-4 max-w-lg">
         <div>
-          <label
-            className="block text-sm mb-1 text-primary-dark"
-            style={{ fontFamily: bodyFont }}
-          >
-            Date
-          </label>
+          <label className="block text-sm mb-1">Date</label>
           <input
             type="date"
             value={date}
             onChange={(e) => setDate(e.target.value)}
-            className="w-full border border-primary-bg bg-white text-primary rounded p-2.5 text-sm"
+            className="w-full border rounded p-2.5 text-sm"
           />
         </div>
         <div>
-          <label
-            className="block text-sm mb-1 text-primary-dark"
-            style={{ fontFamily: bodyFont }}
-          >
-            Reference
-          </label>
+          <label className="block text-sm mb-1">Reference</label>
           <input
             type="text"
             value={reference}
             onChange={(e) => setReference(e.target.value)}
-            className="w-full border border-primary-bg bg-white text-primary rounded p-2.5 text-sm"
+            className="w-full border rounded p-2.5 text-sm"
           />
         </div>
         <div>
-          <label
-            className="block text-sm mb-1 text-primary-dark"
-            style={{ fontFamily: bodyFont }}
-          >
-            From Account (Credit)
-          </label>
+          <label className="block text-sm mb-1">From Account (Credit)</label>
           <select
             value={fromAccount}
             onChange={(e) => setFromAccount(e.target.value)}
-            className="w-full border border-primary-bg bg-white text-primary rounded p-2.5 text-sm"
+            className="w-full border rounded p-2.5 text-sm"
             required
           >
             <option value="">Select</option>
@@ -130,16 +102,11 @@ export default function ContraVoucher() {
           </select>
         </div>
         <div>
-          <label
-            className="block text-sm mb-1 text-primary-dark"
-            style={{ fontFamily: bodyFont }}
-          >
-            To Account (Debit)
-          </label>
+          <label className="block text-sm mb-1">To Account (Debit)</label>
           <select
             value={toAccount}
             onChange={(e) => setToAccount(e.target.value)}
-            className="w-full border border-primary-bg bg-white text-primary rounded p-2.5 text-sm"
+            className="w-full border rounded p-2.5 text-sm"
             required
           >
             <option value="">Select</option>
@@ -153,24 +120,18 @@ export default function ContraVoucher() {
           </select>
         </div>
         <div>
-          <label
-            className="block text-sm mb-1 text-primary-dark"
-            style={{ fontFamily: bodyFont }}
-          >
-            Amount
-          </label>
+          <label className="block text-sm mb-1">Amount</label>
           <input
             type="number"
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
-            className="w-full border border-primary-bg bg-white text-primary rounded p-2.5 text-sm"
+            className="w-full border rounded p-2.5 text-sm"
             required
           />
         </div>
         <button
           type="submit"
-          className="bg-primary hover:bg-primary-light text-white px-6 py-2.5 rounded-lg text-sm font-medium transition-colors"
-          style={{ fontFamily: bodyFont }}
+          className="bg-primary text-white px-6 py-2.5 rounded-lg"
         >
           Save Voucher
         </button>

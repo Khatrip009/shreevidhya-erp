@@ -1,76 +1,83 @@
 // src/components/ScopeSelector.jsx
-import { Select, Space, Typography } from "antd";
-import { useOrg } from "../context/OrganizationContext";
-import { useTheme } from "../context/ThemeContext"; // ✅ dynamic theme
-
-const { Text } = Typography;
+import { useScope } from "../context/ScopeContext";
+import { Building, Calendar } from "lucide-react";
 
 export default function ScopeSelector() {
   const {
-    branches,
     branch,
     setBranch,
+    branches,
     financialYears,
     selectedFinancialYear,
     switchFinancialYear,
-  } = useOrg();
+  } = useScope();
 
-  const theme = useTheme();                                     // ✅ theme hook
-  const bodyFont = theme?.font_body || "Montserrat";            // ✅ dynamic font
-
-  // Only show when there's something to select
   if (branches.length <= 1 && financialYears.length === 0) return null;
 
   return (
-    <Space size="middle" style={{ whiteSpace: "nowrap" }}>
+    <div className="space-y-3 text-white">
       {branches.length > 1 && (
-        <Space size={4}>
-          {/* Replace antd Text with styled span for theme consistency */}
-          <span
-            className="text-primary-dark/60 text-xs"
-            style={{ fontFamily: bodyFont }}
-          >
+        <div>
+          <label className="flex items-center gap-1.5 text-xs font-medium text-gray-300 mb-1">
+            <Building size={14} />
             Branch
-          </span>
-          <Select
-            value={branch?.id}
-            onChange={(id) => {
-              const selected = branches.find((b) => b.id === id);
+          </label>
+          <select
+            value={branch?.id || ""}
+            onChange={(e) => {
+              const selected = branches.find((b) => b.id == e.target.value);
               if (selected) setBranch(selected);
             }}
-            size="small"
-            style={{ minWidth: 130, fontFamily: bodyFont }}
+            className="w-full rounded-lg border border-primary-dark bg-primary-light text-white px-3 py-1.5 text-sm focus:ring-2 focus:ring-white/30"
           >
             {branches.map((b) => (
-              <Select.Option key={b.id} value={b.id}>
+              <option key={b.id} value={b.id} className="bg-primary text-white">
                 {b.branch_name}
-              </Select.Option>
+              </option>
             ))}
-          </Select>
-        </Space>
+          </select>
+        </div>
       )}
+
       {financialYears.length > 0 && (
-        <Space size={4}>
-          <span
-            className="text-primary-dark/60 text-xs"
-            style={{ fontFamily: bodyFont }}
-          >
-            FY
-          </span>
-          <Select
-            value={selectedFinancialYear?.id}
-            onChange={(id) => switchFinancialYear(Number(id))}
-            size="small"
-            style={{ minWidth: 110, fontFamily: bodyFont }}
-          >
-            {financialYears.map((fy) => (
-              <Select.Option key={fy.id} value={fy.id}>
-                {fy.name}
-              </Select.Option>
-            ))}
-          </Select>
-        </Space>
+        <div>
+          <label className="flex items-center gap-1.5 text-xs font-medium text-gray-300 mb-1">
+            <Calendar size={14} />
+            Financial Year
+          </label>
+          {selectedFinancialYear ? (
+            <select
+              value={selectedFinancialYear.id}
+              onChange={(e) => switchFinancialYear(Number(e.target.value))}
+              className="w-full rounded-lg border border-primary-dark bg-primary-light text-white px-3 py-1.5 text-sm focus:ring-2 focus:ring-white/30"
+            >
+              {financialYears.map((fy) => (
+                <option key={fy.id} value={fy.id} className="bg-primary text-white">
+                  {fy.name}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <select
+              onChange={(e) => {
+                const id = Number(e.target.value);
+                if (id) switchFinancialYear(id);
+              }}
+              className="w-full rounded-lg border border-primary-dark bg-primary-light text-white px-3 py-1.5 text-sm focus:ring-2 focus:ring-white/30"
+              defaultValue=""
+            >
+              <option value="" disabled className="bg-primary text-white">
+                Select FY
+              </option>
+              {financialYears.map((fy) => (
+                <option key={fy.id} value={fy.id} className="bg-primary text-white">
+                  {fy.name}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
       )}
-    </Space>
+    </div>
   );
 }

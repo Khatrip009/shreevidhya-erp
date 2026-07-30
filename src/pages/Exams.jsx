@@ -19,11 +19,10 @@ import {
   Award,
   Calendar,
   Layers,
-  Mail,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import Papa from "papaparse";
-
+import AdminLayout from "../layouts/AdminLayout";
 import ExamForm from "../components/ExamForm";
 import ConfirmDialog from "../components/ConfirmDialog";
 import BackButton from "../components/BackButton";
@@ -39,27 +38,21 @@ import {
 } from "../services/examService";
 import { useAuth } from "../context/AuthContext";
 import { useOrg } from "../context/OrganizationContext";
-import { useTheme } from "../context/ThemeContext";               // ✅ dynamic theme
-import { supabase } from "../api/supabase";
-import { sendTemplateEmail, sendEmail } from "../services/emailService";
 
 export default function Exams() {
   const { profile } = useAuth();
   const navigate = useNavigate();
 
   const role = (profile?.role || "").toLowerCase().replace(/\s+/g, "_");
-  const isAdmin = role === "admin" || role === "super_admin" || role === "organization_admin" || role === "branch_admin" || role === "teacher";
+  const isAdmin = role === "admin" || role === "super_admin";
 
   const queryClient = useQueryClient();
 
-  const { branch, selectedFinancialYear, org } = useOrg();
-  const theme = useTheme();
+  // ── Organisation / Branch / Financial Year context ──
+  const { branch, selectedFinancialYear } = useOrg();
   const branchId = branch?.id;
   const financialYearId = selectedFinancialYear?.id;
   const ctx = { branchId, financialYearId };
-
-  const headingFont = theme?.font_heading || "Righteous";
-  const bodyFont = theme?.font_body || "Montserrat";
 
   const [search, setSearch] = useState("");
   const [batchFilter, setBatchFilter] = useState("");
@@ -80,159 +73,9 @@ export default function Exams() {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(null);
-  const [sendingSchedule, setSendingSchedule] = useState(null);
   const fileInputRef = useRef(null);
 
-  // ─── Helper: get admin emails ──────────────────────────────────────
-  const getAdminEmails = async () => {
-    if (!org?.id) return [];
-    const { data, error } = await supabase
-      .from("profiles")
-      .select("email")
-      .eq("organization_id", org.id)
-      .in("role", ["admin", "super_admin", "organization_admin"])
-      .eq("is_active", true);
-    if (error) {
-      console.error("Failed to fetch admin emails:", error);
-      return [];
-    }
-    return data?.map(p => p.email).filter(Boolean) || [];
-  };
-
-  // ─── Send exam schedule emails to students ─────────────────────────
-  const sendExamScheduleEmails = async (examId) => {
-    try {
-      const { data: exam, error: examError } = await supabase
-        .from("exams")
-        .select(`
-          *,
-          batches(batch_name, course_id, courses(course_name)),
-          subjects(subject_name)
-        `)
-        .eq("id", examId)
-        .single();
-      if (examError) throw examError;
-
-      const { data: studentBatches, error: studentError } = await supabase
-        .from("student_batches")
-        .select("student_id, students(first_name, last_name, email)")
-        .eq("batch_id", exam.batch_id)
-        .eq("status", "active")
-        .eq("branch_id", branchId)
-        .eq("financial_year_id", financialYearId);
-      if (studentError) throw studentError;
-
-      if (!studentBatches || studentBatches.length === 0) {
-        toast.error("No active students in this batch.");
-        return;
-      }
-
-      let sentCount = 0;
-      for (const sb of studentBatches) {
-        const student = sb.students;
-        let recipientEmail = student.email;
-
-        const { data: parent, error: parentError } = await supabase
-          .from("student_parents")
-          .select("parents!inner(email)")
-          .eq("student_id", student.id)
-          .maybeSingle();
-        if (!parentError && parent && parent.parents?.email) {
-          recipientEmail = parent.parents.email;
-        }
-
-        if (!recipientEmail) continue;
-
-        const context = {
-          academyName: org?.company_name || "Academy",
-          exam_name: exam.exam_name,
-          subject_name: exam.subjects?.subject_name || "",
-          exam_date: exam.exam_date,
-          total_marks: exam.total_marks,
-          batch_name: exam.batches?.batch_name || "",
-        };
-
-        await sendTemplateEmail({
-          to: recipientEmail,
-          organizationId: org?.id,
-          slug: "exam_schedule",
-          context,
-          branchId,
-        });
-        sentCount++;
-      }
-      toast.success(`Exam schedule sent to ${sentCount} student(s).`);
-    } catch (err) {
-      console.error("Send schedule error:", err);
-      toast.error("Failed to send schedule emails.");
-    }
-  };
-
-  // ─── Send Report to Admins ─────────────────────────────────────────
-  const sendReportEmail = async () => {
-    if (exams.length === 0) {
-      alert("No exams to send.");
-      return;
-    }
-
-    try {
-      const adminEmails = await getAdminEmails();
-      if (adminEmails.length === 0) {
-        alert("No admin emails found.");
-        return;
-      }
-
-      let tableRows = exams.map((e) => `
-        <tr>
-          <td style="padding:4px 8px;border:1px solid #ddd;">${e.exam_name}</td>
-          <td style="padding:4px 8px;border:1px solid #ddd;">${e.batches?.batch_name || ""}</td>
-          <td style="padding:4px 8px;border:1px solid #ddd;">${e.batches?.courses?.course_name || ""}</td>
-          <td style="padding:4px 8px;border:1px solid #ddd;">${e.medium_name || ""}</td>
-          <td style="padding:4px 8px;border:1px solid #ddd;">${e.exam_date}</td>
-          <td style="padding:4px 8px;border:1px solid #ddd;">${e.total_marks || ""}</td>
-        </tr>
-      `).join('');
-
-      const htmlBody = `
-        <div style="font-family:Arial,sans-serif;max-width:800px;margin:0 auto;">
-          <h2 style="color:#0D47A1;">Exam Report</h2>
-          <p><strong>Branch:</strong> ${branch?.branch_name || 'N/A'}</p>
-          <p><strong>Total Exams:</strong> ${exams.length}</p>
-          <hr />
-          <table style="width:100%;border-collapse:collapse;font-size:12px;">
-            <thead>
-              <tr style="background:#e3f2fd;">
-                <th style="padding:4px 8px;border:1px solid #ddd;text-align:left;">Exam</th>
-                <th style="padding:4px 8px;border:1px solid #ddd;text-align:left;">Batch</th>
-                <th style="padding:4px 8px;border:1px solid #ddd;text-align:left;">Course</th>
-                <th style="padding:4px 8px;border:1px solid #ddd;text-align:left;">Medium</th>
-                <th style="padding:4px 8px;border:1px solid #ddd;text-align:left;">Date</th>
-                <th style="padding:4px 8px;border:1px solid #ddd;text-align:left;">Total Marks</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${tableRows}
-            </tbody>
-          </table>
-          <p style="color:#888;font-size:10px;margin-top:20px;">Computer‑generated report from ${org?.company_name || 'Academy'}</p>
-        </div>
-      `;
-
-      await sendEmail({
-        to: adminEmails,
-        subject: `Exam Report - ${new Date().toLocaleDateString()}`,
-        html: htmlBody,
-        from: org?.email || undefined,
-      });
-
-      alert("Report sent to admins.");
-    } catch (err) {
-      console.error("Failed to send report:", err);
-      alert("Failed to send report. Check console for details.");
-    }
-  };
-
-  // ─── Dropdowns ──────────────────────────────────────────────────────
+  // Dropdowns – scoped where needed
   const { data: batches = [] } = useQuery({
     queryKey: ["batches-dropdown", branchId, financialYearId],
     queryFn: () => getBatchOptions(branchId, financialYearId),
@@ -241,16 +84,16 @@ export default function Exams() {
   });
   const { data: courses = [] } = useQuery({
     queryKey: ["courses-dropdown"],
-    queryFn: getCourseOptions,
+    queryFn: getCourseOptions, // organisation-wide
     staleTime: 10 * 60 * 1000,
   });
   const { data: mediums = [] } = useQuery({
     queryKey: ["mediums-dropdown"],
-    queryFn: getMediumOptions,
+    queryFn: getMediumOptions, // organisation-wide
     staleTime: 10 * 60 * 1000,
   });
 
-  // ─── Exams list – scoped ──────────────────────────────────────────
+  // Exams list – scoped
   const {
     data,
     isLoading,
@@ -275,7 +118,7 @@ export default function Exams() {
 
   const exams = data?.pages.flatMap((page) => page.data) || [];
 
-  // ─── Mutations ──────────────────────────────────────────────────────
+  // Mutations – use context
   const createMutation = useMutation({
     mutationFn: (payload) => createExam(payload, ctx),
     onSuccess: () => {
@@ -305,7 +148,6 @@ export default function Exams() {
     onError: () => toast.error("Delete failed"),
   });
 
-  // ─── CSV handlers ──────────────────────────────────────────────────
   async function handleCSVImport(event) {
     const file = event.target.files[0];
     if (!file) return;
@@ -373,19 +215,12 @@ export default function Exams() {
   }
 
   return (
-    <div className="space-y-6 px-4 sm:px-6 lg:px-0">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+    <AdminLayout>
+      <BackButton to="/academics-hub" label="Academics Hub" />
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
         <div>
-          <h1
-            className="text-2xl sm:text-3xl font-bold text-primary"
-            style={{ fontFamily: headingFont }}
-          >
-            Exams
-          </h1>
-          <p
-            className="text-sm text-primary-dark mt-1"
-            style={{ fontFamily: bodyFont }}
-          >
+          <h1 className="text-3xl font-righteous text-primary-dark">Exams</h1>
+          <p className="text-sm text-secondary-dark font-montserrat mt-1">
             Create and manage exams
           </p>
         </div>
@@ -393,30 +228,19 @@ export default function Exams() {
           <div className="flex flex-wrap gap-2">
             <button
               onClick={() => setShowForm(true)}
-              className="inline-flex items-center gap-2 px-4 py-2.5 bg-primary hover:bg-primary-light text-white rounded-lg transition-colors text-sm font-medium"
-              style={{ fontFamily: bodyFont }}
+              className="bg-primary hover:bg-primary-light text-white px-5 py-2.5 rounded-lg transition font-montserrat text-sm flex items-center gap-2"
             >
               <Award size={18} /> Add Exam
             </button>
-            {/* Send Report button */}
-            <button
-              onClick={sendReportEmail}
-              className="inline-flex items-center gap-2 px-4 py-2.5 bg-accent hover:bg-accent-dark text-white rounded-lg transition-colors text-sm font-medium"
-              style={{ fontFamily: bodyFont }}
-            >
-              <Mail size={18} /> Send Report
-            </button>
             <button
               onClick={handleCSVExport}
-              className="inline-flex items-center gap-2 px-4 py-2.5 border border-primary-bg bg-white text-primary-dark rounded-lg hover:bg-primary-bg transition-colors text-sm"
-              style={{ fontFamily: bodyFont }}
+              className="border border-secondary-light px-4 py-2.5 rounded-lg text-secondary-dark hover:bg-secondary-bg font-montserrat text-sm flex items-center gap-2"
             >
               <Download size={18} /> Export
             </button>
             <button
               onClick={() => fileInputRef.current?.click()}
-              className="inline-flex items-center gap-2 px-4 py-2.5 border border-primary-bg bg-white text-primary-dark rounded-lg hover:bg-primary-bg transition-colors text-sm"
-              style={{ fontFamily: bodyFont }}
+              className="border border-secondary-light px-4 py-2.5 rounded-lg text-secondary-dark hover:bg-secondary-bg font-montserrat text-sm flex items-center gap-2"
             >
               <Upload size={18} /> Import
             </button>
@@ -431,87 +255,83 @@ export default function Exams() {
         )}
       </div>
 
-      {/* Search & Filters */}
-      <div className="flex flex-col sm:flex-row gap-3">
+      <div className="flex flex-col sm:flex-row gap-3 mb-4">
         <div className="relative flex-1">
           <Search
             size={18}
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-primary-dark/60"
+            className="absolute left-3 top-1/2 -translate-y-1/2 text-secondary"
           />
           <input
             type="text"
             placeholder="Search by exam or batch name..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full border border-primary-bg bg-white text-primary-dark rounded-lg pl-10 pr-4 py-2.5 text-sm"
-            style={{ fontFamily: bodyFont }}
+            className="w-full border border-secondary-light rounded-lg pl-10 pr-4 py-2.5 text-sm focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light"
           />
         </div>
         <button
           onClick={() => setShowFilters(!showFilters)}
-          className="inline-flex items-center gap-2 px-4 py-2.5 border border-primary-bg bg-white text-primary-dark rounded-lg hover:bg-primary-bg transition-colors text-sm"
-          style={{ fontFamily: bodyFont }}
+          className="border border-secondary-light px-4 py-2.5 rounded-lg text-secondary-dark hover:bg-secondary-bg font-montserrat text-sm flex items-center gap-2"
         >
-          <Filter size={18} /> Filters {showFilters && <X size={16} />}
+          <Filter size={18} /> Filters
+          {showFilters && <X size={16} />}
         </button>
       </div>
 
       {showFilters && (
-        <div className="bg-white rounded-xl p-4 shadow-sm border border-primary-bg grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+        <div className="bg-white rounded-xl p-4 shadow-sm mb-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 border border-secondary-light">
           <div>
-            <label className="text-xs font-medium text-primary-dark mb-1 block" style={{ fontFamily: bodyFont }}>
-              Batch
-            </label>
+            <label className="text-xs font-montserrat text-secondary-dark">Batch</label>
             <select
               value={batchFilter}
               onChange={(e) => setBatchFilter(e.target.value)}
-              className="w-full border border-primary-bg bg-white text-primary-dark rounded p-2 text-sm"
+              className="w-full border border-secondary-light rounded p-2 text-sm mt-1 focus:ring-1 focus:ring-primary"
             >
               <option value="">All Batches</option>
               {batches.map((b) => (
-                <option key={b.id} value={b.id}>{b.batch_name}</option>
+                <option key={b.id} value={b.id}>
+                  {b.batch_name}
+                </option>
               ))}
             </select>
           </div>
           <div>
-            <label className="text-xs font-medium text-primary-dark mb-1 block" style={{ fontFamily: bodyFont }}>
-              Course
-            </label>
+            <label className="text-xs font-montserrat text-secondary-dark">Course</label>
             <select
               value={courseFilter}
               onChange={(e) => setCourseFilter(e.target.value)}
-              className="w-full border border-primary-bg bg-white text-primary-dark rounded p-2 text-sm"
+              className="w-full border border-secondary-light rounded p-2 text-sm mt-1 focus:ring-1 focus:ring-primary"
             >
               <option value="">All Courses</option>
               {courses.map((c) => (
-                <option key={c.id} value={c.id}>{c.course_name}</option>
+                <option key={c.id} value={c.id}>
+                  {c.course_name}
+                </option>
               ))}
             </select>
           </div>
           <div>
-            <label className="text-xs font-medium text-primary-dark mb-1 block" style={{ fontFamily: bodyFont }}>
-              Medium
-            </label>
+            <label className="text-xs font-montserrat text-secondary-dark">Medium</label>
             <select
               value={mediumFilter}
               onChange={(e) => setMediumFilter(e.target.value)}
-              className="w-full border border-primary-bg bg-white text-primary-dark rounded p-2 text-sm"
+              className="w-full border border-secondary-light rounded p-2 text-sm mt-1 focus:ring-1 focus:ring-primary"
             >
               <option value="">All Mediums</option>
               {mediums.map((m) => (
-                <option key={m.id} value={m.id}>{m.name}</option>
+                <option key={m.id} value={m.id}>
+                  {m.name}
+                </option>
               ))}
             </select>
           </div>
           <div>
-            <label className="text-xs font-medium text-primary-dark mb-1 block" style={{ fontFamily: bodyFont }}>
-              From Date
-            </label>
+            <label className="text-xs font-montserrat text-secondary-dark">From Date</label>
             <input
               type="date"
               value={startDate}
               onChange={(e) => setStartDate(e.target.value)}
-              className="w-full border border-primary-bg bg-white text-primary-dark rounded p-2 text-sm"
+              className="w-full border border-secondary-light rounded p-2 text-sm mt-1 focus:ring-1 focus:ring-primary"
             />
           </div>
           <div className="flex items-end">
@@ -524,8 +344,7 @@ export default function Exams() {
                 setStartDate("");
                 setEndDate("");
               }}
-              className="text-sm text-primary hover:underline"
-              style={{ fontFamily: bodyFont }}
+              className="text-primary text-sm hover:underline"
             >
               Clear Filters
             </button>
@@ -533,33 +352,32 @@ export default function Exams() {
         </div>
       )}
 
-      {/* Table */}
-      <div className="bg-white rounded-xl shadow-sm border border-primary-bg overflow-hidden">
+      <div className="bg-white rounded-xl shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[800px]">
-            <thead className="bg-primary-bg">
+            <thead className="bg-slate-100 border-b border-secondary-light">
               <tr>
-                <th className="p-3 text-left text-xs font-medium text-primary-dark uppercase tracking-wider">Exam</th>
-                <th className="p-3 text-left text-xs font-medium text-primary-dark uppercase tracking-wider">Batch</th>
-                <th className="p-3 text-left text-xs font-medium text-primary-dark uppercase tracking-wider">Course</th>
-                <th className="p-3 text-left text-xs font-medium text-primary-dark uppercase tracking-wider">Medium</th>
-                <th className="p-3 text-left text-xs font-medium text-primary-dark uppercase tracking-wider">Date</th>
-                <th className="p-3 text-left text-xs font-medium text-primary-dark uppercase tracking-wider">Total Marks</th>
-                <th className="p-3 text-left text-xs font-medium text-primary-dark uppercase tracking-wider">Actions</th>
+                <th className="p-3 text-left text-sm font-montserrat text-secondary-dark">Exam</th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">Batch</th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">Course</th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">Medium</th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">Date</th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">Total Marks</th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-primary-bg">
+            <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan={7} className="p-6 text-center text-primary-dark/60">Loading exams…</td>
+                  <td colSpan={7} className="p-6 text-center text-secondary">Loading exams…</td>
                 </tr>
               ) : exams.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="p-6 text-center text-primary-dark/60">
+                  <td colSpan={7} className="p-6 text-center text-secondary">
                     <div className="flex flex-col items-center gap-2">
-                      <Award size={32} className="text-primary-dark/40" />
+                      <Award size={32} className="text-secondary-light" />
                       <span>No exams found</span>
-                      <span className="text-xs">
+                      <span className="text-xs text-secondary-light">
                         {search || batchFilter || courseFilter || mediumFilter || startDate || endDate
                           ? "Try adjusting your filters"
                           : "Add a new exam to get started"}
@@ -571,56 +389,39 @@ export default function Exams() {
                 exams.map((exam) => (
                   <tr
                     key={exam.id}
-                    className="hover:bg-primary-bg transition-colors"
+                    className="border-b border-secondary-light hover:bg-primary-bg transition"
                   >
-                    <td className="p-3 text-sm font-medium text-primary">{exam.exam_name}</td>
-                    <td className="text-sm text-primary-dark">{exam.batches?.batch_name}</td>
-                    <td className="text-sm text-primary-dark">{exam.batches?.courses?.course_name}</td>
+                    <td className="p-3 text-sm font-medium">{exam.exam_name}</td>
+                    <td className="text-sm">{exam.batches?.batch_name}</td>
+                    <td className="text-sm">{exam.batches?.courses?.course_name}</td>
                     <td className="text-sm">
                       {exam.medium_name ? (
-                        <span className="px-2 py-0.5 rounded-full text-xs bg-primary-light text-primary">
+                        <span className="bg-primary-bg text-primary px-2 py-0.5 rounded-full text-xs">
                           {exam.medium_name}
                         </span>
-                      ) : (
-                        "-"
-                      )}
+                      ) : "-"}
                     </td>
-                    <td className="text-sm text-primary-dark">{exam.exam_date}</td>
-                    <td className="text-sm text-primary-dark">{exam.total_marks || "-"}</td>
+                    <td className="text-sm">{exam.exam_date}</td>
+                    <td className="text-sm">{exam.total_marks || "-"}</td>
                     <td className="text-sm">
-                      <div className="flex gap-2 flex-wrap">
+                      <div className="flex gap-2">
                         <button
                           onClick={() => navigate(`/results/enter/${exam.id}`)}
-                          className="text-accent hover:underline"
+                          className="text-purple-600 hover:underline"
                         >
                           Results
-                        </button>
-                        {/* Send Schedule button */}
-                        <button
-                          onClick={() => {
-                            setSendingSchedule(exam.id);
-                            sendExamScheduleEmails(exam.id).finally(() =>
-                              setSendingSchedule(null)
-                            );
-                          }}
-                          disabled={sendingSchedule === exam.id}
-                          className="text-primary hover:underline flex items-center gap-1 disabled:opacity-50"
-                          title="Send schedule to students"
-                        >
-                          <Mail size={15} />
-                          {sendingSchedule === exam.id ? '...' : ''}
                         </button>
                         {isAdmin && (
                           <>
                             <button
                               onClick={() => setEditing(exam)}
-                              className="text-primary hover:underline"
+                              className="text-blue-600 hover:underline"
                             >
                               <Edit3 size={15} />
                             </button>
                             <button
                               onClick={() => handleDelete(exam.id)}
-                              className="text-accent hover:underline"
+                              className="text-red-600 hover:underline"
                             >
                               <Trash2 size={15} />
                             </button>
@@ -641,8 +442,7 @@ export default function Exams() {
           <button
             onClick={() => fetchNextPage()}
             disabled={isFetchingNextPage}
-            className="bg-primary hover:bg-primary-light text-white px-6 py-2.5 rounded-lg text-sm font-medium transition disabled:opacity-60"
-            style={{ fontFamily: bodyFont }}
+            className="bg-primary hover:bg-primary-light text-white px-6 py-2.5 rounded-lg font-montserrat text-sm transition disabled:opacity-60"
           >
             {isFetchingNextPage ? "Loading more…" : "Load More"}
           </button>
@@ -652,16 +452,16 @@ export default function Exams() {
       {confirmDelete && (
         <ConfirmDialog
           message="Delete this exam and all its results?"
-          onConfirm={() => {
-            deleteMutation.mutate(confirmDelete);
-            setConfirmDelete(null);
-          }}
+          onConfirm={() => { deleteMutation.mutate(confirmDelete); setConfirmDelete(null); }}
           onCancel={() => setConfirmDelete(null)}
         />
       )}
 
       {isAdmin && showForm && (
-        <ExamForm onSubmit={handleCreate} onClose={() => setShowForm(false)} />
+        <ExamForm
+          onSubmit={handleCreate}
+          onClose={() => setShowForm(false)}
+        />
       )}
       {isAdmin && editing && (
         <ExamForm
@@ -670,6 +470,6 @@ export default function Exams() {
           onClose={() => setEditing(null)}
         />
       )}
-    </div>
+    </AdminLayout>
   );
 }

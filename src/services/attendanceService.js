@@ -24,19 +24,11 @@ export async function getAttendanceSessions({
     .order("attendance_date", { ascending: false })
     .range(from, to);
 
-  // ✅ FIXED: no table alias
-  if (branchId) query = query.eq("branch_id", branchId);
-  if (financialYearId) query = query.eq("financial_year_id", financialYearId);
+  // Apply branch/financial year scope (safe guards)
+  if (branchId) query = query.eq("attendance_sessions.branch_id", branchId);
+  if (financialYearId) query = query.eq("attendance_sessions.financial_year_id", financialYearId);
 
-  // Handle batch_id filter (array or single)
-  if (filters.batchId) {
-    if (Array.isArray(filters.batchId) && filters.batchId.length > 0) {
-      query = query.in("batch_id", filters.batchId);
-    } else if (!Array.isArray(filters.batchId)) {
-      query = query.eq("batch_id", filters.batchId);
-    }
-  }
-
+  if (filters.batchId) query = query.eq("batch_id", filters.batchId);
   if (filters.search) {
     query = query.or(
       `topic_covered.ilike.%${filters.search}%,attendance_date::text.ilike.%${filters.search}%`
@@ -46,6 +38,7 @@ export async function getAttendanceSessions({
   if (filters.endDate) query = query.lte("attendance_date", filters.endDate);
 
   if (filters.medium_id) {
+    // Scope the batch lookup by branch & FY
     let mediumQuery = supabase
       .from("batches")
       .select("id")
@@ -63,27 +56,27 @@ export async function getAttendanceSessions({
 
   // Enrich with attendance counts (these sub‑queries inherit session scope, so no extra filters needed)
   const enriched = await Promise.all(
-  data.map(async (session) => {
-    const { data: presentRows } = await supabase
-      .from("student_attendance")
-      .select("id")
-      .eq("session_id", session.id)
-      .eq("status", "present");   // ← lowercase
+    data.map(async (session) => {
+      const { data: presentRows } = await supabase
+        .from("student_attendance")
+        .select("id")
+        .eq("session_id", session.id)
+        .eq("status", "Present");
 
-    const { data: allRows } = await supabase
-      .from("student_attendance")
-      .select("id")
-      .eq("session_id", session.id);
+      const { data: allRows } = await supabase
+        .from("student_attendance")
+        .select("id")
+        .eq("session_id", session.id);
 
-    return {
-      ...session,
-      batch_name: session.batches?.batch_name,
-      medium_name: session.batches?.mediums?.name || "",
-      present_count: presentRows ? presentRows.length : 0,
-      total_count: allRows ? allRows.length : 0,
-    };
-  })
-);
+      return {
+        ...session,
+        batch_name: session.batches?.batch_name,
+        medium_name: session.batches?.mediums?.name || "",
+        present_count: presentRows ? presentRows.length : 0,
+        total_count: allRows ? allRows.length : 0,
+      };
+    })
+  );
 
   return { data: enriched, count };
 }
@@ -99,17 +92,10 @@ export async function getAllAttendanceSessionsForExport({
     .select(`id, batch_id, attendance_date, topic_covered, batches(batch_name, medium_id, mediums(name))`)
     .order("attendance_date", { ascending: false });
 
-  // ✅ FIXED: no table alias
-  if (branchId) query = query.eq("branch_id", branchId);
-  if (financialYearId) query = query.eq("financial_year_id", financialYearId);
+  if (branchId) query = query.eq("attendance_sessions.branch_id", branchId);
+  if (financialYearId) query = query.eq("attendance_sessions.financial_year_id", financialYearId);
 
-  if (filters.batchId) {
-    if (Array.isArray(filters.batchId) && filters.batchId.length > 0) {
-      query = query.in("batch_id", filters.batchId);
-    } else if (!Array.isArray(filters.batchId)) {
-      query = query.eq("batch_id", filters.batchId);
-    }
-  }
+  if (filters.batchId) query = query.eq("batch_id", filters.batchId);
   if (filters.search) {
     query = query.or(
       `topic_covered.ilike.%${filters.search}%,attendance_date::text.ilike.%${filters.search}%`
@@ -140,7 +126,7 @@ export async function getAllAttendanceSessionsForExport({
         .from("student_attendance")
         .select("id")
         .eq("session_id", session.id)
-        .eq("status", "present");
+        .eq("status", "Present");
 
       const { data: allRows } = await supabase
         .from("student_attendance")
@@ -214,35 +200,27 @@ export async function deleteAttendanceSession(id, branchId, financialYearId) {
 // ============================
 
 export async function getStudentsByBatch(batchId, branchId, financialYearId) {
-  // Step 1 – Get student IDs for this batch (already scoped by branch/FY)
-  let sbQuery = supabase
+  let query = supabase
     .from("student_batches")
-    .select("student_id")
+    .select(`
+      student_id,
+      students!inner( id, first_name, last_name, admission_no )
+    `)
     .eq("batch_id", batchId)
     .eq("status", "active");
 
-  if (branchId) sbQuery = sbQuery.eq("branch_id", branchId);
-  if (financialYearId) sbQuery = sbQuery.eq("financial_year_id", financialYearId);
+  if (branchId) query = query.eq("student_batches.branch_id", branchId);
+  if (financialYearId) query = query.eq("student_batches.financial_year_id", financialYearId);
 
-  const { data: studentBatches } = await sbQuery;
-  const studentIds = (studentBatches || []).map(sb => sb.student_id).filter(Boolean);
+  const { data, error } = await query;
+  if (error) throw error;
 
-  if (studentIds.length === 0) return [];
-
-  // Step 2 – Fetch student details (no extra branch/FY filters)
-  const { data: students } = await supabase
-    .from("students")
-    .select("id, first_name, last_name, admission_no")
-    .in("id", studentIds);
-
-  // Map to the shape expected by MarkAttendance (with student_id field)
-  return (students || []).map(s => ({
-    student_id: s.id,
-    first_name: s.first_name,
-    last_name: s.last_name,
-    admission_no: s.admission_no,
+  return data.map((item) => ({
+    student_id: item.student_id,
+    ...item.students,
   }));
 }
+
 export async function getMarkedAttendance(sessionId, branchId, financialYearId) {
   // Ensure we only fetch attendance for sessions within the current branch/FY (in case sessionId is spoofed)
   let query = supabase

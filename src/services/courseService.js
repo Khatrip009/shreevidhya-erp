@@ -1,11 +1,13 @@
 // src/services/courseService.js
 import { supabase } from "../api/supabase";
 
-// ─── COURSES ──────────────────────────────────────────────
-
-export async function getCourses({ pageParam = 0, filters = {}, organizationId, financialYearId } = {}) {
-  if (!organizationId) throw new Error("organizationId is required");
-
+// Paginated fetch with search filter – now includes medium name and branch/FY scoping
+export async function getCourses({
+  pageParam = 0,
+  filters = {},
+  branchId,
+  financialYearId,
+} = {}) {
   const limit = 10;
   const from = pageParam * limit;
   const to = from + limit - 1;
@@ -13,14 +15,19 @@ export async function getCourses({ pageParam = 0, filters = {}, organizationId, 
   let query = supabase
     .from("courses")
     .select("*, mediums(name)", { count: "exact" })
-    .eq("organization_id", organizationId)
-    .is("deleted_at", null)
     .order("id", { ascending: false })
     .range(from, to);
 
-  if (financialYearId) query = query.eq("financial_year_id", financialYearId);
-  if (filters.search) query = query.ilike("course_name", `%${filters.search}%`);
-  if (filters.medium_id) query = query.eq("medium_id", filters.medium_id);
+  // Safe scope filters
+  if (branchId) query = query.eq("courses.branch_id", branchId);
+  if (financialYearId) query = query.eq("courses.financial_year_id", financialYearId);
+
+  if (filters.search) {
+    query = query.ilike("course_name", `%${filters.search}%`);
+  }
+  if (filters.medium_id) {
+    query = query.eq("medium_id", filters.medium_id);
+  }
 
   const { data, error, count } = await query;
   if (error) throw error;
@@ -33,19 +40,26 @@ export async function getCourses({ pageParam = 0, filters = {}, organizationId, 
   return { data: enriched, count };
 }
 
-export async function getAllCoursesForExport({ filters = {}, organizationId, financialYearId } = {}) {
-  if (!organizationId) throw new Error("organizationId is required");
-
+// Export all courses (unpaginated, same filters and scoping)
+export async function getAllCoursesForExport({
+  filters = {},
+  branchId,
+  financialYearId,
+} = {}) {
   let query = supabase
     .from("courses")
     .select("*, mediums(name)")
-    .eq("organization_id", organizationId)
-    .is("deleted_at", null)
     .order("id", { ascending: false });
 
-  if (financialYearId) query = query.eq("financial_year_id", financialYearId);
-  if (filters.search) query = query.ilike("course_name", `%${filters.search}%`);
-  if (filters.medium_id) query = query.eq("medium_id", filters.medium_id);
+  if (branchId) query = query.eq("courses.branch_id", branchId);
+  if (financialYearId) query = query.eq("courses.financial_year_id", financialYearId);
+
+  if (filters.search) {
+    query = query.ilike("course_name", `%${filters.search}%`);
+  }
+  if (filters.medium_id) {
+    query = query.eq("medium_id", filters.medium_id);
+  }
 
   const { data, error } = await query;
   if (error) throw error;
@@ -55,49 +69,25 @@ export async function getAllCoursesForExport({ filters = {}, organizationId, fin
   }));
 }
 
-export async function getCourseOptions(organizationId, financialYearId) {
-  if (!organizationId) throw new Error("organizationId is required");
-
-  let query = supabase
-    .from("courses")
-    .select("id, course_name")
-    .eq("organization_id", organizationId)
-    .is("deleted_at", null);
-
-  if (financialYearId) query = query.eq("financial_year_id", financialYearId);
-  const { data, error } = await query;
-  if (error) throw error;
-  return data || [];
-}
-
+// CRUD – medium_id is accepted inside payload
+// context: { branchId, financialYearId }
 export async function createCourse(payload, context) {
-  const { organizationId, financialYearId } = context;
-  if (!organizationId) throw new Error("organizationId is required in context");
-
+  const { branchId, financialYearId } = context;
   const { data, error } = await supabase
     .from("courses")
-    .insert([{
-      ...payload,
-      organization_id: organizationId,
-      financial_year_id: financialYearId || null,
-    }])
+    .insert([{ ...payload, branch_id: branchId, financial_year_id: financialYearId }])
     .select()
     .single();
   if (error) throw error;
   return data;
 }
 
+// context: { branchId, financialYearId }
 export async function updateCourse(id, payload, context) {
-  const { organizationId, financialYearId } = context;
-  if (!organizationId) throw new Error("organizationId is required in context");
-
+  const { branchId, financialYearId } = context;
   const { data, error } = await supabase
     .from("courses")
-    .update({
-      ...payload,
-      organization_id: organizationId,
-      financial_year_id: financialYearId || null,
-    })
+    .update({ ...payload, branch_id: branchId, financial_year_id: financialYearId })
     .eq("id", id)
     .select()
     .single();
@@ -105,82 +95,73 @@ export async function updateCourse(id, payload, context) {
   return data;
 }
 
-/**
- * Soft‑delete a course and ALL its levels (cascade soft delete).
- */
+// Soft delete – context needed for RLS on update
+// context: { branchId, financialYearId }
 export async function deleteCourse(id, context) {
-  const { organizationId, financialYearId } = context;
-  if (!organizationId) throw new Error("organizationId is required in context");
-
-  const timestamp = new Date().toISOString();
-
-  // 1. Soft‑delete the course itself
-  const { error: courseError } = await supabase
+  const { branchId, financialYearId } = context;
+  const { error } = await supabase
     .from("courses")
     .update({
-      deleted_at: timestamp,
-      organization_id: organizationId,
-      financial_year_id: financialYearId || null,
+      deleted_at: new Date().toISOString(),
+      branch_id: branchId,
+      financial_year_id: financialYearId,
     })
     .eq("id", id);
-  if (courseError) throw courseError;
-
-  // 2. Soft‑delete all levels that are NOT already deleted
-  const { error: levelsError } = await supabase
-    .from("course_levels")
-    .update({ deleted_at: timestamp })   // ← only this column
-    .eq("course_id", id)
-    .is("deleted_at", null);
-  if (levelsError) throw levelsError;
+  if (error) throw error;
 }
 
-// ─── COURSE LEVELS ─────────────────────────────────────────
+// Dropdown – now scoped
+export async function getCourseOptions(branchId, financialYearId) {
+  let query = supabase
+    .from("courses")
+    .select("id, course_name");
 
-export async function getCourseLevels(courseId, organizationId, financialYearId) {
-  if (!organizationId) throw new Error("organizationId is required");
+  if (branchId) query = query.eq("branch_id", branchId);
+  if (financialYearId) query = query.eq("financial_year_id", financialYearId);
 
+  const { data, error } = await query;
+  if (error) throw error;
+  return data || [];
+}
+
+// ========================
+// COURSE LEVELS
+// ========================
+
+export async function getCourseLevels(courseId, branchId, financialYearId) {
   let query = supabase
     .from("course_levels")
     .select("*")
     .eq("course_id", courseId)
-    .is("deleted_at", null)          // ✅ exclude soft‑deleted levels
     .order("level_number", { ascending: true });
 
-  if (financialYearId) query = query.eq("financial_year_id", financialYearId);
+  // Safely scope to branch/FY
+  if (branchId) query = query.eq("course_levels.branch_id", branchId);
+  if (financialYearId) query = query.eq("course_levels.financial_year_id", financialYearId);
 
   const { data, error } = await query;
   if (error) throw error;
-  return data || [];
+  return data;
 }
 
+// context: { branchId, financialYearId }
 export async function createCourseLevel(payload, context) {
-  const { organizationId, financialYearId } = context;
-  if (!organizationId) throw new Error("organizationId is required");
-
+  const { branchId, financialYearId } = context;
   const { data, error } = await supabase
     .from("course_levels")
-    .insert([{
-      ...payload,
-      organization_id: organizationId,
-      financial_year_id: financialYearId || null,
-    }])
+    .insert([{ ...payload, branch_id: branchId, financial_year_id: financialYearId }])
     .select()
     .single();
   if (error) throw error;
   return data;
 }
 
+// context: { branchId, financialYearId }
 export async function updateCourseLevel(id, payload, context) {
-  const { organizationId, financialYearId } = context;
-  if (!organizationId) throw new Error("organizationId is required");
-
+  const { branchId, financialYearId } = context;
   const { data, error } = await supabase
     .from("course_levels")
-    .update({
-      ...payload,
-      organization_id: organizationId,
-      financial_year_id: financialYearId || null,
-    })
+    .update({ ...payload, branch_id: branchId, financial_year_id: financialYearId })
     .eq("id", id)
     .select()
     .single();
@@ -188,27 +169,21 @@ export async function updateCourseLevel(id, payload, context) {
   return data;
 }
 
-/**
- * Soft‑delete a single course level (instead of hard delete).
- */
-export async function deleteCourseLevel(id, context) {
-  const { organizationId, financialYearId } = context;
-  if (!organizationId) throw new Error("organizationId is required");
-
-  const { error } = await supabase
+// Hard delete – now scoped to prevent cross‑branch deletion
+export async function deleteCourseLevel(id, branchId, financialYearId) {
+  let query = supabase
     .from("course_levels")
-    .update({
-      deleted_at: new Date().toISOString(),
-      organization_id: organizationId,
-      financial_year_id: financialYearId || null,
-    })
-    .eq("id", id)
-    .eq("organization_id", organizationId);
+    .delete()
+    .eq("id", id);
+
+  if (branchId) query = query.eq("branch_id", branchId);
+  if (financialYearId) query = query.eq("financial_year_id", financialYearId);
+
+  const { error } = await query;
   if (error) throw error;
 }
 
-// ─── MEDIUM OPTIONS ─────────────────────────────────────────
-
+// Mediums – organization‑wide, no branch/FY filter needed
 export async function getMediumOptions() {
   const { data, error } = await supabase
     .from("mediums")

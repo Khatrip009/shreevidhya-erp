@@ -20,11 +20,9 @@ export async function getInventoryItems(filters = {}, branchId, financialYearId)
 // context: { branchId, financialYearId }
 export async function createInventoryItem(payload, context) {
   const { branchId, financialYearId } = context;
-  // ✅ Remove id from payload if present (let DB generate it)
-  const { id, ...cleanPayload } = payload;
   const { data, error } = await supabase
     .from("inventory_items")
-    .insert({ ...cleanPayload, branch_id: branchId, financial_year_id: financialYearId })
+    .insert({ ...payload, branch_id: branchId, financial_year_id: financialYearId })
     .select()
     .single();
   if (error) throw error;

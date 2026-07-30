@@ -1,5 +1,4 @@
-// src/pages/Attendance.jsx
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   useInfiniteQuery,
@@ -20,7 +19,7 @@ import {
   CalendarCheck,
 } from "lucide-react";
 import Papa from "papaparse";
-
+import AdminLayout from "../layouts/AdminLayout";
 import AttendanceSessionForm from "../components/AttendanceSessionForm";
 import ConfirmDialog from "../components/ConfirmDialog";
 import BackButton from "../components/BackButton";
@@ -35,25 +34,16 @@ import {
 } from "../services/attendanceService";
 import { useAuth } from "../context/AuthContext";
 import { useOrg } from "../context/OrganizationContext";
-import { useTheme } from "../context/ThemeContext";
-import { supabase } from "../api/supabase";
-import { sendTemplateEmail } from "../services/emailService";
 
-export default function Attendance({ studentId: propStudentId = null, standalone = true }) {
-  const { profile, loading: authLoading } = useAuth();
-  const { branch, selectedFinancialYear, org } = useOrg();
-  const theme = useTheme();
+export default function Attendance() {
+  const { profile } = useAuth();
+  const { branch, selectedFinancialYear } = useOrg();
   const branchId = branch?.id;
   const financialYearId = selectedFinancialYear?.id;
 
-  const headingFont = theme?.font_heading || "Righteous";
-  const bodyFont = theme?.font_body || "Montserrat";
-
-  // ── Compute role ──
   const role = (profile?.role || "").toLowerCase().replace(/\s+/g, "_");
-  const isAdmin = role === "admin" || role === "super_admin" || role === "organization_admin" || role === "org_admin";
+  const isAdmin = role === "admin" || role === "super_admin";
   const isTeacher = role === "teacher";
-  const canManage = isAdmin || isTeacher;
 
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -64,95 +54,12 @@ export default function Attendance({ studentId: propStudentId = null, standalone
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [showFilters, setShowFilters] = useState(false);
-  const [studentBatchIds, setStudentBatchIds] = useState([]);
-
-  // ── If studentId provided, fetch their active batch IDs ──
-  useEffect(() => {
-    if (propStudentId && branchId && financialYearId) {
-      const fetchStudentBatches = async () => {
-        let query = supabase
-          .from("student_batches")
-          .select("batch_id")
-          .eq("student_id", propStudentId)
-          .eq("status", "active");
-        if (branchId) query = query.eq("branch_id", branchId);
-        if (financialYearId) query = query.eq("financial_year_id", financialYearId);
-        const { data } = await query;
-        setStudentBatchIds(data?.map((row) => row.batch_id) || []);
-      };
-      fetchStudentBatches();
-    } else {
-      setStudentBatchIds([]);
-    }
-  }, [propStudentId, branchId, financialYearId]);
-
-  // All filters combined
-  const allFilters = {
-    batchId: batchFilter || (studentBatchIds.length > 0 ? studentBatchIds : undefined),
-    medium_id: mediumFilter,
-    search,
-    startDate,
-    endDate,
-  };
+  const allFilters = { batchId: batchFilter, medium_id: mediumFilter, search, startDate, endDate };
 
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(null);
   const fileInputRef = useRef(null);
-
-  // ─── Helper: get admin emails ──────────────────────────────────────
-  const getAdminEmails = async () => {
-    if (!org?.id) return [];
-    const { data, error } = await supabase
-      .from("profiles")
-      .select("email")
-      .eq("organization_id", org.id)
-      .in("role", ["admin", "super_admin", "organization_admin"])
-      .eq("is_active", true);
-    if (error) {
-      console.error("Failed to fetch admin emails:", error);
-      return [];
-    }
-    return data?.map(p => p.email).filter(Boolean) || [];
-  };
-
-  // ─── Email notification on session creation ──────────────────────
-  const sendSessionCreatedNotification = async (session) => {
-    try {
-      const adminEmails = await getAdminEmails();
-      if (adminEmails.length === 0) return;
-
-      // Fetch batch name
-      const { data: batch, error: batchError } = await supabase
-        .from("batches")
-        .select("batch_name")
-        .eq("id", session.batch_id)
-        .single();
-      if (batchError) throw batchError;
-
-      const message =
-        `A new attendance session has been created:\n` +
-        `Batch: ${batch?.batch_name || 'N/A'}\n` +
-        `Date: ${session.attendance_date}\n` +
-        `Topic: ${session.topic_covered || 'N/A'}\n` +
-        `Created by: ${profile?.full_name || 'System'}`;
-
-      await sendTemplateEmail({
-        to: adminEmails,
-        organizationId: org.id,
-        slug: "system_announcement",
-        context: {
-          academyName: org?.company_name || "Academy",
-          title: "New Attendance Session Created",
-          message,
-          target_type: "Admin",
-        },
-        branchId,
-      });
-    } catch (error) {
-      console.error("Failed to send attendance notification:", error);
-    }
-  };
 
   // Dropdowns – scoped
   const { data: batches = [] } = useQuery({
@@ -176,7 +83,7 @@ export default function Attendance({ studentId: propStudentId = null, standalone
     hasNextPage,
     isFetchingNextPage,
   } = useInfiniteQuery({
-    queryKey: ["attendance-sessions", allFilters, branchId, financialYearId, propStudentId],
+    queryKey: ["attendance-sessions", allFilters, branchId, financialYearId],
     queryFn: ({ pageParam = 0 }) =>
       getAttendanceSessions({
         pageParam,
@@ -196,18 +103,13 @@ export default function Attendance({ studentId: propStudentId = null, standalone
 
   const sessions = data?.pages.flatMap((page) => page.data) || [];
 
-  // Mutations
+  // Mutations – now pass branchId and financialYearId to all write functions
   const createMutation = useMutation({
     mutationFn: (payload) => createAttendanceSession(payload, branchId, financialYearId),
-    onSuccess: (data) => {
+    onSuccess: () => {
       toast.success("Session created");
       queryClient.invalidateQueries({ queryKey: ["attendance-sessions"] });
       setShowForm(false);
-
-      // ─── Send email notification ──────────────────────────────
-      if (data) {
-        sendSessionCreatedNotification(data);
-      }
     },
     onError: () => toast.error("Failed to create session"),
   });
@@ -299,48 +201,34 @@ export default function Attendance({ studentId: propStudentId = null, standalone
     setConfirmDelete(id);
   }
 
-  // ── Auth loading or missing profile ──
-  if (authLoading) {
-    return <div className="p-8 text-center text-primary-dark/60" style={{ fontFamily: bodyFont }}>Loading...</div>;
-  }
-  if (!profile) {
-    return <div className="p-8 text-center text-accent-dark" style={{ fontFamily: bodyFont }}>Please log in to view attendance.</div>;
-  }
-
   return (
-    <div className="space-y-6 px-4 sm:px-6 lg:px-0">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+    <AdminLayout>
+      <BackButton to="/academics-hub" label="Academics Hub" />
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-primary" style={{ fontFamily: headingFont }}>
-            Attendance
-          </h1>
-          <p className="text-sm text-primary-dark mt-1" style={{ fontFamily: bodyFont }}>
+          <h1 className="text-3xl font-righteous text-primary-dark">Attendance</h1>
+          <p className="text-sm text-secondary-dark font-montserrat mt-1">
             Manage daily session attendance
           </p>
         </div>
 
-        {/* Action buttons – only for managers, not for student-specific view */}
-        {canManage && !propStudentId && (
+        {(isAdmin || isTeacher) && (
           <div className="flex flex-wrap gap-2">
             <button
               onClick={() => setShowForm(true)}
-              className="inline-flex items-center gap-2 px-4 py-2.5 bg-primary hover:bg-primary-light text-white rounded-lg transition-colors text-sm font-medium"
-              style={{ fontFamily: bodyFont }}
+              className="bg-primary hover:bg-primary-light text-white px-5 py-2.5 rounded-lg transition font-montserrat text-sm flex items-center gap-2"
             >
               <CalendarCheck size={18} /> New Session
             </button>
             <button
               onClick={handleCSVExport}
-              className="inline-flex items-center gap-2 px-4 py-2.5 border border-primary-bg bg-white text-primary-dark rounded-lg hover:bg-primary-bg transition-colors text-sm"
-              style={{ fontFamily: bodyFont }}
+              className="border border-secondary-light px-4 py-2.5 rounded-lg text-secondary-dark hover:bg-secondary-bg font-montserrat text-sm flex items-center gap-2"
             >
               <Download size={18} /> Export
             </button>
             <button
               onClick={() => fileInputRef.current?.click()}
-              className="inline-flex items-center gap-2 px-4 py-2.5 border border-primary-bg bg-white text-primary-dark rounded-lg hover:bg-primary-bg transition-colors text-sm"
-              style={{ fontFamily: bodyFont }}
+              className="border border-secondary-light px-4 py-2.5 rounded-lg text-secondary-dark hover:bg-secondary-bg font-montserrat text-sm flex items-center gap-2"
             >
               <Upload size={18} /> Import
             </button>
@@ -356,82 +244,76 @@ export default function Attendance({ studentId: propStudentId = null, standalone
       </div>
 
       {/* Filter Bar */}
-      <div className="flex flex-col sm:flex-row gap-3">
+      <div className="flex flex-col sm:flex-row gap-3 mb-4">
         <div className="relative flex-1">
-          <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-primary-dark/60" />
+          <Search
+            size={18}
+            className="absolute left-3 top-1/2 -translate-y-1/2 text-secondary"
+          />
           <input
             type="text"
             placeholder="Search by topic or date..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full border border-primary-bg bg-white text-primary-dark rounded-lg pl-10 pr-4 py-2.5 text-sm"
-            style={{ fontFamily: bodyFont }}
+            className="w-full border border-secondary-light rounded-lg pl-10 pr-4 py-2.5 text-sm focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light"
           />
         </div>
         <button
           onClick={() => setShowFilters(!showFilters)}
-          className="inline-flex items-center gap-2 px-4 py-2.5 border border-primary-bg bg-white text-primary-dark rounded-lg hover:bg-primary-bg transition-colors text-sm"
-          style={{ fontFamily: bodyFont }}
+          className="border border-secondary-light px-4 py-2.5 rounded-lg text-secondary-dark hover:bg-secondary-bg font-montserrat text-sm flex items-center gap-2"
         >
           <Filter size={18} /> Filters {showFilters && <X size={16} />}
         </button>
       </div>
 
-      {/* Filter Panels */}
       {showFilters && (
-        <div className="bg-white rounded-xl p-4 shadow-sm border border-primary-bg grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-          {!propStudentId && (
-            <div>
-              <label className="text-xs font-medium text-primary-dark" style={{ fontFamily: bodyFont }}>
-                Batch
-              </label>
-              <select
-                value={batchFilter}
-                onChange={(e) => setBatchFilter(e.target.value)}
-                className="w-full border border-primary-bg bg-white text-primary-dark rounded p-2 text-sm mt-1"
-              >
-                <option value="">All Batches</option>
-                {batches.map((b) => (
-                  <option key={b.id} value={b.id}>{b.batch_name}</option>
-                ))}
-              </select>
-            </div>
-          )}
+        <div className="bg-white rounded-xl p-4 shadow-sm mb-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 border border-secondary-light">
           <div>
-            <label className="text-xs font-medium text-primary-dark" style={{ fontFamily: bodyFont }}>
-              Medium
-            </label>
+            <label className="text-xs font-montserrat text-secondary-dark">Batch</label>
             <select
-              value={mediumFilter}
-              onChange={(e) => setMediumFilter(e.target.value)}
-              className="w-full border border-primary-bg bg-white text-primary-dark rounded p-2 text-sm mt-1"
+              value={batchFilter}
+              onChange={(e) => setBatchFilter(e.target.value)}
+              className="w-full border border-secondary-light rounded p-2 text-sm mt-1 focus:ring-1 focus:ring-primary"
             >
-              <option value="">All Mediums</option>
-              {mediums.map((m) => (
-                <option key={m.id} value={m.id}>{m.name}</option>
+              <option value="">All Batches</option>
+              {batches.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.batch_name}
+                </option>
               ))}
             </select>
           </div>
           <div>
-            <label className="text-xs font-medium text-primary-dark" style={{ fontFamily: bodyFont }}>
-              From Date
-            </label>
+            <label className="text-xs font-montserrat text-secondary-dark">Medium</label>
+            <select
+              value={mediumFilter}
+              onChange={(e) => setMediumFilter(e.target.value)}
+              className="w-full border border-secondary-light rounded p-2 text-sm mt-1 focus:ring-1 focus:ring-primary"
+            >
+              <option value="">All Mediums</option>
+              {mediums.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs font-montserrat text-secondary-dark">From Date</label>
             <input
               type="date"
               value={startDate}
               onChange={(e) => setStartDate(e.target.value)}
-              className="w-full border border-primary-bg bg-white text-primary-dark rounded p-2 text-sm mt-1"
+              className="w-full border border-secondary-light rounded p-2 text-sm mt-1 focus:ring-1 focus:ring-primary"
             />
           </div>
           <div>
-            <label className="text-xs font-medium text-primary-dark" style={{ fontFamily: bodyFont }}>
-              To Date
-            </label>
+            <label className="text-xs font-montserrat text-secondary-dark">To Date</label>
             <input
               type="date"
               value={endDate}
               onChange={(e) => setEndDate(e.target.value)}
-              className="w-full border border-primary-bg bg-white text-primary-dark rounded p-2 text-sm mt-1"
+              className="w-full border border-secondary-light rounded p-2 text-sm mt-1 focus:ring-1 focus:ring-primary"
             />
           </div>
           <div className="flex items-end">
@@ -443,8 +325,7 @@ export default function Attendance({ studentId: propStudentId = null, standalone
                 setStartDate("");
                 setEndDate("");
               }}
-              className="text-sm text-primary hover:underline"
-              style={{ fontFamily: bodyFont }}
+              className="text-primary text-sm hover:underline"
             >
               Clear Filters
             </button>
@@ -452,46 +333,33 @@ export default function Attendance({ studentId: propStudentId = null, standalone
         </div>
       )}
 
-      {/* Sessions Table */}
-      <div className="bg-white rounded-xl shadow-sm border border-primary-bg overflow-hidden">
+      <div className="bg-white rounded-xl shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[800px]">
-            <thead className="bg-primary-bg">
+            <thead className="bg-slate-100 border-b border-secondary-light">
               <tr>
-                <th className="p-3 text-left text-xs font-medium text-primary-dark uppercase tracking-wider">
-                  Date
-                </th>
-                <th className="p-3 text-left text-xs font-medium text-primary-dark uppercase tracking-wider">
-                  Batch
-                </th>
-                <th className="p-3 text-left text-xs font-medium text-primary-dark uppercase tracking-wider">
-                  Medium
-                </th>
-                <th className="p-3 text-left text-xs font-medium text-primary-dark uppercase tracking-wider">
-                  Topic
-                </th>
-                <th className="p-3 text-left text-xs font-medium text-primary-dark uppercase tracking-wider">
-                  Attendance
-                </th>
-                <th className="p-3 text-left text-xs font-medium text-primary-dark uppercase tracking-wider">
-                  Actions
-                </th>
+                <th className="p-3 text-left text-sm font-montserrat text-secondary-dark">Date</th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">Batch</th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">Medium</th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">Topic</th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">Attendance</th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-primary-bg">
+            <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan={6} className="p-6 text-center text-primary-dark/60">
+                  <td colSpan={6} className="p-6 text-center text-secondary">
                     Loading sessions…
                   </td>
                 </tr>
               ) : sessions.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="p-6 text-center text-primary-dark/60">
+                  <td colSpan={6} className="p-6 text-center text-secondary">
                     <div className="flex flex-col items-center gap-2">
-                      <CalendarCheck size={32} className="text-primary-dark/40" />
+                      <CalendarCheck size={32} className="text-secondary-light" />
                       <span>No sessions found</span>
-                      <span className="text-xs">
+                      <span className="text-xs text-secondary-light">
                         {search || batchFilter || mediumFilter || startDate || endDate
                           ? "Try adjusting your filters"
                           : "Create a new session to get started"}
@@ -503,39 +371,29 @@ export default function Attendance({ studentId: propStudentId = null, standalone
                 sessions.map((session) => (
                   <tr
                     key={session.id}
-                    className="hover:bg-primary-bg transition-colors"
+                    className="border-b border-secondary-light hover:bg-primary-bg transition"
                   >
-                    <td className="p-3 text-sm text-primary-dark">
-                      {session.attendance_date}
-                    </td>
-                    <td className="p-3 text-sm text-primary-dark">
-                      {session.batch_name}
-                    </td>
-                    <td className="p-3 text-sm">
+                    <td className="p-3 text-sm">{session.attendance_date}</td>
+                    <td className="text-sm">{session.batch_name}</td>
+                    <td className="text-sm">
                       {session.medium_name ? (
-                        <span className="bg-primary-bg text-primary-dark px-2 py-0.5 rounded-full text-xs">
+                        <span className="bg-primary-bg text-primary px-2 py-0.5 rounded-full text-xs">
                           {session.medium_name}
                         </span>
-                      ) : (
-                        "-"
-                      )}
+                      ) : "-"}
                     </td>
-                    <td className="p-3 text-sm text-primary-dark">
-                      {session.topic_covered || "-"}
-                    </td>
-                    <td className="p-3 text-sm">
-                      <span className="text-accent font-medium">
+                    <td className="text-sm">{session.topic_covered || "-"}</td>
+                    <td className="text-sm">
+                      <span className="text-green-600 font-medium">
                         {session.present_count}
                       </span>
-                      <span className="text-primary-dark/60">
-                        {" "}/ {session.total_count}
-                      </span>
+                      <span className="text-secondary"> / {session.total_count}</span>
                     </td>
-                    <td className="p-3 text-sm">
+                    <td className="text-sm">
                       <div className="flex gap-2">
                         <button
                           onClick={() => navigate(`/attendance/mark/${session.id}`)}
-                          className="text-primary hover:underline"
+                          className="text-blue-600 hover:underline"
                         >
                           Mark
                         </button>
@@ -543,13 +401,13 @@ export default function Attendance({ studentId: propStudentId = null, standalone
                           <>
                             <button
                               onClick={() => setEditing(session)}
-                              className="text-accent hover:underline"
+                              className="text-yellow-600 hover:underline"
                             >
                               <Edit3 size={15} />
                             </button>
                             <button
                               onClick={() => handleDelete(session.id)}
-                              className="text-accent-dark hover:underline"
+                              className="text-red-600 hover:underline"
                             >
                               <Trash2 size={15} />
                             </button>
@@ -565,34 +423,27 @@ export default function Attendance({ studentId: propStudentId = null, standalone
         </div>
       </div>
 
-      {/* Load More */}
       {hasNextPage && (
         <div className="flex justify-center mt-6">
           <button
             onClick={() => fetchNextPage()}
             disabled={isFetchingNextPage}
-            className="bg-primary hover:bg-primary-light text-white px-6 py-2.5 rounded-lg text-sm font-medium transition disabled:opacity-60"
-            style={{ fontFamily: bodyFont }}
+            className="bg-primary hover:bg-primary-light text-white px-6 py-2.5 rounded-lg font-montserrat text-sm transition disabled:opacity-60"
           >
             {isFetchingNextPage ? "Loading more…" : "Load More"}
           </button>
         </div>
       )}
 
-      {/* Confirm delete dialog */}
       {confirmDelete && (
         <ConfirmDialog
           message="Delete this session and all attendance records?"
-          onConfirm={() => {
-            deleteMutation.mutate(confirmDelete);
-            setConfirmDelete(null);
-          }}
+          onConfirm={() => { deleteMutation.mutate(confirmDelete); setConfirmDelete(null); }}
           onCancel={() => setConfirmDelete(null)}
         />
       )}
 
-      {/* Modals */}
-      {canManage && showForm && (
+      {(isAdmin || isTeacher) && showForm && (
         <AttendanceSessionForm
           onSubmit={handleCreate}
           onClose={() => setShowForm(false)}
@@ -605,6 +456,6 @@ export default function Attendance({ studentId: propStudentId = null, standalone
           onClose={() => setEditing(null)}
         />
       )}
-    </div>
+    </AdminLayout>
   );
 }

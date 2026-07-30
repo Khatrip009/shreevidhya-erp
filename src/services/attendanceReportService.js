@@ -1,6 +1,5 @@
 // src/services/attendanceReportService.js
 import { supabase } from "../api/supabase";
-import { sendEmail } from "./emailService";
 
 /**
  * Get attendance report: per student in a batch (or all batches)
@@ -21,6 +20,7 @@ export async function getAttendanceReport(
     .select("id, attendance_date, batch_id")
     .order("attendance_date", { ascending: true });
 
+  // Safely apply branch and financial year scope
   if (branchId) sessionQuery = sessionQuery.eq("branch_id", branchId);
   if (financialYearId) sessionQuery = sessionQuery.eq("financial_year_id", financialYearId);
 
@@ -28,7 +28,7 @@ export async function getAttendanceReport(
   if (startDate) sessionQuery = sessionQuery.gte("attendance_date", startDate);
   if (endDate) sessionQuery = sessionQuery.lte("attendance_date", endDate);
 
-  // If medium filter is provided, restrict to batches of that medium
+  // If medium filter is provided, restrict to batches of that medium (also scoped)
   if (mediumId) {
     let mediumBatchQuery = supabase
       .from("batches")
@@ -66,6 +66,7 @@ export async function getAttendanceReport(
   if (batchId) {
     studentQuery = studentQuery.eq("batch_id", batchId);
   } else if (mediumId) {
+    // Restrict students to batches of that medium – already scoped
     let mediumStudentBatchQuery = supabase
       .from("batches")
       .select("id")
@@ -105,16 +106,16 @@ export async function getAttendanceReport(
 
   if (marksError) throw marksError;
 
-  // 4. Calculate per student – CASE‑INSENSITIVE present check
+  // 4. Calculate per student
   const totalSessions = sessionIds.length;
   const presentCountMap = {};
   marks.forEach((m) => {
-    if (m.status?.toLowerCase() === "present") {
+    if (m.status === "Present") {
       presentCountMap[m.student_id] = (presentCountMap[m.student_id] || 0) + 1;
     }
   });
 
-  // 5. If a single batch is selected, fetch its name and medium for display
+  // 5. If a single batch is selected, fetch its name and medium for display (scoped)
   let batchName = "";
   let mediumName = "";
   if (batchId) {
@@ -170,97 +171,4 @@ export async function getMediumOptions() {
     .order("name");
   if (error) throw error;
   return data || [];
-}
-
-/**
- * Fetches the attendance report and sends it as an HTML email to the specified recipients.
- */
-export async function sendAttendanceReportEmail({
-  batchId,
-  startDate,
-  endDate,
-  mediumId = null,
-  branchId,
-  financialYearId,
-  recipients,
-  subject = "Attendance Report",
-  from,
-  includeTable = true,
-}) {
-  try {
-    const reportData = await getAttendanceReport(
-      batchId,
-      startDate,
-      endDate,
-      mediumId,
-      branchId,
-      financialYearId
-    );
-
-    if (!reportData || reportData.length === 0) {
-      throw new Error("No attendance data found for the given parameters.");
-    }
-
-    let tableHtml = `
-      <table style="border-collapse: collapse; width: 100%; font-family: Arial, sans-serif; font-size: 14px;">
-        <thead>
-          <tr style="background-color: #f2f2f2;">
-            <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Student</th>
-            <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Admission No.</th>
-            <th style="border: 1px solid #ddd; padding: 8px; text-align: center;">Total Sessions</th>
-            <th style="border: 1px solid #ddd; padding: 8px; text-align: center;">Present</th>
-            <th style="border: 1px solid #ddd; padding: 8px; text-align: center;">Attendance %</th>
-          </tr>
-        </thead>
-        <tbody>
-    `;
-
-    reportData.forEach((row) => {
-      const percentage = parseFloat(row.percentage);
-      const color = percentage < 75 ? '#ff6b6b' : (percentage < 85 ? '#ffd93d' : '#6bcb77');
-      tableHtml += `
-        <tr>
-          <td style="border: 1px solid #ddd; padding: 8px;">${row.student_name}</td>
-          <td style="border: 1px solid #ddd; padding: 8px;">${row.admission_no || '—'}</td>
-          <td style="border: 1px solid #ddd; padding: 8px; text-align: center;">${row.total_sessions}</td>
-          <td style="border: 1px solid #ddd; padding: 8px; text-align: center;">${row.present_count}</td>
-          <td style="border: 1px solid #ddd; padding: 8px; text-align: center; font-weight: bold; color: ${color};">${row.percentage}%</td>
-        </tr>
-      `;
-    });
-
-    tableHtml += `
-        </tbody>
-      </table>
-    `;
-
-    const batchInfo = reportData[0]?.batch_name || 'All Batches';
-    const mediumInfo = reportData[0]?.medium_name || 'All Mediums';
-    const dateRange = startDate && endDate ? `${startDate} to ${endDate}` : 'All Dates';
-
-    const htmlBody = `
-      <div style="font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto;">
-        <h2>Attendance Report</h2>
-        <p><strong>Batch:</strong> ${batchInfo}</p>
-        <p><strong>Medium:</strong> ${mediumInfo}</p>
-        <p><strong>Period:</strong> ${dateRange}</p>
-        <p><strong>Total Students:</strong> ${reportData.length}</p>
-        ${includeTable ? tableHtml : '<p>Report generated. (Table not included)</p>'}
-        <hr>
-        <p style="font-size: 12px; color: #888;">This is an automated report from your Academy Management System.</p>
-      </div>
-    `;
-
-    const result = await sendEmail({
-      to: recipients,
-      subject: subject,
-      html: htmlBody,
-      from,
-    });
-
-    return { success: true, data: result };
-  } catch (error) {
-    console.error("Error sending attendance report email:", error);
-    return { success: false, error: error.message };
-  }
 }

@@ -1,85 +1,12 @@
 // src/services/purchaseInvoiceService.js
 import { supabase } from "../api/supabase";
-import { sendTemplateEmail } from "./emailService"; // 👈 Added
 
-// ─── Helpers ──────────────────────────────────────────────────────────
-
-async function getOrganizationFromBranch(branchId) {
-  const { data: branch, error: branchError } = await supabase
-    .from("branches")
-    .select("organization_id")
-    .eq("id", branchId)
-    .single();
-  if (branchError) throw branchError;
-
-  const { data: org, error: orgError } = await supabase
-    .from("organization")
-    .select("id, company_name")
-    .eq("id", branch.organization_id)
-    .single();
-  if (orgError) throw orgError;
-  return org;
-}
-
-async function getAdminEmails(organizationId) {
-  const { data, error } = await supabase
-    .from("profiles")
-    .select("email")
-    .eq("organization_id", organizationId)
-    .in("role", ["admin", "super_admin", "organization_admin"])
-    .eq("is_active", true);
+// ─── HELPERS ───────────────────────────────────────────────
+async function generateInvoiceNumber() {
+  const { data, error } = await supabase.rpc("generate_purchase_invoice_number");
   if (error) throw error;
-  return data?.map(p => p.email).filter(Boolean) || [];
+  return data;
 }
-
-/**
- * Send purchase invoice received notification to admins using the "pi_received" template.
- */
-async function sendPurchaseInvoiceReceivedNotification(invoiceId, context) {
-  const { branchId, financialYearId } = context;
-  try {
-    // 1. Fetch invoice with vendor details
-    let invoiceQuery = supabase
-      .from("purchase_invoices")
-      .select(`
-        *,
-        vendors(id, vendor_name)
-      `)
-      .eq("id", invoiceId);
-    if (branchId) invoiceQuery = invoiceQuery.eq("branch_id", branchId);
-    if (financialYearId) invoiceQuery = invoiceQuery.eq("financial_year_id", financialYearId);
-    const { data: invoice, error } = await invoiceQuery.single();
-    if (error) throw error;
-
-    const org = await getOrganizationFromBranch(branchId);
-    const adminEmails = await getAdminEmails(org.id);
-    if (adminEmails.length === 0) {
-      console.warn('No admin emails found, skipping purchase invoice notification.');
-      return;
-    }
-
-    const contextEmail = {
-      academyName: org.company_name,
-      invoice_number: invoice.invoice_number,
-      vendor_name: invoice.vendors?.vendor_name || 'Unknown Vendor',
-      invoice_date: invoice.invoice_date,
-      grand_total: invoice.grand_total || 0,
-    };
-
-    await sendTemplateEmail({
-      to: adminEmails,
-      organizationId: org.id,
-      slug: "pi_received",
-      context: contextEmail,
-      branchId,
-    });
-    console.log(`✅ Purchase invoice notification sent to admins for ${invoice.invoice_number}`);
-  } catch (error) {
-    console.error("❌ Failed to send purchase invoice notification:", error);
-  }
-}
-
-// ─── HELPERS (existing) ─────────────────────────────────────────────
 
 // Scoped tax‑rate fetch
 async function computeTaxableAmounts(item, vendorState, orgState, branchId, financialYearId) {
@@ -108,8 +35,7 @@ async function computeTaxableAmounts(item, vendorState, orgState, branchId, fina
   return { taxable, cgst, sgst, igst, cess, total };
 }
 
-// ─── CRUD ─────────────────────────────────────────────────────────────
-
+// ─── CRUD ──────────────────────────────────────────────────
 export async function getPurchaseInvoices(filters = {}, branchId, financialYearId) {
   let query = supabase
     .from("purchase_invoices")
@@ -164,7 +90,7 @@ export async function getPurchaseInvoice(id, branchId, financialYearId) {
 
 // context: { branchId, financialYearId }
 export async function createPurchaseInvoice(payload, context) {
-  const { vendor_id, invoice_date, purchase_order_id, reference, notes, items, status } = payload;
+  const { vendor_id, invoice_date, purchase_order_id, reference, notes, items } = payload;
   const { branchId, financialYearId } = context;
 
   // Fetch vendor state (vendors are org-wide, not scoped)
@@ -198,15 +124,13 @@ export async function createPurchaseInvoice(payload, context) {
     })
   );
 
-  
-  // Determine final status
-  const finalStatus = status || "Draft";
+  const invoiceNumber = await generateInvoiceNumber();
 
   // Insert invoice header
   const { data: invoice, error } = await supabase
     .from("purchase_invoices")
     .insert({
-      
+      invoice_number: invoiceNumber,
       invoice_date: invoice_date || new Date().toISOString().split("T")[0],
       vendor_id,
       purchase_order_id: purchase_order_id || null,
@@ -214,7 +138,7 @@ export async function createPurchaseInvoice(payload, context) {
       total_gst_amount: totalGST,
       total_cess: totalCess,
       grand_total: grandTotal,
-      status: finalStatus,
+      status: "Draft",
       reference: reference || "",
       notes: notes || "",
       branch_id: branchId,
@@ -247,17 +171,12 @@ export async function createPurchaseInvoice(payload, context) {
     .insert(itemInserts);
   if (insError) throw insError;
 
-  // If status is "Final", send notification
-  if (finalStatus === "Final") {
-    await sendPurchaseInvoiceReceivedNotification(invoice.id, context);
-  }
-
   return invoice;
 }
 
 // context: { branchId, financialYearId }
 export async function updatePurchaseInvoice(id, payload, context) {
-  const { vendor_id, invoice_date, purchase_order_id, reference, notes, items, status } = payload;
+  const { vendor_id, invoice_date, purchase_order_id, reference, notes, items } = payload;
   const { branchId, financialYearId } = context;
 
   // Fetch existing invoice (scoped) to check status
@@ -309,7 +228,6 @@ export async function updatePurchaseInvoice(id, payload, context) {
       grand_total: grandTotal,
       reference: reference || "",
       notes: notes || "",
-      status: status || "Draft",
       updated_at: new Date(),
       branch_id: branchId,
       financial_year_id: financialYearId,
@@ -352,11 +270,6 @@ export async function updatePurchaseInvoice(id, payload, context) {
     .insert(itemInserts);
   if (insError) throw insError;
 
-  // If status changed to "Final", send notification
-  if (status === "Final" && existing.status !== "Final") {
-    await sendPurchaseInvoiceReceivedNotification(id, context);
-  }
-
   return invoice;
 }
 
@@ -378,10 +291,6 @@ export async function finalizePurchaseInvoice(id, context) {
 
   const { data, error } = await query.select().single();
   if (error) throw error;
-
-  // ─── Send notification to admins ──────────────────────────
-  await sendPurchaseInvoiceReceivedNotification(id, context);
-
   return data;
 }
 

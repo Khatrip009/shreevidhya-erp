@@ -4,11 +4,10 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams, Link } from "react-router-dom";
 import toast from "react-hot-toast";
 import { Plus, Trash2, Save, ArrowLeft } from "lucide-react";
-
+import AdminLayout from "../layouts/AdminLayout";
 import { supabase } from "../api/supabase";
 import { getPOById, createPO } from "../services/poService";
-import { useOrg } from "../context/OrganizationContext";
-import { useTheme } from "../context/ThemeContext";               // ✅ dynamic theme
+import { useOrg } from "../context/OrganizationContext";   // NEW
 
 export default function POForm() {
   const { id } = useParams();
@@ -16,14 +15,11 @@ export default function POForm() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
-  const { branch, selectedFinancialYear } = useOrg();
-  const theme = useTheme();                                     // ✅ theme hook
+  // ── Organisation / Branch / Financial Year context ──
+  const { branch, selectedFinancialYear } = useOrg();   // NEW
   const branchId = branch?.id;
   const financialYearId = selectedFinancialYear?.id;
   const ctx = { branchId, financialYearId };
-
-  const headingFont = theme?.font_heading || "Righteous";
-  const bodyFont = theme?.font_body || "Montserrat";
 
   const [form, setForm] = useState({
     vendor: "",
@@ -41,7 +37,7 @@ export default function POForm() {
     { item_id: "", quantity_ordered: "1", unit_price: "", tax_rate_id: "" },
   ]);
 
-  // Inventory items – scoped
+  // Fetch inventory items – scoped
   const { data: items = [] } = useQuery({
     queryKey: ["inventory-items", branchId, financialYearId],
     queryFn: async () => {
@@ -58,7 +54,7 @@ export default function POForm() {
     staleTime: 5 * 60 * 1000,
   });
 
-  // Tax rates – scoped
+  // Fetch tax rates – scoped
   const { data: taxRates = [] } = useQuery({
     queryKey: ["tax-rates", branchId, financialYearId],
     queryFn: async () => {
@@ -106,9 +102,10 @@ export default function POForm() {
     }
   }, [existingPO]);
 
-  // ── Create / Update mutation (scoped) ──
+  // ── Create / Update mutation – now includes context ──
   const saveMutation = useMutation({
     mutationFn: async () => {
+      // Prepare line items
       const payloadItems = lines.map((l) => ({
         item_id: l.item_id ? parseInt(l.item_id) : null,
         quantity_ordered: parseInt(l.quantity_ordered) || 0,
@@ -116,9 +113,11 @@ export default function POForm() {
         tax_rate_id: l.tax_rate_id || null,
       }));
 
+      // Compute total
       const total = payloadItems.reduce((s, i) => s + i.quantity_ordered * i.unit_price, 0);
 
       if (isEditing) {
+        // Update PO header (add branch & FY for RLS)
         const { error: poError } = await supabase
           .from("purchase_orders")
           .update({
@@ -130,6 +129,7 @@ export default function POForm() {
           .eq("id", id);
         if (poError) throw poError;
 
+        // Delete old items – scoped
         let deleteQuery = supabase
           .from("purchase_order_items")
           .delete()
@@ -139,6 +139,7 @@ export default function POForm() {
         const { error: delError } = await deleteQuery;
         if (delError) throw delError;
 
+        // Insert new items with branch & FY
         if (payloadItems.length > 0) {
           const itemsToInsert = payloadItems.map((item) => ({
             ...item,
@@ -152,6 +153,7 @@ export default function POForm() {
           if (insError) throw insError;
         }
       } else {
+        // Create new PO – pass context to service
         await createPO({ ...form, total_amount: total, items: payloadItems }, ctx);
       }
     },
@@ -191,152 +193,51 @@ export default function POForm() {
   };
 
   return (
-    <>
-      <Link
-        to="/purchase-orders"
-        className="inline-flex items-center gap-2 text-primary-dark hover:text-primary mb-4 text-sm"
-        style={{ fontFamily: bodyFont }}
-      >
+    <AdminLayout>
+      <Link to="/purchase-orders" className="inline-flex items-center gap-2 text-secondary hover:text-primary-dark mb-4 text-sm">
         <ArrowLeft size={18} /> Back to POs
       </Link>
-      <h1
-        className="text-3xl font-bold text-primary mb-6"
-        style={{ fontFamily: headingFont }}
-      >
+      <h1 className="text-3xl font-righteous text-primary-dark mb-6">
         {isEditing ? "Edit Purchase Order" : "New Purchase Order"}
       </h1>
 
-      <form
-        onSubmit={handleSubmit}
-        className="bg-white rounded-xl p-6 shadow-sm border border-primary-bg space-y-6"
-      >
+      <form onSubmit={handleSubmit} className="bg-white rounded-xl p-6 shadow-sm space-y-6">
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div>
-            <label
-              className="block text-sm font-medium text-primary-dark mb-1"
-              style={{ fontFamily: bodyFont }}
-            >
-              Vendor Name *
-            </label>
-            <input
-              type="text"
-              value={form.vendor}
-              onChange={(e) => setForm({ ...form, vendor: e.target.value })}
-              className="w-full border border-primary-bg rounded-lg p-2.5 text-sm focus:ring-1 focus:ring-primary text-primary-dark bg-white"
-              required
-            />
+            <label className="block text-sm mb-1">Vendor Name *</label>
+            <input type="text" value={form.vendor} onChange={(e) => setForm({ ...form, vendor: e.target.value })} className="w-full border rounded p-2.5 text-sm" required />
           </div>
           <div>
-            <label
-              className="block text-sm font-medium text-primary-dark mb-1"
-              style={{ fontFamily: bodyFont }}
-            >
-              Vendor Address
-            </label>
-            <input
-              type="text"
-              value={form.vendor_address}
-              onChange={(e) => setForm({ ...form, vendor_address: e.target.value })}
-              className="w-full border border-primary-bg rounded-lg p-2.5 text-sm focus:ring-1 focus:ring-primary text-primary-dark bg-white"
-            />
+            <label className="block text-sm mb-1">Vendor Address</label>
+            <input type="text" value={form.vendor_address} onChange={(e) => setForm({ ...form, vendor_address: e.target.value })} className="w-full border rounded p-2.5 text-sm" />
           </div>
           <div>
-            <label
-              className="block text-sm font-medium text-primary-dark mb-1"
-              style={{ fontFamily: bodyFont }}
-            >
-              GSTIN
-            </label>
-            <input
-              type="text"
-              value={form.vendor_gstin}
-              onChange={(e) => setForm({ ...form, vendor_gstin: e.target.value })}
-              className="w-full border border-primary-bg rounded-lg p-2.5 text-sm focus:ring-1 focus:ring-primary text-primary-dark bg-white"
-            />
+            <label className="block text-sm mb-1">GSTIN</label>
+            <input type="text" value={form.vendor_gstin} onChange={(e) => setForm({ ...form, vendor_gstin: e.target.value })} className="w-full border rounded p-2.5 text-sm" />
           </div>
           <div>
-            <label
-              className="block text-sm font-medium text-primary-dark mb-1"
-              style={{ fontFamily: bodyFont }}
-            >
-              Contact Person
-            </label>
-            <input
-              type="text"
-              value={form.vendor_contact_person}
-              onChange={(e) => setForm({ ...form, vendor_contact_person: e.target.value })}
-              className="w-full border border-primary-bg rounded-lg p-2.5 text-sm focus:ring-1 focus:ring-primary text-primary-dark bg-white"
-            />
+            <label className="block text-sm mb-1">Contact Person</label>
+            <input type="text" value={form.vendor_contact_person} onChange={(e) => setForm({ ...form, vendor_contact_person: e.target.value })} className="w-full border rounded p-2.5 text-sm" />
           </div>
           <div>
-            <label
-              className="block text-sm font-medium text-primary-dark mb-1"
-              style={{ fontFamily: bodyFont }}
-            >
-              Phone
-            </label>
-            <input
-              type="text"
-              value={form.vendor_phone}
-              onChange={(e) => setForm({ ...form, vendor_phone: e.target.value })}
-              className="w-full border border-primary-bg rounded-lg p-2.5 text-sm focus:ring-1 focus:ring-primary text-primary-dark bg-white"
-            />
+            <label className="block text-sm mb-1">Phone</label>
+            <input type="text" value={form.vendor_phone} onChange={(e) => setForm({ ...form, vendor_phone: e.target.value })} className="w-full border rounded p-2.5 text-sm" />
           </div>
           <div>
-            <label
-              className="block text-sm font-medium text-primary-dark mb-1"
-              style={{ fontFamily: bodyFont }}
-            >
-              Email
-            </label>
-            <input
-              type="email"
-              value={form.vendor_email}
-              onChange={(e) => setForm({ ...form, vendor_email: e.target.value })}
-              className="w-full border border-primary-bg rounded-lg p-2.5 text-sm focus:ring-1 focus:ring-primary text-primary-dark bg-white"
-            />
+            <label className="block text-sm mb-1">Email</label>
+            <input type="email" value={form.vendor_email} onChange={(e) => setForm({ ...form, vendor_email: e.target.value })} className="w-full border rounded p-2.5 text-sm" />
           </div>
           <div>
-            <label
-              className="block text-sm font-medium text-primary-dark mb-1"
-              style={{ fontFamily: bodyFont }}
-            >
-              Order Date *
-            </label>
-            <input
-              type="date"
-              value={form.order_date}
-              onChange={(e) => setForm({ ...form, order_date: e.target.value })}
-              className="w-full border border-primary-bg rounded-lg p-2.5 text-sm focus:ring-1 focus:ring-primary text-primary-dark bg-white"
-              required
-            />
+            <label className="block text-sm mb-1">Order Date *</label>
+            <input type="date" value={form.order_date} onChange={(e) => setForm({ ...form, order_date: e.target.value })} className="w-full border rounded p-2.5 text-sm" required />
           </div>
           <div>
-            <label
-              className="block text-sm font-medium text-primary-dark mb-1"
-              style={{ fontFamily: bodyFont }}
-            >
-              Expected Date
-            </label>
-            <input
-              type="date"
-              value={form.expected_date}
-              onChange={(e) => setForm({ ...form, expected_date: e.target.value })}
-              className="w-full border border-primary-bg rounded-lg p-2.5 text-sm focus:ring-1 focus:ring-primary text-primary-dark bg-white"
-            />
+            <label className="block text-sm mb-1">Expected Date</label>
+            <input type="date" value={form.expected_date} onChange={(e) => setForm({ ...form, expected_date: e.target.value })} className="w-full border rounded p-2.5 text-sm" />
           </div>
           <div>
-            <label
-              className="block text-sm font-medium text-primary-dark mb-1"
-              style={{ fontFamily: bodyFont }}
-            >
-              Status
-            </label>
-            <select
-              value={form.status}
-              onChange={(e) => setForm({ ...form, status: e.target.value })}
-              className="w-full border border-primary-bg rounded-lg p-2.5 text-sm focus:ring-1 focus:ring-primary text-primary-dark bg-white"
-            >
+            <label className="block text-sm mb-1">Status</label>
+            <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} className="w-full border rounded p-2.5 text-sm">
               <option value="Draft">Draft</option>
               <option value="Sent">Sent</option>
               <option value="Received">Received</option>
@@ -345,124 +246,60 @@ export default function POForm() {
             </select>
           </div>
           <div className="sm:col-span-2">
-            <label
-              className="block text-sm font-medium text-primary-dark mb-1"
-              style={{ fontFamily: bodyFont }}
-            >
-              Notes
-            </label>
-            <input
-              type="text"
-              value={form.notes}
-              onChange={(e) => setForm({ ...form, notes: e.target.value })}
-              className="w-full border border-primary-bg rounded-lg p-2.5 text-sm focus:ring-1 focus:ring-primary text-primary-dark bg-white"
-            />
+            <label className="block text-sm mb-1">Notes</label>
+            <input type="text" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} className="w-full border rounded p-2.5 text-sm" />
           </div>
         </div>
 
         {/* Items */}
         <div>
-          <h2
-            className="text-lg font-semibold text-primary mb-3"
-            style={{ fontFamily: headingFont }}
-          >
-            Items
-          </h2>
+          <h2 className="text-lg font-semibold mb-3">Items</h2>
           {lines.map((line, idx) => (
-            <div
-              key={idx}
-              className="grid grid-cols-5 gap-2 items-end border border-primary-bg p-2 rounded mb-2"
-            >
+            <div key={idx} className="grid grid-cols-5 gap-2 items-end border p-2 rounded mb-2">
               <div>
-                <select
-                  value={line.item_id}
-                  onChange={(e) => updateLine(idx, "item_id", e.target.value)}
-                  className="w-full border border-primary-bg rounded p-2 text-sm bg-white text-primary-dark"
-                >
+                <select value={line.item_id} onChange={(e) => updateLine(idx, "item_id", e.target.value)} className="w-full border rounded p-2 text-sm">
                   <option value="">Select item</option>
                   {items.map((i) => (
-                    <option key={i.id} value={i.id}>
-                      {i.item_name}
-                    </option>
+                    <option key={i.id} value={i.id}>{i.item_name}</option>
                   ))}
                 </select>
               </div>
               <div>
-                <input
-                  type="number"
-                  min="1"
-                  value={line.quantity_ordered}
-                  onChange={(e) => updateLine(idx, "quantity_ordered", e.target.value)}
-                  className="w-full border border-primary-bg rounded p-2 text-sm bg-white text-primary-dark"
-                  placeholder="Qty"
-                />
+                <input type="number" min="1" value={line.quantity_ordered} onChange={(e) => updateLine(idx, "quantity_ordered", e.target.value)} className="w-full border rounded p-2 text-sm" placeholder="Qty" />
               </div>
               <div>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={line.unit_price}
-                  onChange={(e) => updateLine(idx, "unit_price", e.target.value)}
-                  className="w-full border border-primary-bg rounded p-2 text-sm bg-white text-primary-dark"
-                  placeholder="Unit Price"
-                />
+                <input type="number" min="0" step="0.01" value={line.unit_price} onChange={(e) => updateLine(idx, "unit_price", e.target.value)} className="w-full border rounded p-2 text-sm" placeholder="Unit Price" />
               </div>
               <div>
-                <select
-                  value={line.tax_rate_id}
-                  onChange={(e) => updateLine(idx, "tax_rate_id", e.target.value)}
-                  className="w-full border border-primary-bg rounded p-2 text-sm bg-white text-primary-dark"
-                >
+                <select value={line.tax_rate_id} onChange={(e) => updateLine(idx, "tax_rate_id", e.target.value)} className="w-full border rounded p-2 text-sm">
                   <option value="">No Tax</option>
                   {taxRates.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.name}
-                    </option>
+                    <option key={t.id} value={t.id}>{t.name}</option>
                   ))}
                 </select>
               </div>
               <div className="flex items-end">
                 {lines.length > 1 && (
-                  <button
-                    type="button"
-                    onClick={() => removeLine(idx)}
-                    className="text-accent hover:text-accent-dark p-2"
-                  >
+                  <button type="button" onClick={() => removeLine(idx)} className="text-red-500 p-2">
                     <Trash2 size={18} />
                   </button>
                 )}
               </div>
             </div>
           ))}
-          <button
-            type="button"
-            onClick={addLine}
-            className="mt-2 text-primary text-sm flex items-center gap-1 hover:underline"
-            style={{ fontFamily: bodyFont }}
-          >
+          <button type="button" onClick={addLine} className="mt-2 text-primary text-sm flex items-center gap-1">
             <Plus size={16} /> Add Item
           </button>
         </div>
 
         {/* Totals */}
-        <div className="border-t border-primary-bg pt-4 flex justify-between items-center">
-          <span
-            className="text-lg font-bold text-primary"
-            style={{ fontFamily: headingFont }}
-          >
-            Total: ₹ {subtotal.toLocaleString("en-IN")}
-          </span>
-          <button
-            type="submit"
-            disabled={saveMutation.isPending}
-            className="bg-primary hover:bg-accent text-white px-6 py-2.5 rounded-lg text-sm flex items-center gap-2 transition disabled:opacity-50"
-            style={{ fontFamily: bodyFont }}
-          >
+        <div className="border-t pt-4 flex justify-between items-center">
+          <span className="text-lg font-bold">Total: ₹ {subtotal.toLocaleString("en-IN")}</span>
+          <button type="submit" disabled={saveMutation.isPending} className="bg-primary text-white px-6 py-2.5 rounded-lg text-sm flex items-center gap-2">
             <Save size={16} /> {isEditing ? "Update PO" : "Save PO"}
           </button>
         </div>
       </form>
-    </>
+    </AdminLayout>
   );
 }

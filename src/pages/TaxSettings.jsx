@@ -2,9 +2,7 @@
 import React, { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "../api/supabase";
-import { useAuth } from "../context/AuthContext";
-import { useOrg } from "../context/OrganizationContext";
-import { useTheme } from "../context/ThemeContext"; // 👈 import theme
+import AdminLayout from "../layouts/AdminLayout";
 import toast from "react-hot-toast";
 import {
   Plus,
@@ -16,9 +14,9 @@ import {
   Globe,
   Star,
 } from "lucide-react";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 
 export default function TaxSettings() {
-  const { profile } = useAuth();
   const queryClient = useQueryClient();
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
@@ -30,16 +28,12 @@ export default function TaxSettings() {
     is_active: true,
   });
 
-  // ── Check if user is branch admin ──
-  const isBranchAdmin = profile?.role?.toLowerCase() === "branch_admin";
-
   // ── Branch & Financial Year context ──
   const { branch, selectedFinancialYear } = useOrg();
-  const theme = useTheme(); // 👈 get theme colours (optional)
   const branchId = branch?.id;
   const financialYearId = selectedFinancialYear?.id;
 
-  // Fetch tax rates – scoped to branch & FY
+  // Fetch tax rates – scoped to branch & FY (include inactive as well)
   const { data: taxRates = [], isLoading } = useQuery({
     queryKey: ["tax-rates", branchId, financialYearId],
     queryFn: async () => {
@@ -59,10 +53,11 @@ export default function TaxSettings() {
     staleTime: 10 * 60 * 1000,
   });
 
-  // Create mutation – scoped
+  // Create mutation – adds branch & FY to payload
   const createMutation = useMutation({
     mutationFn: async (payload) => {
       if (payload.is_default) {
+        // Unset other defaults (scoped)
         let unsetQuery = supabase
           .from("tax_rates")
           .update({ is_default: false })
@@ -130,7 +125,7 @@ export default function TaxSettings() {
     onError: (err) => toast.error(err.message),
   });
 
-  // Delete mutation – scoped
+  // Delete mutation – scoped to prevent cross‑branch deletion
   const deleteMutation = useMutation({
     mutationFn: async (id) => {
       let query = supabase
@@ -160,14 +155,12 @@ export default function TaxSettings() {
   };
 
   const openCreate = () => {
-    if (isBranchAdmin) return;
     resetForm();
     setEditing(null);
     setShowForm(true);
   };
 
   const openEdit = (item) => {
-    if (isBranchAdmin) return;
     setForm({
       name: item.name,
       rate: item.rate,
@@ -181,7 +174,6 @@ export default function TaxSettings() {
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (isBranchAdmin) return;
     if (!form.name || !form.rate) {
       toast.error("Name and rate are required");
       return;
@@ -199,77 +191,48 @@ export default function TaxSettings() {
   };
 
   return (
-    <div className="space-y-6 px-4 sm:px-6 lg:px-0">
+    <AdminLayout>
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
         <div>
-          <h1 className="text-3xl font-heading text-primary">
-            Tax Settings
-          </h1>
-          <p className="text-sm text-gray-600 dark:text-gray-400 font-body mt-1">
+          <h1 className="text-3xl font-righteous text-primary-dark">Tax Settings</h1>
+          <p className="text-sm text-secondary-dark font-montserrat mt-1">
             Manage tax rates applicable to fees and income
           </p>
         </div>
-        {!isBranchAdmin && (
-          <button
-            onClick={openCreate}
-            className="bg-primary hover:bg-primary-light text-white px-5 py-2.5 rounded-lg transition font-body text-sm flex items-center gap-2"
-          >
-            <Plus size={18} /> Add Tax Rate
-          </button>
-        )}
+        <button
+          onClick={openCreate}
+          className="bg-primary hover:bg-primary-light text-white px-5 py-2.5 rounded-lg transition font-montserrat text-sm flex items-center gap-2"
+        >
+          <Plus size={18} /> Add Tax Rate
+        </button>
       </div>
 
-      {isBranchAdmin && (
-        <div className="bg-yellow-50 dark:bg-yellow-900/20 border-l-4 border-yellow-400 dark:border-yellow-600 p-4 mb-6 rounded">
-          <p className="text-yellow-700 dark:text-yellow-300 text-sm font-medium">
-            Read‑only mode
-          </p>
-          <p className="text-yellow-600 dark:text-yellow-400 text-sm">
-            As a branch admin, you can view but cannot edit tax settings.
-          </p>
-        </div>
-      )}
-
       {/* Tax Rates Table */}
-      <div className="bg-white dark:bg-accent rounded-xl shadow-sm overflow-hidden border border-gray-200 dark:border-gray-700">
+      <div className="bg-white rounded-xl shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[600px]">
-            <thead className="bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600">
+            <thead className="bg-slate-100 border-b border-secondary-light">
               <tr>
-                <th className="p-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  Name
-                </th>
-                <th className="p-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  Rate
-                </th>
-                <th className="p-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  Country
-                </th>
-                <th className="p-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  Default
-                </th>
-                <th className="p-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  Status
-                </th>
-                <th className="p-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  Actions
-                </th>
+                <th className="p-3 text-left text-sm font-montserrat text-secondary-dark">Name</th>
+                <th className="p-3 text-left text-sm font-montserrat text-secondary-dark">Rate</th>
+                <th className="p-3 text-left text-sm font-montserrat text-secondary-dark">Country</th>
+                <th className="p-3 text-left text-sm font-montserrat text-secondary-dark">Default</th>
+                <th className="p-3 text-left text-sm font-montserrat text-secondary-dark">Status</th>
+                <th className="p-3 text-left text-sm font-montserrat text-secondary-dark">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+            <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan={6} className="p-6 text-center text-gray-500 dark:text-gray-400">
-                    Loading...
-                  </td>
+                  <td colSpan={6} className="p-6 text-center text-secondary">Loading...</td>
                 </tr>
               ) : taxRates.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="p-6 text-center text-gray-500 dark:text-gray-400">
+                  <td colSpan={6} className="p-6 text-center text-secondary">
                     <div className="flex flex-col items-center gap-2">
-                      <Percent size={32} className="text-gray-400 dark:text-gray-500" />
+                      <Percent size={32} className="text-secondary-light" />
                       <span>No tax rates defined</span>
-                      <span className="text-xs text-gray-400 dark:text-gray-500">
+                      <span className="text-xs text-secondary-light">
                         Add a tax rate to apply taxes to fees
                       </span>
                     </div>
@@ -279,59 +242,49 @@ export default function TaxSettings() {
                 taxRates.map((rate) => (
                   <tr
                     key={rate.id}
-                    className="hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                    className="border-b border-secondary-light hover:bg-primary-bg transition"
                   >
-                    <td className="p-3 text-sm font-medium text-gray-800 dark:text-gray-100">
-                      {rate.name}
-                    </td>
-                    <td className="p-3 text-sm text-gray-700 dark:text-gray-200">{rate.rate}%</td>
-                    <td className="p-3 text-sm text-gray-700 dark:text-gray-200">
-                      {rate.country || "India"}
-                    </td>
+                    <td className="p-3 text-sm font-medium">{rate.name}</td>
+                    <td className="p-3 text-sm">{rate.rate}%</td>
+                    <td className="p-3 text-sm">{rate.country || "India"}</td>
                     <td className="p-3 text-sm">
                       {rate.is_default ? (
                         <Star size={16} className="text-yellow-500" />
                       ) : (
-                        <span className="text-gray-400 dark:text-gray-500">-</span>
+                        <span className="text-gray-400">-</span>
                       )}
                     </td>
                     <td className="p-3 text-sm">
                       <span
                         className={`px-2 py-1 rounded-full text-xs font-medium ${
                           rate.is_active
-                            ? "bg-primary-bg text-primary dark:bg-primary-dark dark:text-primary-light"
-                            : "bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400"
+                            ? "bg-green-100 text-green-800"
+                            : "bg-gray-100 text-gray-600"
                         }`}
                       >
                         {rate.is_active ? "Active" : "Inactive"}
                       </span>
                     </td>
                     <td className="p-3 text-sm">
-                      {!isBranchAdmin ? (
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => openEdit(rate)}
-                            className="text-primary dark:text-primary-light hover:underline"
-                            title="Edit"
-                          >
-                            <Edit3 size={15} />
-                          </button>
-                          <button
-                            onClick={() => {
-                              if (!window.confirm("Delete this tax rate?")) return;
-                              deleteMutation.mutate(rate.id);
-                            }}
-                            className="text-accent-dark dark:text-accent-light hover:underline"
-                            title="Delete"
-                          >
-                            <Trash2 size={15} />
-                          </button>
-                        </div>
-                      ) : (
-                        <span className="text-xs text-gray-400 dark:text-gray-500">
-                          Read‑only
-                        </span>
-                      )}
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => openEdit(rate)}
+                          className="text-blue-600 hover:underline"
+                          title="Edit"
+                        >
+                          <Edit3 size={15} />
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (!window.confirm("Delete this tax rate?")) return;
+                            deleteMutation.mutate(rate.id);
+                          }}
+                          className="text-red-600 hover:underline"
+                          title="Delete"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -341,24 +294,24 @@ export default function TaxSettings() {
         </div>
       </div>
 
-      {/* Modal – hidden for branch admin */}
-      {!isBranchAdmin && showForm && (
+      {/* Modal */}
+      {showForm && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-accent rounded-xl w-full max-w-md shadow-xl border border-gray-200 dark:border-gray-700">
-            <div className="sticky top-0 bg-white dark:bg-accent border-b border-gray-200 dark:border-gray-700 px-6 py-4 flex items-center justify-between rounded-t-xl">
-              <h2 className="text-xl font-heading text-primary">
+          <div className="bg-white rounded-xl w-full max-w-md shadow-xl">
+            <div className="sticky top-0 bg-white border-b border-secondary-light px-6 py-4 flex items-center justify-between rounded-t-xl">
+              <h2 className="text-xl font-righteous text-primary-dark">
                 {editing ? "Edit Tax Rate" : "Add Tax Rate"}
               </h2>
               <button
                 onClick={() => setShowForm(false)}
-                className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
+                className="p-2 hover:bg-secondary-bg rounded-lg"
               >
-                <X size={20} className="text-gray-600 dark:text-gray-400" />
+                <X size={20} className="text-secondary-dark" />
               </button>
             </div>
             <form onSubmit={handleSubmit} className="p-6 space-y-4">
               <div>
-                <label className="block text-sm font-body text-gray-700 dark:text-gray-300 mb-1">
+                <label className="block text-sm font-montserrat text-secondary-dark mb-1">
                   Name *
                 </label>
                 <input
@@ -366,12 +319,12 @@ export default function TaxSettings() {
                   placeholder="e.g., GST 18%"
                   value={form.name}
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
-                  className="w-full border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-primary outline-none"
+                  className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
                   required
                 />
               </div>
               <div>
-                <label className="block text-sm font-body text-gray-700 dark:text-gray-300 mb-1">
+                <label className="block text-sm font-montserrat text-secondary-dark mb-1">
                   Rate (%) *
                 </label>
                 <input
@@ -379,14 +332,14 @@ export default function TaxSettings() {
                   placeholder="e.g., 18"
                   value={form.rate}
                   onChange={(e) => setForm({ ...form, rate: e.target.value })}
-                  className="w-full border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-primary outline-none"
+                  className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
                   required
                   step="0.01"
                   min="0"
                 />
               </div>
               <div>
-                <label className="block text-sm font-body text-gray-700 dark:text-gray-300 mb-1">
+                <label className="block text-sm font-montserrat text-secondary-dark mb-1">
                   Country
                 </label>
                 <input
@@ -394,7 +347,7 @@ export default function TaxSettings() {
                   placeholder="Country"
                   value={form.country}
                   onChange={(e) => setForm({ ...form, country: e.target.value })}
-                  className="w-full border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-primary outline-none"
+                  className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
                 />
               </div>
               <div className="flex items-center gap-3">
@@ -403,9 +356,9 @@ export default function TaxSettings() {
                   id="is_default"
                   checked={form.is_default}
                   onChange={(e) => setForm({ ...form, is_default: e.target.checked })}
-                  className="w-4 h-4 text-primary border-gray-300 dark:border-gray-600 rounded focus:ring-primary dark:focus:ring-offset-gray-800"
+                  className="w-4 h-4 text-primary border-gray-300 rounded focus:ring-primary"
                 />
-                <label htmlFor="is_default" className="text-sm text-gray-700 dark:text-gray-300">
+                <label htmlFor="is_default" className="text-sm text-gray-700">
                   Set as default tax rate
                 </label>
               </div>
@@ -415,9 +368,9 @@ export default function TaxSettings() {
                   id="is_active"
                   checked={form.is_active}
                   onChange={(e) => setForm({ ...form, is_active: e.target.checked })}
-                  className="w-4 h-4 text-primary border-gray-300 dark:border-gray-600 rounded focus:ring-primary dark:focus:ring-offset-gray-800"
+                  className="w-4 h-4 text-primary border-gray-300 rounded focus:ring-primary"
                 />
-                <label htmlFor="is_active" className="text-sm text-gray-700 dark:text-gray-300">
+                <label htmlFor="is_active" className="text-sm text-gray-700">
                   Active
                 </label>
               </div>
@@ -425,14 +378,14 @@ export default function TaxSettings() {
                 <button
                   type="submit"
                   disabled={createMutation.isPending || updateMutation.isPending}
-                  className="w-full sm:w-auto bg-primary hover:bg-primary-light text-white px-6 py-2.5 rounded-lg font-body transition disabled:opacity-60"
+                  className="w-full sm:w-auto bg-primary hover:bg-primary-light text-white px-6 py-2.5 rounded-lg font-montserrat transition disabled:opacity-60"
                 >
                   {editing ? "Update" : "Create"}
                 </button>
                 <button
                   type="button"
                   onClick={() => setShowForm(false)}
-                  className="w-full sm:w-auto border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 px-6 py-2.5 rounded-lg font-body transition"
+                  className="w-full sm:w-auto border border-secondary-light text-secondary-dark hover:bg-secondary-bg px-6 py-2.5 rounded-lg font-montserrat transition"
                 >
                   Cancel
                 </button>
@@ -441,6 +394,6 @@ export default function TaxSettings() {
           </div>
         </div>
       )}
-    </div>
+    </AdminLayout>
   );
 }

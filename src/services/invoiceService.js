@@ -1,171 +1,21 @@
 // src/services/invoiceService.js
 import { supabase } from "../api/supabase";
-import { sendTemplateEmail } from "./emailService";
 
-// ─── Helpers ──────────────────────────────────────────────────────────
-
-async function getOrganizationFromBranch(branchId) {
-  const { data: branch, error: branchError } = await supabase
-    .from("branches")
-    .select("organization_id")
-    .eq("id", branchId)
-    .single();
-  if (branchError) throw branchError;
-
-  const { data: org, error: orgError } = await supabase
-    .from("organization")
-    .select("id, company_name")
-    .eq("id", branch.organization_id)
-    .single();
-  if (orgError) throw orgError;
-  return org;
+// ─── HELPERS ───────────────────────────────────────────────
+async function generateInvoiceNumber() {
+  const { data, error } = await supabase.rpc("generate_invoice_number");
+  if (error) throw error;
+  return data;
 }
 
-async function getStudentParentEmail(studentId) {
-  // Fetch student email
-  const { data: student, error: studentError } = await supabase
-    .from("students")
-    .select("email, first_name, last_name")
-    .eq("id", studentId)
-    .single();
-  if (studentError) return null;
-
-  // Try to find a parent
-  const { data: parent, error: parentError } = await supabase
-    .from("student_parents")
-    .select("parents!inner(email, father_name, mother_name)")
-    .eq("student_id", studentId)
-    .maybeSingle();
-
-  if (!parentError && parent && parent.parents && parent.parents.email) {
-    return { email: parent.parents.email, name: parent.parents.father_name || parent.parents.mother_name || student.first_name };
-  }
-  return { email: student.email, name: `${student.first_name} ${student.last_name}` };
+// Get the current user's organization ID using the database function
+async function getCurrentUserOrgId() {
+  const { data, error } = await supabase.rpc("get_user_org");
+  if (error) throw error;
+  return data;   // integer
 }
 
-async function sendInvoiceNotification(invoice, branchId, financialYearId) {
-  try {
-    const org = await getOrganizationFromBranch(branchId);
-    const recipient = await getStudentParentEmail(invoice.student_id);
-    if (!recipient || !recipient.email) {
-      console.warn(`No email found for student ${invoice.student_id}, skipping invoice notification.`);
-      return;
-    }
-
-    const message = `A new invoice has been generated:\n` +
-      `Invoice Number: ${invoice.invoice_number}\n` +
-      `Date: ${invoice.invoice_date}\n` +
-      `Total Amount: ₹${Number(invoice.grand_total).toLocaleString('en-IN')}\n` +
-      `Status: ${invoice.status}\n\n` +
-      `Please log in to view the full invoice.`;
-
-    await sendTemplateEmail({
-      to: recipient.email,
-      organizationId: org.id,
-      slug: "system_announcement",
-      context: {
-        academyName: org.company_name,
-        title: "New Invoice Generated",
-        message,
-        target_type: "Student/Parent",
-      },
-      branchId,
-    });
-    console.log(`✅ Invoice notification sent to ${recipient.email}`);
-  } catch (error) {
-    console.error("❌ Failed to send invoice notification:", error);
-  }
-}
-
-async function notifyAdmins(orgId, title, message, branchId) {
-  try {
-    const { data: admins, error } = await supabase
-      .from("profiles")
-      .select("email")
-      .eq("organization_id", orgId)
-      .in("role", ["admin", "super_admin", "organization_admin"])
-      .eq("is_active", true);
-    if (error) throw error;
-    const adminEmails = admins?.map(a => a.email).filter(Boolean);
-    if (!adminEmails || adminEmails.length === 0) return;
-
-    await sendTemplateEmail({
-      to: adminEmails,
-      organizationId: orgId,
-      slug: "system_announcement",
-      context: {
-        academyName: "",
-        title,
-        message,
-        target_type: "Admin",
-      },
-      branchId,
-    });
-    console.log(`✅ Admin notification sent for: ${title}`);
-  } catch (error) {
-    console.error("❌ Failed to send admin notification:", error);
-  }
-}
-
-// ─── Tax Calculation Helper ──────────────────────────────────────────
-
-/**
- * Calculate base, tax, and CGST/SGST/IGST for a single invoice item.
- * @param {number} totalAmount - The total amount (inclusive or exclusive depending on inclusive flag)
- * @param {number} taxRate - The tax rate percentage (e.g., 18 for 18%)
- * @param {boolean} inclusive - If true, totalAmount includes tax
- * @param {string} placeOfSupply - State code of the supply
- * @param {string} orgState - State code of the organization
- * @returns {object} { base, tax, cgst, sgst, igst }
- */
-function calculateTaxForItem(totalAmount, taxRate, inclusive, placeOfSupply, orgState) {
-  const rate = taxRate / 100;
-  let base = totalAmount;
-  let tax = 0;
-
-  if (inclusive && rate > 0) {
-    // Price includes tax, so back‑calculate base
-    base = totalAmount / (1 + rate);
-    tax = totalAmount - base;
-  } else if (!inclusive && rate > 0) {
-    // Price is exclusive, tax added
-    base = totalAmount;
-    tax = totalAmount * rate;
-  }
-
-  // Round to 2 decimal places
-  base = Math.round(base * 100) / 100;
-  tax = Math.round(tax * 100) / 100;
-
-  // Split into CGST/SGST/IGST
-  let cgst = 0, sgst = 0, igst = 0;
-  if (tax > 0) {
-    if (placeOfSupply === orgState) {
-      // Intra‑state: half tax each
-      cgst = tax / 2;
-      sgst = tax / 2;
-      cgst = Math.round(cgst * 100) / 100;
-      sgst = Math.round(sgst * 100) / 100;
-    } else {
-      // Inter‑state: all IGST
-      igst = tax;
-      igst = Math.round(igst * 100) / 100;
-    }
-  }
-
-  return { base, tax, cgst, sgst, igst };
-}
-
-// ─── INVOICES ──────────────────────────────────────────────────────────
-
-// ─── Get the next invoice number from the database ──────────
-async function generateUniqueInvoiceNumber() {
-  const { data, error } = await supabase.rpc('next_invoice_number');
-  if (error) {
-    throw new Error('Could not generate invoice number: ' + error.message, { cause: error });
-  }
-  return data;   // e.g. "INV-2026-0001"
-}
+// ─── INVOICES ──────────────────────────────────────────────
 
 export async function getInvoices(filters = {}, branchId, financialYearId) {
   let query = supabase
@@ -178,6 +28,7 @@ export async function getInvoices(filters = {}, branchId, financialYearId) {
     `)
     .order("invoice_date", { ascending: false });
 
+  // Scope
   if (branchId) query = query.eq("branch_id", branchId);
   if (financialYearId) query = query.eq("financial_year_id", financialYearId);
 
@@ -195,6 +46,7 @@ export async function getInvoices(filters = {}, branchId, financialYearId) {
 }
 
 export async function getInvoice(id, branchId, financialYearId) {
+  // 1. Fetch invoice header – scoped
   let invoiceQuery = supabase
     .from("invoices")
     .select(`
@@ -209,6 +61,7 @@ export async function getInvoice(id, branchId, financialYearId) {
   const { data: invoice, error } = await invoiceQuery.single();
   if (error) throw error;
 
+  // 2. Fetch invoice items – scoped
   let itemsQuery = supabase
     .from("invoice_items")
     .select("*")
@@ -220,6 +73,7 @@ export async function getInvoice(id, branchId, financialYearId) {
   const { data: items, error: itemsError } = await itemsQuery;
   if (itemsError) throw itemsError;
 
+  // 3. Enrich items with tax rates and inventory items – scoped
   const enrichedItems = await Promise.all(
     (items || []).map(async (item) => {
       let taxRate = null;
@@ -228,8 +82,10 @@ export async function getInvoice(id, branchId, financialYearId) {
           .from("tax_rates")
           .select("id, name, rate")
           .eq("id", item.tax_rate_id);
+
         if (branchId) trQuery = trQuery.eq("branch_id", branchId);
         if (financialYearId) trQuery = trQuery.eq("financial_year_id", financialYearId);
+
         const { data: tr } = await trQuery.single();
         taxRate = tr;
       }
@@ -239,27 +95,31 @@ export async function getInvoice(id, branchId, financialYearId) {
           .from("inventory_items")
           .select("item_name, unit")
           .eq("id", item.item_id);
+
         if (branchId) invQuery = invQuery.eq("branch_id", branchId);
         if (financialYearId) invQuery = invQuery.eq("financial_year_id", financialYearId);
+
         const { data: inv } = await invQuery.single();
         inventoryItem = inv;
       }
-      return { ...item, tax_rates: taxRate, inventory_items: inventoryItem };
+      return {
+        ...item,
+        tax_rates: taxRate,
+        inventory_items: inventoryItem,
+      };
     })
   );
 
-  return { ...invoice, invoice_items: enrichedItems };
+  return {
+    ...invoice,
+    invoice_items: enrichedItems,
+  };
 }
 
-// ─── Create Invoice ────────────────────────────────────────────────────
-
+// context: { branchId, financialYearId }
 export async function createInvoice(payload, context) {
   const {
     student_id,
-    parent_id = null,          // NEW
-    course_id = null,          // NEW
-    batch_id = null,           // NEW
-    academic_year_id = null,   // NEW
     invoice_date,
     due_date,
     payment_terms,
@@ -269,24 +129,22 @@ export async function createInvoice(payload, context) {
     items,
     student_fee_id,
     fee_installment_id,
-    status = "Draft",
   } = payload;
 
   const { branchId, financialYearId } = context;
 
-  // Get organization state for tax split
-  let orgState = "";
-  if (branchId) {
-    const { data: branch } = await supabase
-      .from("branches")
-      .select("state")
-      .eq("id", branchId)
-      .single();
-    orgState = branch?.state || "";
-  }
+  // Get the current user's organization state code (multi‑tenant safe)
+  const orgId = await getCurrentUserOrgId();
+  if (!orgId) throw new Error("Could not determine your organization");
+  const { data: org } = await supabase
+    .from("organization")
+    .select("state_code")
+    .eq("id", orgId)
+    .single();
+  const orgState = org?.state_code || "";
   const placeOfSupply = place_of_supply || orgState;
 
-  // Fetch all tax rates needed for items
+  // Fetch tax rates – scoped
   const taxRateIds = items.map(i => i.tax_rate_id).filter(id => id);
   let taxRateQuery = supabase.from("tax_rates").select("*").in("id", taxRateIds);
   if (branchId) taxRateQuery = taxRateQuery.eq("branch_id", branchId);
@@ -300,63 +158,46 @@ export async function createInvoice(payload, context) {
   const invoiceItems = items.map(item => {
     const unitPrice = parseFloat(item.unit_price) || 0;
     const qty = parseFloat(item.quantity) || 1;
-    const total = unitPrice * qty;
-
-    const taxRateId = item.tax_rate_id || null;
-    const taxInclusive = item.tax_inclusive !== undefined ? item.tax_inclusive : true;
-
-    let base, tax, cgst = 0, sgst = 0, igst = 0;
-    if (taxRateId && taxRateMap[taxRateId]) {
-      const rate = taxRateMap[taxRateId].rate;
-      const result = calculateTaxForItem(total, rate, taxInclusive, placeOfSupply, orgState);
-      base = result.base;
-      tax = result.tax;
-      cgst = result.cgst;
-      sgst = result.sgst;
-      igst = result.igst;
-    } else {
-      base = total;
-      tax = 0;
+    const taxable = unitPrice * qty;
+    let cgst = 0, sgst = 0, igst = 0;
+    if (item.tax_rate_id && taxRateMap[item.tax_rate_id]) {
+      const rate = taxRateMap[item.tax_rate_id].rate;
+      if (placeOfSupply === orgState) {
+        cgst = (rate / 2) / 100 * taxable;
+        sgst = (rate / 2) / 100 * taxable;
+      } else {
+        igst = rate / 100 * taxable;
+      }
     }
-
-    const totalWithTax = base + cgst + sgst + igst;
-    totalTaxable += base;
-    totalGST += tax;
-    totalAmount += totalWithTax;
+    const total = taxable + cgst + sgst + igst;
+    totalTaxable += taxable;
     totalCgst += cgst;
     totalSgst += sgst;
     totalIgst += igst;
-
+    totalGST += cgst + sgst + igst;
+    totalAmount += total;
     return {
       ...item,
-      quantity: qty,
-      unit_price: unitPrice,
-      taxable_amount: base,
-      tax_rate_id: taxRateId,
+      taxable_amount: taxable,
       cgst_amount: cgst,
       sgst_amount: sgst,
       igst_amount: igst,
-      cess_amount: 0,
-      total_amount: totalWithTax,
+      total_amount: total,
     };
   });
 
   const roundOff = Math.round(totalAmount) - totalAmount;
   const grandTotal = totalAmount + roundOff;
 
-  // Always create a new invoice (no reuse logic)
-  const invoiceNumber = await generateUniqueInvoiceNumber();
+  const invoiceNumber = await generateInvoiceNumber();
 
+  // Insert header
   const { data: invoice, error } = await supabase
     .from("invoices")
     .insert({
       invoice_number: invoiceNumber,
       invoice_date: invoice_date || new Date().toISOString().split("T")[0],
       student_id,
-      parent_id,                // NEW
-      course_id,                // NEW
-      batch_id,                 // NEW
-      academic_year_id,         // NEW
       due_date: due_date || null,
       payment_terms: payment_terms || "",
       gst_applicable: gst_applicable || false,
@@ -368,7 +209,7 @@ export async function createInvoice(payload, context) {
       total_amount: totalAmount,
       round_off: roundOff,
       grand_total: grandTotal,
-      status: status,
+      status: "Draft",
       student_fee_id: student_fee_id || null,
       fee_installment_id: fee_installment_id || null,
       branch_id: branchId,
@@ -376,10 +217,9 @@ export async function createInvoice(payload, context) {
     })
     .select()
     .single();
-
   if (error) throw error;
 
-  // Insert invoice items
+  // Insert items
   const itemInserts = invoiceItems.map(item => ({
     invoice_id: invoice.id,
     item_type: item.item_type,
@@ -401,20 +241,14 @@ export async function createInvoice(payload, context) {
   const { error: insError } = await supabase.from("invoice_items").insert(itemInserts);
   if (insError) throw insError;
 
-  // If status is "Final", send notification
-  if (status === "Final") {
-    await sendInvoiceNotification(invoice, branchId, financialYearId);
-  }
-
   return invoice;
 }
-
-// ─── Update Invoice ────────────────────────────────────────────────────
 
 export async function updateInvoice(id, payload, context) {
   const { items, ...headerData } = payload;
   const { branchId, financialYearId } = context;
 
+  // Scope the update
   let updateQuery = supabase
     .from("invoices")
     .update({
@@ -424,6 +258,7 @@ export async function updateInvoice(id, payload, context) {
       financial_year_id: financialYearId,
     })
     .eq("id", id);
+
   if (branchId) updateQuery = updateQuery.eq("branch_id", branchId);
   if (financialYearId) updateQuery = updateQuery.eq("financial_year_id", financialYearId);
 
@@ -431,14 +266,17 @@ export async function updateInvoice(id, payload, context) {
   if (error) throw error;
 
   if (items !== undefined) {
-    // Delete old items
-    let deleteItemsQuery = supabase.from("invoice_items").delete().eq("invoice_id", id);
+    // Delete existing items – scoped
+    let deleteItemsQuery = supabase
+      .from("invoice_items")
+      .delete()
+      .eq("invoice_id", id);
+
     if (branchId) deleteItemsQuery = deleteItemsQuery.eq("branch_id", branchId);
     if (financialYearId) deleteItemsQuery = deleteItemsQuery.eq("financial_year_id", financialYearId);
+
     await deleteItemsQuery;
 
-    // Recalculate totals? For simplicity, we assume the payload already contains updated totals.
-    // But we can recalc if needed. We'll trust the payload.
     const itemInserts = items.map(item => ({
       invoice_id: id,
       item_type: item.item_type,
@@ -462,21 +300,22 @@ export async function updateInvoice(id, payload, context) {
   return invoice;
 }
 
+// deleteInvoice now scoped
 export async function deleteInvoice(id, branchId, financialYearId) {
+  // Read status – scoped
   let statusQuery = supabase.from("invoices").select("status").eq("id", id);
   if (branchId) statusQuery = statusQuery.eq("branch_id", branchId);
   if (financialYearId) statusQuery = statusQuery.eq("financial_year_id", financialYearId);
   const { data: invoice } = await statusQuery.single();
   if (invoice?.status !== "Draft") throw new Error("Cannot delete finalized invoice");
 
+  // Delete – scoped
   let deleteQuery = supabase.from("invoices").delete().eq("id", id);
   if (branchId) deleteQuery = deleteQuery.eq("branch_id", branchId);
   if (financialYearId) deleteQuery = deleteQuery.eq("financial_year_id", financialYearId);
   const { error } = await deleteQuery;
   if (error) throw error;
 }
-
-// ─── Finalize Invoice ──────────────────────────────────────────────
 
 export async function finalizeInvoice(id, context) {
   const { branchId, financialYearId } = context;
@@ -489,50 +328,23 @@ export async function finalizeInvoice(id, context) {
       financial_year_id: financialYearId,
     })
     .eq("id", id);
+
   if (branchId) query = query.eq("branch_id", branchId);
   if (financialYearId) query = query.eq("financial_year_id", financialYearId);
+
   const { data, error } = await query.select().single();
   if (error) throw error;
-
-  // ─── Send invoice notification ──────────────────────────────
-  await sendInvoiceNotification(data, branchId, financialYearId);
-
   return data;
 }
 
-export async function getInvoicesByStudent(studentId, branchId, financialYearId) {
-  let query = supabase
-    .from("invoices")
-    .select("id, invoice_number, grand_total, status, paid_amount, balance_due")
-    .eq("student_id", studentId)
-    .order("invoice_date", { ascending: false });
-  if (branchId) query = query.eq("branch_id", branchId);
-  if (financialYearId) query = query.eq("financial_year_id", financialYearId);
-  const { data, error } = await query;
-  if (error) throw error;
-  return data || [];
-}
-
-export async function getInvoiceByStudentFee(studentFeeId, branchId, financialYearId) {
-  let query = supabase
-    .from("invoices")
-    .select("id, invoice_number, grand_total, status")
-    .eq("student_fee_id", studentFeeId)
-    .order("invoice_date", { ascending: false })
-    .limit(1);
-  if (branchId) query = query.eq("branch_id", branchId);
-  if (financialYearId) query = query.eq("financial_year_id", financialYearId);
-  const { data, error } = await query;
-  if (error) throw error;
-  return data?.[0] || null;
-}
-
-// ─── CREDIT NOTES ────────────────────────────────────────────────────
+// ─── CREDIT NOTES ──────────────────────────────────────────
 
 export async function getCreditNotes(filters = {}, branchId, financialYearId) {
   let query = supabase.from("credit_notes").select("*").order("date", { ascending: false });
+
   if (branchId) query = query.eq("branch_id", branchId);
   if (financialYearId) query = query.eq("financial_year_id", financialYearId);
+
   if (filters.invoice_id) query = query.eq("invoice_id", filters.invoice_id);
   if (filters.status) query = query.eq("status", filters.status);
   const { data, error } = await query;
@@ -566,35 +378,29 @@ export async function finalizeCreditNote(id, context) {
   const { branchId, financialYearId } = context;
   let query = supabase
     .from("credit_notes")
-    .update({ status: "Final", branch_id: branchId, financial_year_id: financialYearId })
+    .update({
+      status: "Final",
+      branch_id: branchId,
+      financial_year_id: financialYearId,
+    })
     .eq("id", id);
+
   if (branchId) query = query.eq("branch_id", branchId);
   if (financialYearId) query = query.eq("financial_year_id", financialYearId);
+
   const { data, error } = await query.select().single();
   if (error) throw error;
-
-  // ─── Notify admins ──────────────────────────────────────────
-  try {
-    const org = await getOrganizationFromBranch(branchId);
-    const message = `A credit note has been finalized:\n` +
-      `Credit Note #: ${data.credit_note_number}\n` +
-      `Amount: ₹${Number(data.amount).toLocaleString('en-IN')}\n` +
-      `Date: ${data.date}\n` +
-      `Reason: ${data.reason}`;
-    await notifyAdmins(org.id, "Credit Note Finalized", message, branchId);
-  } catch (emailError) {
-    console.error("❌ Failed to send credit note notification:", emailError);
-  }
-
   return data;
 }
 
-// ─── DEBIT NOTES ──────────────────────────────────────────────────────
+// ─── DEBIT NOTES ───────────────────────────────────────────
 
 export async function getDebitNotes(filters = {}, branchId, financialYearId) {
   let query = supabase.from("debit_notes").select("*").order("date", { ascending: false });
+
   if (branchId) query = query.eq("branch_id", branchId);
   if (financialYearId) query = query.eq("financial_year_id", financialYearId);
+
   if (filters.invoice_id) query = query.eq("invoice_id", filters.invoice_id);
   if (filters.status) query = query.eq("status", filters.status);
   const { data, error } = await query;
@@ -628,25 +434,17 @@ export async function finalizeDebitNote(id, context) {
   const { branchId, financialYearId } = context;
   let query = supabase
     .from("debit_notes")
-    .update({ status: "Final", branch_id: branchId, financial_year_id: financialYearId })
+    .update({
+      status: "Final",
+      branch_id: branchId,
+      financial_year_id: financialYearId,
+    })
     .eq("id", id);
+
   if (branchId) query = query.eq("branch_id", branchId);
   if (financialYearId) query = query.eq("financial_year_id", financialYearId);
+
   const { data, error } = await query.select().single();
   if (error) throw error;
-
-  // ─── Notify admins ──────────────────────────────────────────
-  try {
-    const org = await getOrganizationFromBranch(branchId);
-    const message = `A debit note has been finalized:\n` +
-      `Debit Note #: ${data.debit_note_number}\n` +
-      `Amount: ₹${Number(data.amount).toLocaleString('en-IN')}\n` +
-      `Date: ${data.date}\n` +
-      `Reason: ${data.reason}`;
-    await notifyAdmins(org.id, "Debit Note Finalized", message, branchId);
-  } catch (emailError) {
-    console.error("❌ Failed to send debit note notification:", emailError);
-  }
-
   return data;
 }

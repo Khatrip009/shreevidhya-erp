@@ -2,12 +2,11 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import { supabase } from "../api/supabase";
-
+import AdminLayout from "../layouts/AdminLayout";
 import BackButton from "../components/BackButton";
 
 import { Plus, Trash2, ExternalLink } from "lucide-react";
-import { useOrg } from "../context/OrganizationContext";
-import { useTheme } from "../context/ThemeContext"; // ✅ dynamic theme
+import { useOrg } from "../context/OrganizationContext"; // NEW
 
 const RESOURCE_TYPES = [
   "textbook",
@@ -41,12 +40,8 @@ export default function LearningResources() {
 
   // ── Branch & Financial Year context ──
   const { branch, selectedFinancialYear } = useOrg();
-  const theme = useTheme(); // ✅ theme hook
   const branchId = branch?.id;
   const financialYearId = selectedFinancialYear?.id;
-
-  const headingFont = theme?.font_heading || "Righteous";
-  const bodyFont = theme?.font_body || "Montserrat";
 
   // Fetch dropdown data – scoped where appropriate
 
@@ -185,19 +180,15 @@ export default function LearningResources() {
   };
 
   return (
-    <>
+    <AdminLayout>
       <BackButton to="/communication-hub" label="Communication" />
       <div className="flex justify-between items-center mb-6">
-        <h1
-          className="text-3xl font-bold text-primary"
-          style={{ fontFamily: headingFont }}
-        >
+        <h1 className="text-3xl font-righteous text-primary-dark">
           Learning Resources
         </h1>
         <button
           onClick={() => setShowForm(true)}
-          className="bg-primary hover:bg-primary-light text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
-          style={{ fontFamily: bodyFont }}
+          className="bg-primary hover:bg-primary-light text-white px-4 py-2 rounded-lg flex items-center gap-2"
         >
           <Plus size={18} /> Add Resource
         </button>
@@ -206,7 +197,7 @@ export default function LearningResources() {
       {/* Filters */}
       <div className="flex gap-4 mb-6 flex-wrap">
         <select
-          className="border border-primary-bg bg-white text-primary-dark rounded p-2 text-sm"
+          className="border p-2 rounded"
           value={filters.subject_id}
           onChange={(e) =>
             setFilters({ ...filters, subject_id: e.target.value })
@@ -221,7 +212,7 @@ export default function LearningResources() {
         </select>
 
         <select
-          className="border border-primary-bg bg-white text-primary-dark rounded p-2 text-sm"
+          className="border p-2 rounded"
           value={filters.batch_id}
           onChange={(e) =>
             setFilters({ ...filters, batch_id: e.target.value })
@@ -236,7 +227,7 @@ export default function LearningResources() {
         </select>
 
         <select
-          className="border border-primary-bg bg-white text-primary-dark rounded p-2 text-sm"
+          className="border p-2 rounded"
           value={filters.resource_type}
           onChange={(e) =>
             setFilters({ ...filters, resource_type: e.target.value })
@@ -251,7 +242,7 @@ export default function LearningResources() {
         </select>
 
         <select
-          className="border border-primary-bg bg-white text-primary-dark rounded p-2 text-sm"
+          className="border p-2 rounded"
           value={filters.medium_id}
           onChange={(e) =>
             setFilters({ ...filters, medium_id: e.target.value })
@@ -267,59 +258,45 @@ export default function LearningResources() {
       </div>
 
       {/* Resources Table */}
-      <div className="bg-white rounded-xl shadow-sm overflow-x-auto border border-primary-bg">
+      <div className="bg-white rounded-xl shadow-sm overflow-x-auto">
         <table className="w-full min-w-[600px]">
-          <thead className="bg-primary-bg">
+          <thead className="bg-slate-100">
             <tr>
-              <th className="p-3 text-left text-sm font-medium text-primary-dark uppercase" style={{ fontFamily: bodyFont }}>
-                Subject
-              </th>
-              <th className="p-3 text-left text-sm font-medium text-primary-dark uppercase" style={{ fontFamily: bodyFont }}>
-                Batch
-              </th>
-              <th className="p-3 text-left text-sm font-medium text-primary-dark uppercase" style={{ fontFamily: bodyFont }}>
-                Chapter
-              </th>
-              <th className="p-3 text-left text-sm font-medium text-primary-dark uppercase" style={{ fontFamily: bodyFont }}>
-                Type
-              </th>
-              <th className="p-3 text-left text-sm font-medium text-primary-dark uppercase" style={{ fontFamily: bodyFont }}>
-                Medium / Board
-              </th>
-              <th className="p-3 text-left text-sm font-medium text-primary-dark uppercase" style={{ fontFamily: bodyFont }}>
-                Premium
-              </th>
-              <th className="p-3 text-left text-sm font-medium text-primary-dark uppercase" style={{ fontFamily: bodyFont }}>
-                Actions
-              </th>
+              <th className="p-3 text-left">Subject</th>
+              <th className="p-3 text-left">Batch</th>
+              <th className="p-3 text-left">Chapter</th>
+              <th className="p-3 text-left">Type</th>
+              <th className="p-3 text-left">Medium / Board</th>
+              <th className="p-3 text-left">Premium</th>
+              <th className="p-3 text-left">Actions</th>
             </tr>
           </thead>
           <tbody>
             {isLoading ? (
               <tr>
-                <td colSpan={7} className="p-4 text-center text-primary-dark/60" style={{ fontFamily: bodyFont }}>
+                <td colSpan={7} className="p-4 text-center">
                   Loading...
                 </td>
               </tr>
             ) : (
               resources.map((r) => (
-                <tr key={r.id} className="border-b border-primary-bg hover:bg-primary-bg transition-colors">
-                  <td className="p-3 text-sm text-primary-dark" style={{ fontFamily: bodyFont }}>
+                <tr key={r.id} className="border-b">
+                  <td className="p-3 text-sm">
                     {r.subjects?.subject_name} ({r.subjects?.courses?.course_name})
                   </td>
-                  <td className="p-3 text-sm text-primary-dark" style={{ fontFamily: bodyFont }}>
+                  <td className="p-3 text-sm">
                     {r.batches?.batch_name || "All"}
                   </td>
-                  <td className="p-3 text-sm text-primary-dark" style={{ fontFamily: bodyFont }}>
+                  <td className="p-3 text-sm">
                     Ch {r.chapter_no}: {r.chapter_title}
                   </td>
-                  <td className="p-3 text-sm capitalize text-primary-dark" style={{ fontFamily: bodyFont }}>
+                  <td className="p-3 text-sm capitalize">
                     {r.resource_type.replace("_", " ")}
                   </td>
-                  <td className="p-3 text-sm text-primary-dark" style={{ fontFamily: bodyFont }}>
+                  <td className="p-3 text-sm">
                     {r.mediums?.name || r.medium || "—"} - {r.board}
                   </td>
-                  <td className="p-3 text-sm text-primary-dark" style={{ fontFamily: bodyFont }}>
+                  <td className="p-3 text-sm">
                     {r.is_premium ? "🔒" : "🆓"}
                   </td>
                   <td className="p-3 text-sm flex gap-2">
@@ -327,14 +304,13 @@ export default function LearningResources() {
                       href={r.resource_url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-primary hover:underline inline-flex items-center gap-1"
-                      style={{ fontFamily: bodyFont }}
+                      className="text-blue-600 hover:underline inline-flex items-center gap-1"
                     >
                       <ExternalLink size={16} /> Open
                     </a>
                     <button
                       onClick={() => deleteMutation.mutate(r.id)}
-                      className="text-accent-dark hover:text-accent"
+                      className="text-red-600"
                       title="Delete"
                     >
                       <Trash2 size={16} />
@@ -349,12 +325,9 @@ export default function LearningResources() {
 
       {/* Add Form Modal */}
       {showForm && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl p-6 w-full max-w-lg shadow-xl border border-primary-bg">
-            <h2
-              className="text-xl font-bold text-primary mb-4"
-              style={{ fontFamily: headingFont }}
-            >
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl p-6 w-full max-w-lg shadow-xl">
+            <h2 className="text-xl font-righteous text-primary-dark mb-4">
               Add Resource
             </h2>
             <form onSubmit={handleSubmit} className="space-y-4">
@@ -365,7 +338,7 @@ export default function LearningResources() {
                 onChange={(e) =>
                   setForm({ ...form, subject_id: e.target.value })
                 }
-                className="w-full border border-primary-bg bg-white text-primary-dark rounded p-2.5 text-sm focus:ring-1 focus:ring-primary"
+                className="w-full border p-2 rounded"
               >
                 <option value="">Select Subject</option>
                 {subjects.map((s) => (
@@ -381,7 +354,7 @@ export default function LearningResources() {
                 onChange={(e) =>
                   setForm({ ...form, batch_id: e.target.value })
                 }
-                className="w-full border border-primary-bg bg-white text-primary-dark rounded p-2.5 text-sm focus:ring-1 focus:ring-primary"
+                className="w-full border p-2 rounded"
               >
                 <option value="">All Batches (optional)</option>
                 {batches.map((b) => (
@@ -399,7 +372,7 @@ export default function LearningResources() {
                 onChange={(e) =>
                   setForm({ ...form, chapter_no: e.target.value })
                 }
-                className="w-full border border-primary-bg bg-white text-primary-dark rounded p-2.5 text-sm placeholder-primary-dark/40"
+                className="w-full border p-2 rounded"
               />
               <input
                 type="text"
@@ -408,7 +381,7 @@ export default function LearningResources() {
                 onChange={(e) =>
                   setForm({ ...form, chapter_title: e.target.value })
                 }
-                className="w-full border border-primary-bg bg-white text-primary-dark rounded p-2.5 text-sm placeholder-primary-dark/40"
+                className="w-full border p-2 rounded"
               />
 
               {/* Resource URL */}
@@ -420,7 +393,7 @@ export default function LearningResources() {
                 onChange={(e) =>
                   setForm({ ...form, resource_url: e.target.value })
                 }
-                className="w-full border border-primary-bg bg-white text-primary-dark rounded p-2.5 text-sm placeholder-primary-dark/40"
+                className="w-full border p-2 rounded"
               />
 
               {/* Type & Medium */}
@@ -430,7 +403,7 @@ export default function LearningResources() {
                   onChange={(e) =>
                     setForm({ ...form, resource_type: e.target.value })
                   }
-                  className="w-1/2 border border-primary-bg bg-white text-primary-dark rounded p-2.5 text-sm"
+                  className="w-1/2 border p-2 rounded"
                 >
                   {RESOURCE_TYPES.map((t) => (
                     <option key={t} value={t}>
@@ -444,7 +417,7 @@ export default function LearningResources() {
                   onChange={(e) =>
                     setForm({ ...form, medium_id: e.target.value })
                   }
-                  className="w-1/2 border border-primary-bg bg-white text-primary-dark rounded p-2.5 text-sm"
+                  className="w-1/2 border p-2 rounded"
                 >
                   <option value="">Select Medium</option>
                   {mediums.map((m) => (
@@ -462,22 +435,18 @@ export default function LearningResources() {
                   onChange={(e) =>
                     setForm({ ...form, board: e.target.value })
                   }
-                  className="w-1/2 border border-primary-bg bg-white text-primary-dark rounded p-2.5 text-sm"
+                  className="w-1/2 border p-2 rounded"
                 >
                   <option>GSEB</option>
                   <option>CBSE</option>
                 </select>
-                <label
-                  className="flex items-center gap-2 text-sm text-primary-dark"
-                  style={{ fontFamily: bodyFont }}
-                >
+                <label className="flex items-center gap-2">
                   <input
                     type="checkbox"
                     checked={form.is_premium}
                     onChange={(e) =>
                       setForm({ ...form, is_premium: e.target.checked })
                     }
-                    className="rounded text-primary focus:ring-primary"
                   />
                   Premium (paid access)
                 </label>
@@ -488,15 +457,13 @@ export default function LearningResources() {
                 <button
                   type="button"
                   onClick={() => setShowForm(false)}
-                  className="border border-primary-bg text-primary-dark px-4 py-2 rounded hover:bg-primary-bg transition-colors"
-                  style={{ fontFamily: bodyFont }}
+                  className="px-4 py-2 border rounded"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="bg-primary hover:bg-primary-light text-white px-4 py-2 rounded transition-colors"
-                  style={{ fontFamily: bodyFont }}
+                  className="px-4 py-2 bg-primary text-white rounded"
                 >
                   Add
                 </button>
@@ -505,6 +472,6 @@ export default function LearningResources() {
           </div>
         </div>
       )}
-    </>
+    </AdminLayout>
   );
 }

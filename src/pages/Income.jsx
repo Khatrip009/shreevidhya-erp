@@ -22,10 +22,9 @@ import {
   CreditCard,
   FileText,
   Receipt,
-  Mail,
 } from "lucide-react";
 import Papa from "papaparse";
-
+import AdminLayout from "../layouts/AdminLayout";
 import BackButton from "../components/BackButton";
 
 import {
@@ -37,22 +36,17 @@ import {
 } from "../services/financeService";
 import { supabase } from "../api/supabase";
 import { useOrgDarkLogo } from "../hooks/useOrgDarkLogo";
-import { useOrg } from "../context/OrganizationContext";
-import { useTheme } from "../context/ThemeContext";               // ✅ dynamic theme
-import { sendEmail } from "../services/emailService";
+import { useOrg } from "../context/OrganizationContext";   // NEW
 
 export default function Income() {
   const queryClient = useQueryClient();
   const darkLogo = useOrgDarkLogo();
 
-  const { branch, selectedFinancialYear, org } = useOrg();
-  const theme = useTheme();                                     // ✅ theme hook
+  // ── Branch & Financial Year context ──
+  const { branch, selectedFinancialYear } = useOrg();   // NEW
   const branchId = branch?.id;
   const financialYearId = selectedFinancialYear?.id;
   const ctx = { branchId, financialYearId };
-
-  const headingFont = theme?.font_heading || "Righteous";
-  const bodyFont = theme?.font_body || "Montserrat";
 
   // Filters
   const [search, setSearch] = useState("");
@@ -77,102 +71,7 @@ export default function Income() {
   });
   const fileInputRef = useRef(null);
 
-  // ─── Helper: get admin emails ──────────────────────────────────────
-  const getAdminEmails = async () => {
-    if (!org?.id) return [];
-    const { data, error } = await supabase
-      .from("profiles")
-      .select("email")
-      .eq("organization_id", org.id)
-      .in("role", ["admin", "super_admin", "organization_admin"])
-      .eq("is_active", true);
-    if (error) {
-      console.error("Failed to fetch admin emails:", error);
-      return [];
-    }
-    return data?.map(p => p.email).filter(Boolean) || [];
-  };
-
-  // ─── Send Report Email ─────────────────────────────────────────────
-  const sendReportEmail = async () => {
-    if (incomes.length === 0) {
-      alert("No income records to send.");
-      return;
-    }
-
-    try {
-      const adminEmails = await getAdminEmails();
-      if (adminEmails.length === 0) {
-        alert("No admin emails found.");
-        return;
-      }
-
-      // Build HTML table rows
-      let tableRows = incomes.map((item) => `
-        <tr>
-          <td style="padding:4px 8px;border:1px solid #ddd;">${item.income_date}</td>
-          <td style="padding:4px 8px;border:1px solid #ddd;">${item.category}</td>
-          <td style="padding:4px 8px;border:1px solid #ddd;text-align:right;">₹ ${Number(item.base_amount || item.amount).toLocaleString('en-IN')}</td>
-          <td style="padding:4px 8px;border:1px solid #ddd;text-align:right;">${item.tax_amount ? '₹ ' + Number(item.tax_amount).toLocaleString('en-IN') : '-'}</td>
-          <td style="padding:4px 8px;border:1px solid #ddd;text-align:right;font-weight:bold;">₹ ${Number(item.amount).toLocaleString('en-IN')}</td>
-          <td style="padding:4px 8px;border:1px solid #ddd;">${item.payment_mode}</td>
-        </tr>
-      `).join('');
-
-      const totalBase = incomes.reduce((s, i) => s + Number(i.base_amount || i.amount), 0);
-      const totalTax = incomes.reduce((s, i) => s + (i.tax_amount || 0), 0);
-      const totalAmount = incomes.reduce((s, i) => s + Number(i.amount), 0);
-
-      const htmlBody = `
-        <div style="font-family:Arial,sans-serif;max-width:800px;margin:0 auto;">
-          <h2 style="color:#0D47A1;">Income Report</h2>
-          <p><strong>Branch:</strong> ${branch?.branch_name || 'N/A'}</p>
-          <p><strong>Period:</strong> ${startDate || 'Start'} – ${endDate || 'End'}</p>
-          <p><strong>Total Records:</strong> ${incomes.length}</p>
-          <hr />
-          <table style="width:100%;border-collapse:collapse;font-size:12px;">
-            <thead>
-              <tr style="background:#e3f2fd;">
-                <th style="padding:4px 8px;border:1px solid #ddd;text-align:left;">Date</th>
-                <th style="padding:4px 8px;border:1px solid #ddd;text-align:left;">Category</th>
-                <th style="padding:4px 8px;border:1px solid #ddd;text-align:right;">Base</th>
-                <th style="padding:4px 8px;border:1px solid #ddd;text-align:right;">Tax</th>
-                <th style="padding:4px 8px;border:1px solid #ddd;text-align:right;">Total</th>
-                <th style="padding:4px 8px;border:1px solid #ddd;text-align:left;">Mode</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${tableRows}
-            </tbody>
-            <tfoot style="font-weight:bold;background:#f5f5f5;">
-              <tr>
-                <td colspan="2" style="padding:4px 8px;border:1px solid #ddd;text-align:right;">Totals</td>
-                <td style="padding:4px 8px;border:1px solid #ddd;text-align:right;">₹ ${totalBase.toLocaleString('en-IN')}</td>
-                <td style="padding:4px 8px;border:1px solid #ddd;text-align:right;">₹ ${totalTax.toLocaleString('en-IN')}</td>
-                <td style="padding:4px 8px;border:1px solid #ddd;text-align:right;">₹ ${totalAmount.toLocaleString('en-IN')}</td>
-                <td></td>
-              </tr>
-            </tfoot>
-          </table>
-          <p style="color:#888;font-size:10px;margin-top:20px;">Computer‑generated report from ${org?.company_name || 'Academy'}</p>
-        </div>
-      `;
-
-      await sendEmail({
-        to: adminEmails,
-        subject: `Income Report - ${new Date().toLocaleDateString()}`,
-        html: htmlBody,
-        // from: org?.email || undefined,
-      });
-
-      alert("Report sent to admins.");
-    } catch (err) {
-      console.error("Failed to send report:", err);
-      alert("Failed to send report. Check console for details.");
-    }
-  };
-
-  // ─── Fetch tax rates ──────────────────────────────────────────────
+  // Fetch tax rates – scoped
   const { data: taxRates = [] } = useQuery({
     queryKey: ["tax-rates", branchId, financialYearId],
     queryFn: async () => {
@@ -191,7 +90,7 @@ export default function Income() {
     staleTime: 10 * 60 * 1000,
   });
 
-  // Auto-calculate tax
+  // Auto-calculate tax when amount or tax rate changes
   useEffect(() => {
     if (!form.amount || !form.tax_rate_id) {
       setForm((prev) => ({
@@ -210,9 +109,11 @@ export default function Income() {
 
     let baseAmount, taxAmount;
     if (form.tax_inclusive) {
+      // Amount includes tax
       baseAmount = amount / (1 + rate);
       taxAmount = amount - baseAmount;
     } else {
+      // Tax added on top
       baseAmount = amount;
       taxAmount = amount * rate;
     }
@@ -224,7 +125,7 @@ export default function Income() {
     }));
   }, [form.amount, form.tax_rate_id, form.tax_inclusive, taxRates]);
 
-  // ─── Infinite query ─────────────────────────────────────────────────
+  // Infinite query – scoped
   const {
     data,
     isLoading,
@@ -249,7 +150,7 @@ export default function Income() {
 
   const incomes = data?.pages.flatMap((page) => page.data) || [];
 
-  // ─── Mutations ──────────────────────────────────────────────────────
+  // Mutations – now pass context
   const createMutation = useMutation({
     mutationFn: (payload) => createIncome(payload, ctx),
     onSuccess: () => {
@@ -279,7 +180,7 @@ export default function Income() {
     onError: () => toast.error("Delete failed"),
   });
 
-  // ─── CSV handlers ──────────────────────────────────────────────────
+  // CSV Import (updated to use context)
   async function handleCSVImport(event) {
     const file = event.target.files[0];
     if (!file) return;
@@ -299,7 +200,7 @@ export default function Income() {
               tax_rate_id: row.tax_rate_id ? Number(row.tax_rate_id) : null,
               tax_inclusive: row.tax_inclusive ? row.tax_inclusive === "true" : true,
             };
-            await createIncome(payload, ctx);
+            await createIncome(payload, ctx);   // pass context
             successCount++;
           } catch (err) {
             console.error(err);
@@ -312,6 +213,7 @@ export default function Income() {
     });
   }
 
+  // CSV Export – now scoped
   async function handleCSVExport() {
     try {
       const allData = await getAllIncomesForExport(allFilters, branchId, financialYearId);
@@ -328,7 +230,7 @@ export default function Income() {
     }
   }
 
-  // ─── Form helpers ──────────────────────────────────────────────────
+  // Form helpers
   function openCreate() {
     setForm({
       income_date: new Date().toISOString().split("T")[0],
@@ -386,45 +288,32 @@ export default function Income() {
   }
 
   return (
-    <>
+    <AdminLayout>
       <BackButton to="/accounting" label="Finance & Accounting" />
-
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-primary" style={{ fontFamily: headingFont }}>
-            Income
-          </h1>
-          <p className="text-sm text-primary-dark mt-1" style={{ fontFamily: bodyFont }}>
+          <h1 className="text-3xl font-righteous text-primary-dark">Income</h1>
+          <p className="text-sm text-secondary-dark font-montserrat mt-1">
             Track all income sources with tax breakdown
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <button
-            onClick={sendReportEmail}
-            className="bg-accent hover:bg-accent-dark text-white px-5 py-2.5 rounded-lg transition text-sm flex items-center gap-2"
-            style={{ fontFamily: bodyFont }}
-          >
-            <Mail size={18} /> Send Report
-          </button>
-          <button
             onClick={openCreate}
-            className="bg-accent hover:bg-accent-dark text-white px-5 py-2.5 rounded-lg transition text-sm flex items-center gap-2"
-            style={{ fontFamily: bodyFont }}
+            className="bg-accent hover:bg-accent-light text-white px-5 py-2.5 rounded-lg transition font-montserrat text-sm flex items-center gap-2"
           >
             <IndianRupee size={18} /> Add Income
           </button>
           <button
             onClick={handleCSVExport}
-            className="border border-primary-bg px-4 py-2.5 rounded-lg text-primary-dark hover:bg-primary-bg text-sm flex items-center gap-2"
-            style={{ fontFamily: bodyFont }}
+            className="border border-secondary-light px-4 py-2.5 rounded-lg text-secondary-dark hover:bg-secondary-bg font-montserrat text-sm flex items-center gap-2"
           >
             <Download size={18} /> Export
           </button>
           <button
             onClick={() => fileInputRef.current?.click()}
-            className="border border-primary-bg px-4 py-2.5 rounded-lg text-primary-dark hover:bg-primary-bg text-sm flex items-center gap-2"
-            style={{ fontFamily: bodyFont }}
+            className="border border-secondary-light px-4 py-2.5 rounded-lg text-secondary-dark hover:bg-secondary-bg font-montserrat text-sm flex items-center gap-2"
           >
             <Upload size={18} /> Import
           </button>
@@ -443,21 +332,19 @@ export default function Income() {
         <div className="relative flex-1">
           <Search
             size={18}
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-primary-dark/60"
+            className="absolute left-3 top-1/2 -translate-y-1/2 text-secondary"
           />
           <input
             type="text"
             placeholder="Search by category or description..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full border border-primary-bg bg-white text-primary-dark rounded-lg pl-10 pr-4 py-2.5 text-sm focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-primary-dark/40"
-            style={{ fontFamily: bodyFont }}
+            className="w-full border border-secondary-light rounded-lg pl-10 pr-4 py-2.5 text-sm focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light"
           />
         </div>
         <button
           onClick={() => setShowFilters(!showFilters)}
-          className="border border-primary-bg px-4 py-2.5 rounded-lg text-primary-dark hover:bg-primary-bg text-sm flex items-center gap-2"
-          style={{ fontFamily: bodyFont }}
+          className="border border-secondary-light px-4 py-2.5 rounded-lg text-secondary-dark hover:bg-secondary-bg font-montserrat text-sm flex items-center gap-2"
         >
           <Filter size={18} /> Filters
           {showFilters && <X size={16} />}
@@ -466,12 +353,9 @@ export default function Income() {
 
       {/* Advanced Filters Panel */}
       {showFilters && (
-        <div className="bg-white rounded-xl p-4 shadow-sm mb-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 border border-primary-bg">
+        <div className="bg-white rounded-xl p-4 shadow-sm mb-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 border border-secondary-light">
           <div>
-            <label
-              className="text-xs text-primary-dark"
-              style={{ fontFamily: bodyFont }}
-            >
+            <label className="text-xs font-montserrat text-secondary-dark">
               <Calendar size={14} className="inline mr-1" />
               From Date
             </label>
@@ -479,14 +363,11 @@ export default function Income() {
               type="date"
               value={startDate}
               onChange={(e) => setStartDate(e.target.value)}
-              className="w-full border border-primary-bg bg-white text-primary-dark rounded p-2 text-sm mt-1 focus:ring-1 focus:ring-primary"
+              className="w-full border border-secondary-light rounded p-2 text-sm mt-1 focus:ring-1 focus:ring-primary"
             />
           </div>
           <div>
-            <label
-              className="text-xs text-primary-dark"
-              style={{ fontFamily: bodyFont }}
-            >
+            <label className="text-xs font-montserrat text-secondary-dark">
               <Calendar size={14} className="inline mr-1" />
               To Date
             </label>
@@ -494,7 +375,7 @@ export default function Income() {
               type="date"
               value={endDate}
               onChange={(e) => setEndDate(e.target.value)}
-              className="w-full border border-primary-bg bg-white text-primary-dark rounded p-2 text-sm mt-1 focus:ring-1 focus:ring-primary"
+              className="w-full border border-secondary-light rounded p-2 text-sm mt-1 focus:ring-1 focus:ring-primary"
             />
           </div>
           <div className="flex items-end">
@@ -505,7 +386,6 @@ export default function Income() {
                 setEndDate("");
               }}
               className="text-primary text-sm hover:underline"
-              style={{ fontFamily: bodyFont }}
             >
               Clear Filters
             </button>
@@ -514,48 +394,32 @@ export default function Income() {
       )}
 
       {/* Incomes Table */}
-      <div className="bg-white rounded-xl shadow-sm overflow-hidden border border-primary-bg">
+      <div className="bg-white rounded-xl shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[900px]">
-            <thead className="bg-primary-bg border-b border-primary-bg">
+            <thead className="bg-slate-100 border-b border-secondary-light">
               <tr>
-                <th className="p-3 text-left text-sm text-primary-dark" style={{ fontFamily: bodyFont }}>
-                  Date
-                </th>
-                <th className="text-left text-sm text-primary-dark" style={{ fontFamily: bodyFont }}>
-                  Category
-                </th>
-                <th className="text-left text-sm text-primary-dark" style={{ fontFamily: bodyFont }}>
-                  Base Amount
-                </th>
-                <th className="text-left text-sm text-primary-dark" style={{ fontFamily: bodyFont }}>
-                  Tax
-                </th>
-                <th className="text-left text-sm text-primary-dark" style={{ fontFamily: bodyFont }}>
-                  Total
-                </th>
-                <th className="text-left text-sm text-primary-dark" style={{ fontFamily: bodyFont }}>
-                  Mode
-                </th>
-                <th className="text-left text-sm text-primary-dark" style={{ fontFamily: bodyFont }}>
-                  Actions
-                </th>
+                <th className="p-3 text-left text-sm font-montserrat text-secondary-dark">Date</th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">Category</th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">Base Amount</th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">Tax</th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">Total</th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">Mode</th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">Actions</th>
               </tr>
             </thead>
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan={7} className="p-6 text-center text-primary-dark/60" style={{ fontFamily: bodyFont }}>
-                    Loading income records…
-                  </td>
+                  <td colSpan={7} className="p-6 text-center text-secondary">Loading income records…</td>
                 </tr>
               ) : incomes.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="p-6 text-center text-primary-dark/60" style={{ fontFamily: bodyFont }}>
+                  <td colSpan={7} className="p-6 text-center text-secondary">
                     <div className="flex flex-col items-center gap-2">
-                      <IndianRupee size={32} className="text-primary-dark/40" />
+                      <IndianRupee size={32} className="text-secondary-light" />
                       <span>No income records found</span>
-                      <span className="text-xs text-primary-dark/60">
+                      <span className="text-xs text-secondary-light">
                         {search || startDate || endDate
                           ? "Try adjusting your filters"
                           : "Add a new income record to get started"}
@@ -567,35 +431,29 @@ export default function Income() {
                 incomes.map((item) => (
                   <tr
                     key={item.id}
-                    className="border-b border-primary-bg hover:bg-primary-bg transition"
+                    className="border-b border-secondary-light hover:bg-primary-bg transition"
                   >
-                    <td className="p-3 text-sm text-primary-dark" style={{ fontFamily: bodyFont }}>
-                      {item.income_date}
-                    </td>
-                    <td className="text-sm text-primary-dark" style={{ fontFamily: bodyFont }}>
-                      {item.category}
-                    </td>
-                    <td className="text-sm text-primary-dark" style={{ fontFamily: bodyFont }}>
+                    <td className="p-3 text-sm">{item.income_date}</td>
+                    <td className="text-sm">{item.category}</td>
+                    <td className="text-sm">
                       ₹{Number(item.base_amount || item.amount).toLocaleString()}
                     </td>
                     <td className="text-sm text-primary">
                       {item.tax_amount ? (
                         <span className="font-medium">₹{Number(item.tax_amount).toLocaleString()}</span>
                       ) : (
-                        <span className="text-primary-dark/40">-</span>
+                        <span className="text-gray-400">-</span>
                       )}
                     </td>
-                    <td className="text-sm font-semibold text-primary" style={{ fontFamily: bodyFont }}>
+                    <td className="text-sm font-semibold">
                       ₹{Number(item.amount).toLocaleString()}
                     </td>
-                    <td className="text-sm text-primary-dark" style={{ fontFamily: bodyFont }}>
-                      {item.payment_mode}
-                    </td>
+                    <td className="text-sm">{item.payment_mode}</td>
                     <td className="text-sm">
                       <div className="flex gap-2">
                         <button
                           onClick={() => openEdit(item)}
-                          className="text-primary hover:underline"
+                          className="text-blue-600 hover:underline"
                           title="Edit"
                         >
                           <Edit3 size={15} />
@@ -605,7 +463,7 @@ export default function Income() {
                             if (!window.confirm("Delete this income record?")) return;
                             deleteMutation.mutate(item.id);
                           }}
-                          className="text-accent hover:underline"
+                          className="text-red-600 hover:underline"
                           title="Delete"
                         >
                           <Trash2 size={15} />
@@ -626,58 +484,53 @@ export default function Income() {
           <button
             onClick={() => fetchNextPage()}
             disabled={isFetchingNextPage}
-            className="bg-primary hover:bg-primary-light text-white px-6 py-2.5 rounded-lg text-sm transition disabled:opacity-60"
-            style={{ fontFamily: bodyFont }}
+            className="bg-primary hover:bg-primary-light text-white px-6 py-2.5 rounded-lg font-montserrat text-sm transition disabled:opacity-60"
           >
             {isFetchingNextPage ? "Loading more…" : "Load More"}
           </button>
         </div>
       )}
 
-      {/* Income Form Modal */}
+      {/* Income Form Modal with Tax */}
       {showForm && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl w-full max-w-md shadow-xl max-h-[90vh] overflow-y-auto border border-primary-bg">
-            <div className="sticky top-0 bg-white border-b border-primary-bg px-6 py-4 flex items-center justify-between rounded-t-xl">
+          <div className="bg-white rounded-xl w-full max-w-md shadow-xl max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 bg-white border-b border-secondary-light px-6 py-4 flex items-center justify-between rounded-t-xl">
               <div className="flex items-center gap-3">
                 <img
                   src={darkLogo}
                   alt="ShreeVidhya Academy"
                   className="h-10 w-auto"
                 />
-                <h2 className="text-xl font-bold text-primary" style={{ fontFamily: headingFont }}>
+                <h2 className="text-xl font-righteous text-primary-dark">
                   {editing ? "Edit Income" : "Add Income"}
                 </h2>
               </div>
               <button
                 onClick={() => setShowForm(false)}
-                className="p-2 hover:bg-primary-bg rounded-lg"
+                className="p-2 hover:bg-secondary-bg rounded-lg"
               >
-                <X size={20} className="text-primary-dark" />
+                <X size={20} className="text-secondary-dark" />
               </button>
             </div>
             <form onSubmit={handleSubmit} className="p-6 space-y-4">
               <div>
-                <label
-                  className="block text-sm text-primary-dark mb-1"
-                  style={{ fontFamily: bodyFont }}
-                >
+                <label className="block text-sm font-montserrat text-secondary-dark mb-1">
                   <Calendar size={14} className="inline mr-1" />
                   Date *
                 </label>
                 <input
                   type="date"
                   value={form.income_date}
-                  onChange={(e) => setForm({ ...form, income_date: e.target.value })}
-                  className="w-full border border-primary-bg bg-white text-primary-dark rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
+                  onChange={(e) =>
+                    setForm({ ...form, income_date: e.target.value })
+                  }
+                  className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
                   required
                 />
               </div>
               <div>
-                <label
-                  className="block text-sm text-primary-dark mb-1"
-                  style={{ fontFamily: bodyFont }}
-                >
+                <label className="block text-sm font-montserrat text-secondary-dark mb-1">
                   <FileText size={14} className="inline mr-1" />
                   Category *
                 </label>
@@ -685,16 +538,15 @@ export default function Income() {
                   type="text"
                   placeholder="e.g., Fees, Donation"
                   value={form.category}
-                  onChange={(e) => setForm({ ...form, category: e.target.value })}
-                  className="w-full border border-primary-bg bg-white text-primary-dark rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-primary-dark/40"
+                  onChange={(e) =>
+                    setForm({ ...form, category: e.target.value })
+                  }
+                  className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light"
                   required
                 />
               </div>
               <div>
-                <label
-                  className="block text-sm text-primary-dark mb-1"
-                  style={{ fontFamily: bodyFont }}
-                >
+                <label className="block text-sm font-montserrat text-secondary-dark mb-1">
                   <IndianRupee size={14} className="inline mr-1" />
                   Total Amount *
                 </label>
@@ -702,24 +554,25 @@ export default function Income() {
                   type="number"
                   placeholder="Total amount (including tax if applicable)"
                   value={form.amount}
-                  onChange={(e) => setForm({ ...form, amount: e.target.value })}
-                  className="w-full border border-primary-bg bg-white text-primary-dark rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-primary-dark/40"
+                  onChange={(e) =>
+                    setForm({ ...form, amount: e.target.value })
+                  }
+                  className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light"
                   required
                   step="0.01"
                 />
               </div>
               <div>
-                <label
-                  className="block text-sm text-primary-dark mb-1"
-                  style={{ fontFamily: bodyFont }}
-                >
+                <label className="block text-sm font-montserrat text-secondary-dark mb-1">
                   <Receipt size={14} className="inline mr-1" />
                   Tax Rate
                 </label>
                 <select
                   value={form.tax_rate_id}
-                  onChange={(e) => setForm({ ...form, tax_rate_id: e.target.value })}
-                  className="w-full border border-primary-bg bg-white text-primary-dark rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
+                  onChange={(e) =>
+                    setForm({ ...form, tax_rate_id: e.target.value })
+                  }
+                  className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
                 >
                   <option value="">No Tax</option>
                   {taxRates.map((t) => (
@@ -738,47 +591,46 @@ export default function Income() {
                     onChange={(e) =>
                       setForm({ ...form, tax_inclusive: e.target.checked })
                     }
-                    className="w-4 h-4 text-primary border-primary-bg rounded focus:ring-primary"
+                    className="w-4 h-4 text-primary border-gray-300 rounded focus:ring-primary"
                   />
-                  <label htmlFor="tax_inclusive" className="text-sm text-primary-dark" style={{ fontFamily: bodyFont }}>
+                  <label htmlFor="tax_inclusive" className="text-sm text-gray-700">
                     Amount includes tax (tax-inclusive)
                   </label>
                 </div>
               )}
               {form.tax_rate_id && form.amount && (
-                <div className="bg-primary-bg rounded-lg p-3 space-y-1 text-sm">
+                <div className="bg-gray-50 rounded-lg p-3 space-y-1 text-sm">
                   <p className="flex justify-between">
-                    <span className="text-primary-dark">Base Amount:</span>
-                    <span className="font-medium text-primary">
+                    <span className="text-gray-600">Base Amount:</span>
+                    <span className="font-medium">
                       ₹{form.base_amount ? Number(form.base_amount).toFixed(2) : "0.00"}
                     </span>
                   </p>
                   <p className="flex justify-between">
-                    <span className="text-primary-dark">Tax Amount:</span>
+                    <span className="text-gray-600">Tax Amount:</span>
                     <span className="font-medium text-primary">
                       ₹{form.tax_amount ? Number(form.tax_amount).toFixed(2) : "0.00"}
                     </span>
                   </p>
-                  <p className="flex justify-between border-t border-primary-bg pt-1">
-                    <span className="font-medium text-primary-dark">Total:</span>
-                    <span className="font-bold text-primary">
+                  <p className="flex justify-between border-t border-gray-200 pt-1">
+                    <span className="font-medium">Total:</span>
+                    <span className="font-bold">
                       ₹{form.amount ? Number(form.amount).toFixed(2) : "0.00"}
                     </span>
                   </p>
                 </div>
               )}
               <div>
-                <label
-                  className="block text-sm text-primary-dark mb-1"
-                  style={{ fontFamily: bodyFont }}
-                >
+                <label className="block text-sm font-montserrat text-secondary-dark mb-1">
                   <CreditCard size={14} className="inline mr-1" />
                   Payment Mode
                 </label>
                 <select
                   value={form.payment_mode}
-                  onChange={(e) => setForm({ ...form, payment_mode: e.target.value })}
-                  className="w-full border border-primary-bg bg-white text-primary-dark rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
+                  onChange={(e) =>
+                    setForm({ ...form, payment_mode: e.target.value })
+                  }
+                  className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
                 >
                   <option>Cash</option>
                   <option>UPI</option>
@@ -787,35 +639,31 @@ export default function Income() {
                 </select>
               </div>
               <div>
-                <label
-                  className="block text-sm text-primary-dark mb-1"
-                  style={{ fontFamily: bodyFont }}
-                >
+                <label className="block text-sm font-montserrat text-secondary-dark mb-1">
                   Description
                 </label>
                 <textarea
                   placeholder="Optional description"
                   value={form.description}
-                  onChange={(e) => setForm({ ...form, description: e.target.value })}
+                  onChange={(e) =>
+                    setForm({ ...form, description: e.target.value })
+                  }
                   rows={2}
-                  className="w-full border border-primary-bg bg-white text-primary-dark rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-primary-dark/40 resize-none"
-                  style={{ fontFamily: bodyFont }}
+                  className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light resize-none"
                 />
               </div>
               <div className="flex flex-col sm:flex-row-reverse gap-3 pt-2">
                 <button
                   type="submit"
                   disabled={createMutation.isPending || updateMutation.isPending}
-                  className="w-full sm:w-auto bg-primary hover:bg-primary-light text-white px-6 py-2.5 rounded-lg transition disabled:opacity-60"
-                  style={{ fontFamily: bodyFont }}
+                  className="w-full sm:w-auto bg-primary hover:bg-primary-light text-white px-6 py-2.5 rounded-lg font-montserrat transition disabled:opacity-60"
                 >
                   {editing ? "Update" : "Add"}
                 </button>
                 <button
                   type="button"
                   onClick={() => setShowForm(false)}
-                  className="w-full sm:w-auto border border-primary-bg text-primary-dark hover:bg-primary-bg px-6 py-2.5 rounded-lg transition"
-                  style={{ fontFamily: bodyFont }}
+                  className="w-full sm:w-auto border border-secondary-light text-secondary-dark hover:bg-secondary-bg px-6 py-2.5 rounded-lg font-montserrat transition"
                 >
                   Cancel
                 </button>
@@ -824,6 +672,6 @@ export default function Income() {
           </div>
         </div>
       )}
-    </>
+    </AdminLayout>
   );
 }

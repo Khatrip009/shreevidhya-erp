@@ -21,6 +21,7 @@ import {
   CreditCard,
 } from "lucide-react";
 import Papa from "papaparse";
+import AdminLayout from "../layouts/AdminLayout";
 import TeacherForm from "../components/TeacherForm";
 import BackButton from "../components/BackButton";
 import {
@@ -37,7 +38,6 @@ import {
 import { generateTeacherResumePdf } from "../utils/teacherResumePdf";
 import { generateIdCard } from "../utils/idCardPdf";
 import { useOrg } from "../context/OrganizationContext";
-import { useTheme } from "../context/ThemeContext";
 
 export default function Employees() {
   const queryClient = useQueryClient();
@@ -53,35 +53,31 @@ export default function Employees() {
   const [editing, setEditing] = useState(null);
   const fileInputRef = useRef(null);
 
-  const { branch, selectedFinancialYear, org } = useOrg();
-  const theme = useTheme(); // full theme object
+  const { branch, selectedFinancialYear } = useOrg();
   const branchId = branch?.id;
   const financialYearId = selectedFinancialYear?.id;
   const ctx = { branchId, financialYearId };
 
-  // Dropdown data – pass organizationId where required
+  // Dropdown data for filters (organisation‑wide)
   const { data: mediums = [] } = useQuery({
     queryKey: ["mediums"],
     queryFn: getMediumOptions,
     staleTime: 10 * 60 * 1000,
   });
   const { data: courses = [] } = useQuery({
-    queryKey: ["courses", org?.id],
-    queryFn: () => getCourseOptions(org?.id),
+    queryKey: ["courses"],
+    queryFn: getCourseOptions,
     staleTime: 10 * 60 * 1000,
-    enabled: !!org?.id,
   });
   const { data: courseLevels = [] } = useQuery({
-    queryKey: ["courseLevels", org?.id],
-    queryFn: () => getCourseLevelOptions(org?.id),
+    queryKey: ["courseLevels"],
+    queryFn: getCourseLevelOptions,
     staleTime: 10 * 60 * 1000,
-    enabled: !!org?.id,
   });
   const { data: subjects = [] } = useQuery({
-    queryKey: ["subjects", org?.id],
-    queryFn: () => getSubjectOptions(org?.id),
+    queryKey: ["subjects"],
+    queryFn: getSubjectOptions,
     staleTime: 10 * 60 * 1000,
-    enabled: !!org?.id,
   });
 
   const filters = {
@@ -249,15 +245,9 @@ export default function Employees() {
     }
   }
 
-  // ── ID Card: pass org and theme ──────────────────────────
   async function handlePrintIdCard(teacherId) {
     try {
-      await generateIdCard({
-        type: "teacher",
-        id: teacherId,
-        org: org,
-        theme: theme,
-      });
+      await generateIdCard({ type: "teacher", id: teacherId });
     } catch (err) {
       toast.error(err.message || "Failed to generate ID Card");
     }
@@ -292,33 +282,31 @@ export default function Employees() {
   };
 
   return (
-    <div className="space-y-6 px-4 sm:px-6 lg:px-0">
+    <AdminLayout>
       <BackButton to="/hr-hub" label="HR & Staff Hub" />
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
         <div>
-          <h1 className="text-3xl font-heading text-primary-dark">
-            Employees
-          </h1>
-          <p className="text-sm text-gray-600 dark:text-gray-400 font-body mt-1">
+          <h1 className="text-3xl font-righteous text-primary-dark">Employees</h1>
+          <p className="text-sm text-secondary-dark font-montserrat mt-1">
             Manage all staff members
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <button
             onClick={() => setShowForm(true)}
-            className="bg-primary hover:bg-primary-light text-white px-5 py-2.5 rounded-lg transition font-body text-sm flex items-center gap-2"
+            className="bg-primary hover:bg-primary-light text-white px-5 py-2.5 rounded-lg transition font-montserrat text-sm flex items-center gap-2"
           >
             <UserRoundPlus size={18} /> Add Employee
           </button>
           <button
             onClick={handleCSVExport}
-            className="border border-gray-300 dark:border-gray-600 bg-white dark:bg-accent text-gray-700 dark:text-gray-200 px-4 py-2.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition font-body text-sm flex items-center gap-2"
+            className="border border-secondary-light px-4 py-2.5 rounded-lg text-secondary-dark hover:bg-secondary-bg font-montserrat text-sm flex items-center gap-2"
           >
             <Download size={18} /> Export
           </button>
           <button
             onClick={() => fileInputRef.current?.click()}
-            className="border border-gray-300 dark:border-gray-600 bg-white dark:bg-accent text-gray-700 dark:text-gray-200 px-4 py-2.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition font-body text-sm flex items-center gap-2"
+            className="border border-secondary-light px-4 py-2.5 rounded-lg text-secondary-dark hover:bg-secondary-bg font-montserrat text-sm flex items-center gap-2"
           >
             <Upload size={18} /> Import
           </button>
@@ -337,19 +325,19 @@ export default function Employees() {
         <div className="relative flex-1">
           <Search
             size={18}
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500"
+            className="absolute left-3 top-1/2 -translate-y-1/2 text-secondary"
           />
           <input
             type="text"
             placeholder="Search by name or code..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded-lg pl-10 pr-4 py-2.5 text-sm focus:ring-2 focus:ring-primary focus:border-primary outline-none placeholder-gray-400 dark:placeholder-gray-500"
+            className="w-full border border-secondary-light rounded-lg pl-10 pr-4 py-2.5 text-sm focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light"
           />
         </div>
         <button
           onClick={() => setShowFilters(!showFilters)}
-          className="border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 px-4 py-2.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition font-body text-sm flex items-center gap-2"
+          className="border border-secondary-light px-4 py-2.5 rounded-lg text-secondary-dark hover:bg-secondary-bg font-montserrat text-sm flex items-center gap-2"
         >
           <Filter size={18} /> Filters
           {showFilters && <X size={16} />}
@@ -358,13 +346,13 @@ export default function Employees() {
 
       {/* Filter Panel */}
       {showFilters && (
-        <div className="bg-white dark:bg-accent rounded-xl p-4 shadow-sm mb-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 border border-gray-200 dark:border-gray-700">
+        <div className="bg-white rounded-xl p-4 shadow-sm mb-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 border border-secondary-light">
           <div>
-            <label className="text-xs font-body text-gray-700 dark:text-gray-300">Staff Type</label>
+            <label className="text-xs font-montserrat text-secondary-dark">Staff Type</label>
             <select
               value={staffTypeFilter}
               onChange={(e) => setStaffTypeFilter(e.target.value)}
-              className="w-full border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded p-2 text-sm mt-1 focus:ring-2 focus:ring-primary outline-none"
+              className="w-full border border-secondary-light rounded p-2 text-sm mt-1 focus:ring-1 focus:ring-primary"
             >
               <option value="">All Types</option>
               <option value="teacher">Teacher</option>
@@ -376,11 +364,11 @@ export default function Employees() {
             </select>
           </div>
           <div>
-            <label className="text-xs font-body text-gray-700 dark:text-gray-300">Medium</label>
+            <label className="text-xs font-montserrat text-secondary-dark">Medium</label>
             <select
               value={mediumFilter}
               onChange={(e) => setMediumFilter(e.target.value)}
-              className="w-full border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded p-2 text-sm mt-1 focus:ring-2 focus:ring-primary outline-none"
+              className="w-full border border-secondary-light rounded p-2 text-sm mt-1 focus:ring-1 focus:ring-primary"
             >
               <option value="">All Mediums</option>
               {mediums.map((m) => (
@@ -389,11 +377,11 @@ export default function Employees() {
             </select>
           </div>
           <div>
-            <label className="text-xs font-body text-gray-700 dark:text-gray-300">Course</label>
+            <label className="text-xs font-montserrat text-secondary-dark">Course</label>
             <select
               value={courseFilter}
               onChange={(e) => setCourseFilter(e.target.value)}
-              className="w-full border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded p-2 text-sm mt-1 focus:ring-2 focus:ring-primary outline-none"
+              className="w-full border border-secondary-light rounded p-2 text-sm mt-1 focus:ring-1 focus:ring-primary"
             >
               <option value="">All Courses</option>
               {courses.map((c) => (
@@ -402,11 +390,11 @@ export default function Employees() {
             </select>
           </div>
           <div>
-            <label className="text-xs font-body text-gray-700 dark:text-gray-300">Course Level</label>
+            <label className="text-xs font-montserrat text-secondary-dark">Course Level</label>
             <select
               value={courseLevelFilter}
               onChange={(e) => setCourseLevelFilter(e.target.value)}
-              className="w-full border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded p-2 text-sm mt-1 focus:ring-2 focus:ring-primary outline-none"
+              className="w-full border border-secondary-light rounded p-2 text-sm mt-1 focus:ring-1 focus:ring-primary"
             >
               <option value="">All Levels</option>
               {courseLevels.map((cl) => (
@@ -415,11 +403,11 @@ export default function Employees() {
             </select>
           </div>
           <div>
-            <label className="text-xs font-body text-gray-700 dark:text-gray-300">Subject</label>
+            <label className="text-xs font-montserrat text-secondary-dark">Subject</label>
             <select
               value={subjectFilter}
               onChange={(e) => setSubjectFilter(e.target.value)}
-              className="w-full border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded p-2 text-sm mt-1 focus:ring-2 focus:ring-primary outline-none"
+              className="w-full border border-secondary-light rounded p-2 text-sm mt-1 focus:ring-1 focus:ring-primary"
             >
               <option value="">All Subjects</option>
               {subjects.map((s) => (
@@ -437,7 +425,7 @@ export default function Employees() {
                 setCourseLevelFilter("");
                 setSubjectFilter("");
               }}
-              className="text-primary text-sm hover:underline font-body"
+              className="text-primary text-sm hover:underline"
             >
               Clear All Filters
             </button>
@@ -446,42 +434,40 @@ export default function Employees() {
       )}
 
       {/* Table */}
-      <div className="bg-white dark:bg-accent rounded-xl shadow-sm overflow-hidden border border-gray-200 dark:border-gray-700">
+      <div className="bg-white rounded-xl shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[1500px]">
-            <thead className="bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600">
+            <thead className="bg-slate-100 border-b border-secondary-light">
               <tr>
-                <th className="p-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Code</th>
-                <th className="p-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Name</th>
-                <th className="p-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Type</th>
-                <th className="p-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Dept.</th>
-                <th className="p-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Designation</th>
-                <th className="p-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Mobile</th>
-                <th className="p-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Email</th>
-                <th className="p-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Linked Account</th>
-                <th className="p-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Qualification</th>
-                <th className="p-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Medium</th>
-                <th className="p-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Course</th>
-                <th className="p-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Course Levels</th>
-                <th className="p-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Subjects</th>
-                <th className="p-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Salary</th>
-                <th className="p-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Actions</th>
+                <th className="p-3 text-left text-sm font-montserrat text-secondary-dark">Code</th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">Name</th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">Type</th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">Dept.</th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">Designation</th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">Mobile</th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">Email</th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">Linked Account</th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">Qualification</th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">Medium</th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">Course</th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">Course Levels</th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">Subjects</th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">Salary</th>
+                <th className="text-left text-sm font-montserrat text-secondary-dark">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+            <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan={15} className="p-6 text-center text-gray-500 dark:text-gray-400">
-                    Loading employees…
-                  </td>
+                  <td colSpan={15} className="p-6 text-center text-secondary">Loading employees…</td>
                 </tr>
               ) : employees.length === 0 ? (
                 <tr>
-                  <td colSpan={15} className="p-6 text-center text-gray-500 dark:text-gray-400">
+                  <td colSpan={15} className="p-6 text-center text-secondary">
                     <div className="flex flex-col items-center gap-2">
-                      <Search size={32} className="text-gray-400 dark:text-gray-500" />
+                      <Search size={32} className="text-secondary-light" />
                       <span>No employees found</span>
-                      <span className="text-xs text-gray-400 dark:text-gray-500">
+                      <span className="text-xs text-secondary-light">
                         {search || staffTypeFilter || mediumFilter || courseFilter || courseLevelFilter || subjectFilter
                           ? "Try adjusting your filters"
                           : "Add a new employee to get started"}
@@ -493,54 +479,57 @@ export default function Employees() {
                 employees.map((emp) => (
                   <tr
                     key={emp.id}
-                    className="hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                    className="border-b border-secondary-light hover:bg-primary-bg transition"
                   >
-                    <td className="p-3 text-sm text-gray-700 dark:text-gray-200">{emp.employee_code || "-"}</td>
-                    <td className="text-sm font-medium text-gray-800 dark:text-gray-100">
+                    <td className="p-3 text-sm">{emp.employee_code || "-"}</td>
+                    <td className="text-sm font-medium">
                       {emp.first_name} {emp.last_name}
                     </td>
-                    <td className="text-sm text-gray-700 dark:text-gray-200">{formatStaffType(emp.staff_type)}</td>
-                    <td className="text-sm text-gray-700 dark:text-gray-200">{emp.department || "—"}</td>
-                    <td className="text-sm text-gray-700 dark:text-gray-200">{emp.designation || "—"}</td>
-                    <td className="text-sm text-gray-700 dark:text-gray-200">{emp.mobile || "—"}</td>
-                    <td className="text-sm text-gray-700 dark:text-gray-200">{emp.email || "—"}</td>
+                    <td className="text-sm">{formatStaffType(emp.staff_type)}</td>
+                    <td className="text-sm">{emp.department || "—"}</td>
+                    <td className="text-sm">{emp.designation || "—"}</td>
+                    <td className="text-sm">{emp.mobile || "—"}</td>
+                    <td className="text-sm">{emp.email || "—"}</td>
                     <td className="text-sm">
                       {emp.user_id ? (
                         <div className="flex items-center gap-1">
-                          <LinkIcon size={14} className="text-accent" />
-                          <span className="text-accent" title={emp.user_id}>
-                            {emp.linked_email || emp.email || emp.user_id.substring(0, 8) + "…"}
+                          <LinkIcon size={14} className="text-green-600" />
+                          <span
+                            className="text-green-700 cursor-help"
+                            title={emp.user_id}
+                          >
+                            {emp.email || truncateId(emp.user_id)}
                           </span>
                         </div>
                       ) : (
-                        <div className="flex items-center gap-1 text-accent-dark">
+                        <div className="flex items-center gap-1 text-red-500">
                           <Unlink size={14} />
                           <span>Not linked</span>
                         </div>
                       )}
                     </td>
-                    <td className="text-sm text-gray-700 dark:text-gray-200">{emp.qualification || "—"}</td>
-                    <td className="text-sm text-gray-700 dark:text-gray-200">
+                    <td className="text-sm">{emp.qualification || "—"}</td>
+                    <td className="text-sm">
                       {emp.mediums?.length > 0
                         ? emp.mediums.map((m) => m.name).join(", ")
                         : "—"}
                     </td>
-                    <td className="text-sm text-gray-700 dark:text-gray-200">
+                    <td className="text-sm">
                       {emp.courses?.length > 0
                         ? emp.courses.map((c) => c.name).join(", ")
                         : "—"}
                     </td>
-                    <td className="text-sm text-gray-700 dark:text-gray-200">
+                    <td className="text-sm">
                       {emp.course_levels?.length > 0
                         ? emp.course_levels.map((cl) => cl.name).join(", ")
                         : "—"}
                     </td>
-                    <td className="text-sm text-gray-700 dark:text-gray-200">
+                    <td className="text-sm">
                       {emp.subjects?.length > 0
                         ? emp.subjects.map((s) => s.name).join(", ")
                         : "—"}
                     </td>
-                    <td className="text-sm text-gray-700 dark:text-gray-200">
+                    <td className="text-sm">
                       {emp.salary
                         ? `₹${Number(emp.salary).toLocaleString()}`
                         : "—"}
@@ -549,25 +538,25 @@ export default function Employees() {
                       <div className="flex gap-2 flex-wrap">
                         <button
                           onClick={() => setEditing(emp)}
-                          className="text-primary hover:underline"
+                          className="text-blue-600 hover:underline"
                         >
                           Edit
                         </button>
                         <button
                           onClick={() => handleDelete(emp.id)}
-                          className="text-accent-dark hover:underline"
+                          className="text-red-600 hover:underline"
                         >
                           Delete
                         </button>
                         <button
                           onClick={() => handlePrintResume(emp.id)}
-                          className="text-accent hover:underline flex items-center gap-1"
+                          className="text-green-600 hover:underline flex items-center gap-1"
                         >
                           <Printer size={14} /> Resume
                         </button>
                         <button
                           onClick={() => handlePrintIdCard(emp.id)}
-                          className="text-primary hover:underline flex items-center gap-1"
+                          className="text-indigo-600 hover:underline flex items-center gap-1"
                         >
                           <CreditCard size={14} /> ID Card
                         </button>
@@ -586,7 +575,7 @@ export default function Employees() {
           <button
             onClick={() => fetchNextPage()}
             disabled={isFetchingNextPage}
-            className="bg-primary hover:bg-primary-light text-white px-6 py-2.5 rounded-lg font-body text-sm transition disabled:opacity-60"
+            className="bg-primary hover:bg-primary-light text-white px-6 py-2.5 rounded-lg font-montserrat text-sm transition disabled:opacity-60"
           >
             {isFetchingNextPage ? "Loading more…" : "Load More"}
           </button>
@@ -606,6 +595,6 @@ export default function Employees() {
           onClose={() => setEditing(null)}
         />
       )}
-    </div>
+    </AdminLayout>
   );
 }

@@ -1,99 +1,52 @@
 // src/pages/CashBook.jsx
 import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Printer, Mail } from "lucide-react";
-import { jsPDF } from "jspdf";
-import autoTable from "jspdf-autotable";
+import { Printer } from "lucide-react";
+import AdminLayout from "../layouts/AdminLayout";
 import { supabase } from "../api/supabase";
+import { getOrganization } from "../services/organizationService";
 import { useOrg } from "../context/OrganizationContext";
-import { useTheme } from "../context/ThemeContext"; // ✅ dynamic theme
-import { sendEmail } from "../services/emailService";
-
-/* ─── PDF helpers (identical to other reports) ─────────────── */
-async function loadImageAsBase64(url) {
-  if (!url) return null;
-  try {
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const blob = await res.blob();
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onloadend = () => resolve(reader.result);
-      reader.onerror = reject;
-      reader.readAsDataURL(blob);
-    });
-  } catch { return null; }
-}
-
-function createRupeeSymbolImage() {
-  const canvas = document.createElement("canvas");
-  canvas.width = 30; canvas.height = 30;
-  const ctx = canvas.getContext("2d");
-  ctx.font = "bold 24px sans-serif"; ctx.fillStyle = "#000";
-  ctx.textAlign = "center"; ctx.textBaseline = "middle";
-  ctx.fillText("₹", 15, 15);
-  return canvas.toDataURL("image/png");
-}
-let rupeeImage = null;
-function getRupeeImage() { if (!rupeeImage) rupeeImage = createRupeeSymbolImage(); return rupeeImage; }
-
-function drawCurrency(doc, amount, x, y, fontSize = 10, align = "left", color = "#000") {
-  const img = getRupeeImage();
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(fontSize);
-  doc.setTextColor(color);
-  const amountText = amount.toLocaleString("en-IN");
-  if (align === "left") {
-    doc.addImage(img, "PNG", x, y - fontSize * 0.35, 4, 4);
-    doc.text(amountText, x + 5, y);
-  } else {
-    const textWidth = doc.getTextWidth(amountText);
-    doc.addImage(img, "PNG", x - textWidth - 5, y - fontSize * 0.35, 4, 4);
-    doc.text(amountText, x - textWidth, y);
-  }
-}
 
 export default function CashBook() {
   const today = new Date().toISOString().split("T")[0];
   const firstOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1)
-    .toISOString().split("T")[0];
+    .toISOString()
+    .split("T")[0];
 
   const [startDate, setStartDate] = useState(firstOfMonth);
   const [endDate, setEndDate] = useState(today);
   const [selectedAccount, setSelectedAccount] = useState("all");
 
-  const { org, branch, selectedFinancialYear } = useOrg();
-  const theme = useTheme();
+  // ── Current organisation, branch, and financial year ──
+  const { org: currentOrg, branch, selectedFinancialYear } = useOrg();
   const branchId = branch?.id;
   const financialYearId = selectedFinancialYear?.id;
 
-  const headingFont = theme?.font_heading || "Righteous";
-  const bodyFont = theme?.font_body || "Montserrat";
+  // Fetch organization details
+  const { data: org } = useQuery({
+    queryKey: ["organization", currentOrg?.id],
+    queryFn: () => getOrganization(currentOrg?.id),
+    enabled: !!currentOrg?.id,
+  });
 
-  // Fetch cash/bank accounts scoped to organisation & branch
+  // Cash/bank accounts – scoped
   const { data: cashBankAccounts = [] } = useQuery({
-    queryKey: ["cash-bank-accounts", org?.id, branchId, financialYearId],
+    queryKey: ["cash-bank-accounts", branchId, financialYearId],
     queryFn: async () => {
-      let query = supabase
+      const { data } = await supabase
         .from("chart_of_accounts")
         .select("id, account_code, account_name")
         .in("account_code", ["1001", "1002", "1006"])
-        .eq("organization_id", org?.id)
+        .eq("branch_id", branchId)
+        .eq("financial_year_id", financialYearId)
         .order("account_code");
-
-      if (branchId) {
-        query = query.eq("branch_id", branchId);
-      }
-      if (financialYearId) {
-        query = query.eq("financial_year_id", financialYearId);
-      }
-      const { data } = await query;
       return data || [];
     },
-    enabled: !!org?.id,
+    enabled: !!branchId && !!financialYearId,
     staleTime: Infinity,
   });
 
+  // Compute account IDs based on filter
   const getAccountIds = useMemo(() => {
     if (selectedAccount === "all") return cashBankAccounts.map((a) => a.id);
     if (selectedAccount === "cash")
@@ -103,9 +56,9 @@ export default function CashBook() {
     return [parseInt(selectedAccount)];
   }, [selectedAccount, cashBankAccounts]);
 
-  // Opening balance
+  // Opening balance – fully scoped (lines + journal entry)
   const { data: openingBalance = 0 } = useQuery({
-    queryKey: ["cash-book-opening", startDate, selectedAccount, org?.id, branchId, financialYearId],
+    queryKey: ["cash-book-opening", startDate, selectedAccount, branchId, financialYearId],
     queryFn: async () => {
       const accountIds = getAccountIds;
       if (accountIds.length === 0) return 0;
@@ -114,23 +67,23 @@ export default function CashBook() {
         .from("journal_entry_lines")
         .select("debit, credit, journal_entries!inner(entry_date)")
         .in("account_id", accountIds)
+        .eq("branch_id", branchId)
+        .eq("financial_year_id", financialYearId)
+        .eq("journal_entries.branch_id", branchId)         // ← scoped inner table
+        .eq("journal_entries.financial_year_id", financialYearId) // ← scoped inner table
         .lt("journal_entries.entry_date", startDate);
-
-      if (branchId) {
-        query = query.or(`branch_id.eq.${branchId},branch_id.is.null`);
-      }
 
       const { data } = await query;
       const totalDebit = data?.reduce((s, r) => s + parseFloat(r.debit), 0) || 0;
       const totalCredit = data?.reduce((s, r) => s + parseFloat(r.credit), 0) || 0;
       return totalDebit - totalCredit;
     },
-    enabled: !!startDate && cashBankAccounts.length > 0 && !!org?.id,
+    enabled: !!startDate && cashBankAccounts.length > 0 && !!branchId && !!financialYearId,
   });
 
-  // Transactions
+  // Main entries for the period – fully scoped (lines + journal entry)
   const { data: entries = [], isLoading } = useQuery({
-    queryKey: ["cash-book-entries", startDate, endDate, selectedAccount, org?.id, branchId, financialYearId],
+    queryKey: ["cash-book-entries", startDate, endDate, selectedAccount, branchId, financialYearId],
     queryFn: async () => {
       const accountIds = getAccountIds;
       if (accountIds.length === 0) return [];
@@ -145,21 +98,22 @@ export default function CashBook() {
           journal_entries!inner(entry_date, reference, id)
         `)
         .in("account_id", accountIds)
+        .eq("branch_id", branchId)
+        .eq("financial_year_id", financialYearId)
+        .eq("journal_entries.branch_id", branchId)         // ← scoped inner table
+        .eq("journal_entries.financial_year_id", financialYearId) // ← scoped inner table
         .gte("journal_entries.entry_date", startDate)
         .lte("journal_entries.entry_date", endDate)
         .order("journal_entries(entry_date)", { ascending: true })
         .order("id", { ascending: true });
 
-      if (branchId) {
-        query = query.or(`branch_id.eq.${branchId},branch_id.is.null`);
-      }
-
       const { data } = await query;
       return data || [];
     },
-    enabled: !!startDate && !!endDate && cashBankAccounts.length > 0 && !!org?.id,
+    enabled: !!startDate && !!endDate && cashBankAccounts.length > 0 && !!branchId && !!financialYearId,
   });
 
+  // Fetch voucher numbers – scoped
   const journalEntryIds = useMemo(
     () => entries.map((e) => e.journal_entries?.id).filter(Boolean),
     [entries]
@@ -172,9 +126,9 @@ export default function CashBook() {
       let query = supabase
         .from("vouchers")
         .select("voucher_no, journal_entry_id")
-        .in("journal_entry_id", journalEntryIds);
-      if (branchId) query = query.eq("branch_id", branchId);
-      if (financialYearId) query = query.eq("financial_year_id", financialYearId);
+        .in("journal_entry_id", journalEntryIds)
+        .eq("branch_id", branchId)
+        .eq("financial_year_id", financialYearId);
       const { data } = await query;
       const map = {};
       data?.forEach((v) => { map[v.journal_entry_id] = v.voucher_no; });
@@ -183,6 +137,7 @@ export default function CashBook() {
     enabled: journalEntryIds.length > 0 && !!branchId && !!financialYearId,
   });
 
+  // Running balance
   const ledgerWithBalance = useMemo(() => {
     let running = openingBalance;
     return entries.map((entry) => {
@@ -205,326 +160,94 @@ export default function CashBook() {
   const totalReceipts = entries.reduce((s, e) => s + (parseFloat(e.debit) || 0), 0);
   const totalPayments = entries.reduce((s, e) => s + (parseFloat(e.credit) || 0), 0);
 
-  // ─── Email report ─────────────────────────────────────────
-  const getAdminEmails = async () => {
-    if (!org?.id) return [];
-    const { data, error } = await supabase
-      .from("profiles")
-      .select("email")
-      .eq("organization_id", org.id)
-      .in("role", ["admin", "super_admin", "organization_admin"])
-      .eq("is_active", true);
-    if (error) {
-      console.error("Failed to fetch admin emails:", error);
-      return [];
-    }
-    return data?.map(p => p.email).filter(Boolean) || [];
-  };
+  // Print
+  const handlePrint = () => {
+    const printContent = document.getElementById("cash-book-table")?.outerHTML;
+    if (!printContent) return;
 
-  const sendReportEmail = async () => {
-    if (entries.length === 0) {
-      alert("No transactions found for the selected period.");
-      return;
-    }
-    try {
-      const adminEmails = await getAdminEmails();
-      if (adminEmails.length === 0) {
-        alert("No admin emails found to send the report.");
-        return;
-      }
+    const logoUrl = org?.logo_dark_url || "/ShreeVidhyaDark.png";
+    const orgName = org?.company_name || "ShreeVidhya Academy";
+    const orgAddr = org?.address || "";
+    const orgPhone = org?.phone || "";
+    const orgEmail = org?.email || "";
 
-      const accountLabel = selectedAccount === "all" ? "All Cash & Bank" :
-        selectedAccount === "cash" ? "Cash in Hand" :
-        selectedAccount === "bank" ? "Bank Accounts" :
-        cashBankAccounts.find(a => a.id == selectedAccount)?.account_name || "Selected Account";
-
-      const rowsHtml = ledgerWithBalance.map(entry => `
-        <tr>
-          <td style="padding:4px 8px;border:1px solid #ddd;">${entry.journal_entries?.entry_date || ''}</td>
-          <td style="padding:4px 8px;border:1px solid #ddd;">${entry.voucherNo || '—'}</td>
-          <td style="padding:4px 8px;border:1px solid #ddd;">${entry.journal_entries?.reference || '—'}</td>
-          <td style="padding:4px 8px;border:1px solid #ddd;">${entry.description || ''}</td>
-          <td style="padding:4px 8px;border:1px solid #ddd;text-align:right;">${entry.debit > 0 ? `₹ ${Number(entry.debit).toLocaleString('en-IN')}` : '—'}</td>
-          <td style="padding:4px 8px;border:1px solid #ddd;text-align:right;">${entry.credit > 0 ? `₹ ${Number(entry.credit).toLocaleString('en-IN')}` : '—'}</td>
-          <td style="padding:4px 8px;border:1px solid #ddd;text-align:right;font-weight:bold;">₹ ${entry.balance.toLocaleString('en-IN')}</td>
-        </tr>
-      `).join('');
-
-      const htmlBody = `
-        <div style="font-family:Arial,sans-serif;max-width:800px;margin:0 auto;">
-          <h2 style="color:#0D47A1;">Cash / Bank Book</h2>
-          <p><strong>Branch:</strong> ${branch?.branch_name || 'N/A'}</p>
-          <p><strong>Period:</strong> ${startDate} – ${endDate}</p>
-          <p><strong>Account:</strong> ${accountLabel}</p>
-          <hr />
-          <div style="display:flex;justify-content:space-around;margin-bottom:20px;flex-wrap:wrap;">
-            <div><strong>Opening Balance:</strong> ₹ ${openingBalance.toLocaleString('en-IN')}</div>
-            <div><strong>Total Receipts:</strong> ₹ ${totalReceipts.toLocaleString('en-IN')}</div>
-            <div><strong>Total Payments:</strong> ₹ ${totalPayments.toLocaleString('en-IN')}</div>
-            <div><strong>Closing Balance:</strong> ₹ ${closingBalance.toLocaleString('en-IN')}</div>
+    const printWindow = window.open("", "_blank", "width=1000,height=750");
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>Cash/Bank Book</title>
+          <style>
+            @page { size: A4 landscape; margin: 12mm; }
+            body { font-family: Montserrat, sans-serif; color: #222; font-size: 10px; }
+            .header { display: flex; align-items: center; border-bottom: 2px solid #0D47A1; padding-bottom: 8px; margin-bottom: 15px; }
+            .header img { height: 40px; margin-right: 15px; }
+            .org-name { font-size: 16px; font-weight: 700; color: #0D47A1; }
+            .org-details { font-size: 8px; color: #555; }
+            h1 { text-align: center; color: #0D47A1; margin: 15px 0 5px; font-size: 14px; }
+            .date { text-align: center; font-size: 9px; color: #666; margin-bottom: 15px; }
+            table { width: 100%; border-collapse: collapse; border: 1px solid #bbb; font-size: 9px; }
+            th, td { padding: 4px 6px; border: 1px solid #bbb; }
+            th { background-color: #E3F2FD; font-weight: 600; }
+            .text-right { text-align: right; }
+            .summary { margin-top: 15px; display: flex; justify-content: space-between; font-weight: 700; font-size: 10px; }
+            .footer { margin-top: 20px; font-size: 8px; color: #888; text-align: center; border-top: 1px solid #ddd; padding-top: 8px; }
+            @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <img src="${logoUrl}" alt="Logo" onerror="this.style.display='none'" />
+            <div>
+              <div class="org-name">${orgName}</div>
+              <div class="org-details">${orgAddr}</div>
+              <div class="org-details">Ph: ${orgPhone}  |  Email: ${orgEmail}</div>
+            </div>
           </div>
-          <h3>Transaction Details</h3>
-          <table style="width:100%;border-collapse:collapse;font-size:11px;">
-            <thead>
-              <tr style="background:#e3f2fd;">
-                <th style="padding:4px 8px;border:1px solid #ddd;text-align:left;">Date</th>
-                <th style="padding:4px 8px;border:1px solid #ddd;text-align:left;">Voucher No</th>
-                <th style="padding:4px 8px;border:1px solid #ddd;text-align:left;">Reference</th>
-                <th style="padding:4px 8px;border:1px solid #ddd;text-align:left;">Description</th>
-                <th style="padding:4px 8px;border:1px solid #ddd;text-align:right;">Receipt (₹)</th>
-                <th style="padding:4px 8px;border:1px solid #ddd;text-align:right;">Payment (₹)</th>
-                <th style="padding:4px 8px;border:1px solid #ddd;text-align:right;">Balance (₹)</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${rowsHtml}
-            </tbody>
-          </table>
-          <p style="color:#888;font-size:10px;margin-top:20px;">Computer‑generated report from ${org?.company_name || 'Academy'}</p>
-        </div>
-      `;
-
-      await sendEmail({
-        to: adminEmails,
-        subject: `Cash/Bank Book Report - ${new Date().toLocaleDateString()}`,
-        html: htmlBody,
-      });
-      toast.success("Report sent to admins.");
-    } catch (err) {
-      console.error("Failed to send report:", err);
-      toast.error("Failed to send report.");
-    }
+          <h1>Cash / Bank Book</h1>
+          <div class="date">Period: ${startDate} – ${endDate}</div>
+          ${printContent}
+          <div class="summary">
+            <span>Opening Balance: ₹ ${openingBalance.toLocaleString("en-IN")}</span>
+            <span>Total Receipts: ₹ ${totalReceipts.toLocaleString("en-IN")}</span>
+            <span>Total Payments: ₹ ${totalPayments.toLocaleString("en-IN")}</span>
+            <span>Closing Balance: ₹ ${closingBalance.toLocaleString("en-IN")}</span>
+          </div>
+          <div class="footer">Computer‑generated report – ${orgName}</div>
+          <script>window.print();</script>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
   };
-
-  // ─── Professional PDF Export ──────────────────────────────
-  const handlePrintPDF = async () => {
-    if (entries.length === 0) return;
-
-    const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
-    const pageWidth = doc.internal.pageSize.getWidth();
-    const pageHeight = doc.internal.pageSize.getHeight();
-    const margin = 10;
-    let y = margin;
-
-    // Logo
-    let logoBase64 = null;
-    if (org?.logo_dark_url) {
-      logoBase64 = await loadImageAsBase64(org.logo_dark_url);
-    }
-
-    // Header
-    const logoWidth = 35, logoHeight = 14;
-    if (logoBase64) {
-      doc.addImage(logoBase64, "PNG", margin, y, logoWidth, logoHeight);
-    }
-    const textX = margin + (logoBase64 ? logoWidth + 4 : 0);
-    const textY = y + 1;
-
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(14);
-    doc.setTextColor("#000000");
-    doc.text(org?.company_name || "Academy", textX, textY);
-
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(7);
-    doc.setTextColor("#000000");
-    let detailY = textY + 4.5;
-    if (org?.address) {
-      const addrLines = doc.splitTextToSize(org.address, pageWidth - textX - margin - 10);
-      doc.text(addrLines, textX, detailY);
-      detailY += addrLines.length * 3.5 + 1;
-    }
-    if (org?.gstin) { doc.text(`GSTIN: ${org.gstin}`, textX, detailY); detailY += 4; }
-    if (org?.phone) { doc.text(`Phone: ${org.phone}`, textX, detailY); detailY += 4; }
-    if (org?.email) { doc.text(`Email: ${org.email}`, textX, detailY); detailY += 4; }
-
-    const headerHeight = Math.max(logoHeight + 4, detailY - textY + 4);
-    y += headerHeight + 2;
-    doc.setDrawColor("#000000");
-    doc.line(margin, y, pageWidth - margin, y);
-    y += 6;
-
-    // Title & Account
-    const accountLabel = selectedAccount === "all" ? "All Cash & Bank" :
-      selectedAccount === "cash" ? "Cash in Hand" :
-      selectedAccount === "bank" ? "Bank Accounts" :
-      cashBankAccounts.find(a => a.id == selectedAccount)?.account_name || "Selected Account";
-
-    doc.setFontSize(16);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor("#000000");
-    doc.text("Cash / Bank Book", pageWidth / 2, y, { align: "center" });
-    y += 7;
-    doc.setFontSize(10);
-    doc.setFont("helvetica", "normal");
-    doc.text(`Period: ${startDate} – ${endDate}  |  Account: ${accountLabel}`, pageWidth / 2, y, { align: "center" });
-    y += 10;
-
-    // Summary boxes
-    const boxWidth = (pageWidth - 2 * margin - 30) / 4;
-    const boxHeight = 16;
-    const boxY = y;
-    const summaryItems = [
-      { label: "Opening Balance", value: openingBalance },
-      { label: "Total Receipts", value: totalReceipts },
-      { label: "Total Payments", value: totalPayments },
-      { label: "Closing Balance", value: closingBalance },
-    ];
-
-    summaryItems.forEach((item, i) => {
-      const x = margin + i * (boxWidth + 10);
-      doc.setDrawColor("#000000");
-      doc.setFillColor(255, 255, 255);
-      doc.rect(x, boxY, boxWidth, boxHeight, "FD");
-      doc.setFontSize(8);
-      doc.setFont("helvetica", "normal");
-      doc.setTextColor("#000000");
-      doc.text(item.label, x + 2, boxY + 5);
-      drawCurrency(doc, item.value, x + 2, boxY + 13, 8, "left", "#000");
-    });
-    y += boxHeight + 10;
-
-    // Build table rows
-    const tableRows = ledgerWithBalance.map((entry) => [
-      entry.journal_entries?.entry_date || "",
-      entry.voucherNo || "—",
-      entry.journal_entries?.reference || "—",
-      entry.description || "",
-      entry.debit > 0 ? entry.debit : "",
-      entry.credit > 0 ? entry.credit : "",
-      entry.balance,
-    ]);
-
-    // Totals row
-    tableRows.push(["", "", "", "TOTAL", totalReceipts, totalPayments, ""]);
-
-    autoTable(doc, {
-      startY: y,
-      head: [["Date", "Voucher", "Reference", "Description", "Receipt", "Payment", "Balance"]],
-      body: tableRows,
-      theme: "plain",
-      styles: { fontSize: 8, cellPadding: 2, textColor: [0,0,0], fillColor: [255,255,255], lineColor: [0,0,0], lineWidth: 0.2 },
-      headStyles: { fillColor: [255,255,255], textColor: [0,0,0], fontStyle: "bold", lineWidth: 0.2, lineColor: [0,0,0] },
-      columnStyles: {
-        0: { cellWidth: 28 },
-        1: { cellWidth: 30 },
-        2: { cellWidth: 30 },
-        3: { cellWidth: 60, halign: "left" },
-        4: { cellWidth: 30, halign: "right" },
-        5: { cellWidth: 30, halign: "right" },
-        6: { cellWidth: 30, halign: "right" },
-      },
-      margin: { left: margin, right: margin },
-      willDrawCell: (data) => {
-        if ([4,5,6].includes(data.column.index) && typeof data.cell.raw === "number") {
-          data.cell.text = [];
-        }
-      },
-      didDrawCell: (data) => {
-        if ([4,5,6].includes(data.column.index) && typeof data.cell.raw === "number") {
-          drawCurrency(doc, data.cell.raw, data.cell.x + data.cell.width - 2, data.cell.y + data.cell.height / 2 + 1.5, 8, "right", "#000");
-        }
-        if (data.row.index === tableRows.length - 1) {
-          data.cell.styles.fontStyle = "bold";
-        }
-      },
-    });
-
-    y = doc.lastAutoTable.finalY + 10;
-
-    // Footer
-    const footerY = pageHeight - margin - 5;
-    doc.setFontSize(7);
-    doc.setTextColor("#000000");
-    doc.setFont("helvetica", "italic");
-    doc.text(`Generated on ${new Date().toLocaleString()}`, margin, footerY);
-    doc.text(`© ${org?.company_name || "Academy"}`, pageWidth / 2, footerY, { align: "center" });
-
-    doc.save(`Cash_Book_${startDate}_${endDate}.pdf`);
-  };
-
-  const formatCurrency = (val) => `₹ ${Math.abs(val).toLocaleString("en-IN")}`;
 
   return (
-    <div className="space-y-6 px-4 sm:px-6 lg:px-0">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1
-            className="text-2xl sm:text-3xl font-bold text-primary"
-            style={{ fontFamily: headingFont }}
-          >
-            Cash / Bank Book
-          </h1>
-          <p
-            className="text-sm text-primary-dark mt-1"
-            style={{ fontFamily: bodyFont }}
-          >
-            Day‑wise cash and bank transaction summary
-          </p>
-        </div>
-        <div className="flex gap-3">
-          <button
-            onClick={sendReportEmail}
-            className="inline-flex items-center gap-2 px-4 py-2.5 bg-accent hover:bg-accent-dark text-white rounded-lg transition-colors text-sm font-medium"
-            style={{ fontFamily: bodyFont }}
-          >
-            <Mail size={16} /> Send Report
-          </button>
-          <button
-            onClick={handlePrintPDF}
-            className="inline-flex items-center gap-2 px-4 py-2.5 bg-primary hover:bg-accent text-white rounded-lg transition-colors text-sm font-medium"
-            style={{ fontFamily: bodyFont }}
-          >
-            <Printer size={16} /> Print PDF
-          </button>
-        </div>
+    <AdminLayout>
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-3xl font-righteous text-primary-dark">Cash / Bank Book</h1>
+        <button
+          onClick={handlePrint}
+          className="bg-primary text-white px-4 py-2 rounded-lg text-sm flex items-center gap-2"
+        >
+          <Printer size={16} /> Print
+        </button>
       </div>
 
-      <div className="flex flex-wrap gap-4 items-end">
+      <div className="flex flex-wrap gap-4 mb-6">
         <div>
-          <label
-            className="text-sm font-medium text-primary-dark mr-2"
-            style={{ fontFamily: bodyFont }}
-          >
-            From:
-          </label>
-          <input
-            type="date"
-            value={startDate}
-            onChange={e => setStartDate(e.target.value)}
-            className="border border-primary-bg bg-white text-primary rounded p-2 text-sm"
-          />
+          <label className="text-sm font-medium mr-2">From:</label>
+          <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="border rounded p-2 text-sm" />
         </div>
         <div>
-          <label
-            className="text-sm font-medium text-primary-dark mr-2"
-            style={{ fontFamily: bodyFont }}
-          >
-            To:
-          </label>
-          <input
-            type="date"
-            value={endDate}
-            onChange={e => setEndDate(e.target.value)}
-            className="border border-primary-bg bg-white text-primary rounded p-2 text-sm"
-          />
+          <label className="text-sm font-medium mr-2">To:</label>
+          <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="border rounded p-2 text-sm" />
         </div>
         <div>
-          <label
-            className="text-sm font-medium text-primary-dark mr-2"
-            style={{ fontFamily: bodyFont }}
-          >
-            Account:
-          </label>
-          <select
-            value={selectedAccount}
-            onChange={e => setSelectedAccount(e.target.value)}
-            className="border border-primary-bg bg-white text-primary rounded p-2 text-sm"
-          >
+          <label className="text-sm font-medium mr-2">Account:</label>
+          <select value={selectedAccount} onChange={(e) => setSelectedAccount(e.target.value)} className="border rounded p-2 text-sm">
             <option value="all">All Cash & Bank</option>
             <option value="cash">Cash in Hand Only</option>
             <option value="bank">Bank Account Only</option>
-            {cashBankAccounts.map(acc => (
+            {cashBankAccounts.map((acc) => (
               <option key={acc.id} value={acc.id}>{acc.account_name}</option>
             ))}
           </select>
@@ -532,103 +255,60 @@ export default function CashBook() {
       </div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <div className="bg-white rounded-xl p-4 shadow-sm border border-primary-bg text-center">
-          <p className="text-xs text-primary-dark" style={{ fontFamily: bodyFont }}>
-            Opening Balance
-          </p>
-          <p className="text-xl font-bold text-primary" style={{ fontFamily: headingFont }}>
-            ₹ {openingBalance.toLocaleString("en-IN")}
-          </p>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
+        <div className="bg-white rounded-xl p-4 shadow-sm border text-center">
+          <p className="text-xs text-secondary-dark">Opening Balance</p>
+          <p className="text-xl font-bold text-primary-dark">₹ {openingBalance.toLocaleString("en-IN")}</p>
         </div>
-        <div className="bg-white rounded-xl p-4 shadow-sm border border-primary-bg text-center">
-          <p className="text-xs text-primary-dark" style={{ fontFamily: bodyFont }}>
-            Total Receipts
-          </p>
-          <p className="text-xl font-bold text-accent" style={{ fontFamily: headingFont }}>
-            ₹ {totalReceipts.toLocaleString("en-IN")}
-          </p>
+        <div className="bg-white rounded-xl p-4 shadow-sm border text-center">
+          <p className="text-xs text-secondary-dark">Total Receipts</p>
+          <p className="text-xl font-bold text-green-600">₹ {totalReceipts.toLocaleString("en-IN")}</p>
         </div>
-        <div className="bg-white rounded-xl p-4 shadow-sm border border-primary-bg text-center">
-          <p className="text-xs text-primary-dark" style={{ fontFamily: bodyFont }}>
-            Total Payments
-          </p>
-          <p className="text-xl font-bold text-accent-dark" style={{ fontFamily: headingFont }}>
-            ₹ {totalPayments.toLocaleString("en-IN")}
-          </p>
+        <div className="bg-white rounded-xl p-4 shadow-sm border text-center">
+          <p className="text-xs text-secondary-dark">Total Payments</p>
+          <p className="text-xl font-bold text-red-600">₹ {totalPayments.toLocaleString("en-IN")}</p>
         </div>
-        <div className="bg-white rounded-xl p-4 shadow-sm border border-primary-bg text-center">
-          <p className="text-xs text-primary-dark" style={{ fontFamily: bodyFont }}>
-            Closing Balance
-          </p>
-          <p className="text-xl font-bold text-primary" style={{ fontFamily: headingFont }}>
-            ₹ {closingBalance.toLocaleString("en-IN")}
-          </p>
+        <div className="bg-white rounded-xl p-4 shadow-sm border text-center">
+          <p className="text-xs text-secondary-dark">Closing Balance</p>
+          <p className="text-xl font-bold text-primary-dark">₹ {closingBalance.toLocaleString("en-IN")}</p>
         </div>
       </div>
 
+      {/* Table */}
       {isLoading ? (
-        <div className="text-center py-8 text-primary-dark/60" style={{ fontFamily: bodyFont }}>
-          Loading…
-        </div>
+        <p className="text-center py-8">Loading…</p>
       ) : (
-        <div className="bg-white rounded-xl shadow-sm border border-primary-bg overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[800px] text-sm">
-              <thead className="bg-primary-bg">
+        <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+          <div id="cash-book-table">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-100">
                 <tr>
-                  <th className="p-3 text-left text-xs font-medium text-primary-dark uppercase" style={{ fontFamily: bodyFont }}>
-                    Date
-                  </th>
-                  <th className="p-3 text-left text-xs font-medium text-primary-dark uppercase" style={{ fontFamily: bodyFont }}>
-                    Voucher No
-                  </th>
-                  <th className="p-3 text-left text-xs font-medium text-primary-dark uppercase" style={{ fontFamily: bodyFont }}>
-                    Reference
-                  </th>
-                  <th className="p-3 text-left text-xs font-medium text-primary-dark uppercase" style={{ fontFamily: bodyFont }}>
-                    Description
-                  </th>
-                  <th className="p-3 text-right text-xs font-medium text-primary-dark uppercase" style={{ fontFamily: bodyFont }}>
-                    Receipt (₹)
-                  </th>
-                  <th className="p-3 text-right text-xs font-medium text-primary-dark uppercase" style={{ fontFamily: bodyFont }}>
-                    Payment (₹)
-                  </th>
-                  <th className="p-3 text-right text-xs font-medium text-primary-dark uppercase" style={{ fontFamily: bodyFont }}>
-                    Balance (₹)
-                  </th>
+                  <th className="p-3 text-left">Date</th>
+                  <th className="p-3 text-left">Voucher No</th>
+                  <th className="p-3 text-left">Reference</th>
+                  <th className="p-3 text-left">Description</th>
+                  <th className="p-3 text-right">Receipt (₹)</th>
+                  <th className="p-3 text-right">Payment (₹)</th>
+                  <th className="p-3 text-right">Balance (₹)</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-primary-bg">
+              <tbody>
                 {ledgerWithBalance.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="p-6 text-center text-primary-dark/60" style={{ fontFamily: bodyFont }}>
-                      No transactions found for this period.
-                    </td>
-                  </tr>
+                  <tr><td colSpan={7} className="p-6 text-center text-secondary">No transactions found for this period.</td></tr>
                 ) : (
                   ledgerWithBalance.map((entry, idx) => (
-                    <tr key={idx} className="hover:bg-primary-bg">
-                      <td className="p-3 text-primary-dark" style={{ fontFamily: bodyFont }}>
-                        {entry.journal_entries?.entry_date}
-                      </td>
-                      <td className="p-3 text-primary-dark" style={{ fontFamily: bodyFont }}>
-                        {entry.voucherNo || "—"}
-                      </td>
-                      <td className="p-3 text-primary-dark" style={{ fontFamily: bodyFont }}>
-                        {entry.journal_entries?.reference || "—"}
-                      </td>
-                      <td className="p-3 text-primary-dark" style={{ fontFamily: bodyFont }}>
-                        {entry.description}
-                      </td>
-                      <td className="p-3 text-right text-accent" style={{ fontFamily: bodyFont }}>
+                    <tr key={idx} className="border-t hover:bg-gray-50">
+                      <td className="p-3">{entry.journal_entries?.entry_date}</td>
+                      <td className="p-3 text-sm font-medium">{entry.voucherNo || "—"}</td>
+                      <td className="p-3">{entry.journal_entries?.reference || "—"}</td>
+                      <td className="p-3">{entry.description}</td>
+                      <td className="p-3 text-right text-green-600">
                         {entry.debit > 0 ? `₹ ${Number(entry.debit).toLocaleString("en-IN")}` : "—"}
                       </td>
-                      <td className="p-3 text-right text-accent-dark" style={{ fontFamily: bodyFont }}>
+                      <td className="p-3 text-right text-red-600">
                         {entry.credit > 0 ? `₹ ${Number(entry.credit).toLocaleString("en-IN")}` : "—"}
                       </td>
-                      <td className="p-3 text-right font-medium text-primary" style={{ fontFamily: bodyFont }}>
+                      <td className="p-3 text-right font-medium">
                         ₹ {entry.balance.toLocaleString("en-IN")}
                       </td>
                     </tr>
@@ -639,6 +319,6 @@ export default function CashBook() {
           </div>
         </div>
       )}
-    </div>
+    </AdminLayout>
   );
 }

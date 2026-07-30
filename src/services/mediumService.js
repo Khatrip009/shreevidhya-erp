@@ -1,20 +1,16 @@
 // src/services/mediumService.js
 import { supabase } from "../api/supabase";
 
-// Mediums are organization‑wide – no branch/FY columns
-export async function getMediums({ search = "" } = {}) {
-  let query = supabase.from("mediums").select("*").order("name");
-  if (search) {
-    query = query.ilike("name", `%${search}%`);
-  }
-  const { data, error } = await query;
+export async function getMediums() {
+  const { data, error } = await supabase
+    .from("mediums")
+    .select("id, name")
+    .order("name");
   if (error) throw error;
   return data || [];
 }
 
-// Create, update, delete also don't need branch/FY (unless you add them)
-export async function createMedium(payload, context) {
-  // If your mediums table does NOT have branch_id/financial_year_id, omit them
+export async function createMedium(payload) {
   const { data, error } = await supabase
     .from("mediums")
     .insert([payload])
@@ -24,7 +20,7 @@ export async function createMedium(payload, context) {
   return data;
 }
 
-export async function updateMedium(id, payload, context) {
+export async function updateMedium(id, payload) {
   const { data, error } = await supabase
     .from("mediums")
     .update(payload)
@@ -35,7 +31,7 @@ export async function updateMedium(id, payload, context) {
   return data;
 }
 
-export async function deleteMedium(id, context) {
+export async function deleteMedium(id) {
   const { error } = await supabase
     .from("mediums")
     .delete()

@@ -1,3 +1,4 @@
+// src/pages/EnterResults.jsx
 import { useEffect, useState, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
@@ -12,10 +13,9 @@ import {
   Download,
   Upload,
   FileDown,
-  Mail,
 } from "lucide-react";
 import Papa from "papaparse";
-
+import AdminLayout from "../layouts/AdminLayout";
 import {
   getExamById,
   getBatchStudents,
@@ -23,22 +23,16 @@ import {
   saveResults,
 } from "../services/examService";
 import { useOrg } from "../context/OrganizationContext";
-import { useTheme } from "../context/ThemeContext";
-import { supabase } from "../api/supabase";
-import { sendTemplateEmail } from "../services/emailService";
 
 export default function EnterResults() {
   const { examId } = useParams();
   const navigate = useNavigate();
 
-  const { branch, selectedFinancialYear, org } = useOrg();
-  const theme = useTheme();
+  // ── Organisation / Branch / Financial Year context ──
+  const { branch, selectedFinancialYear } = useOrg();
   const ctx = { branchId: branch?.id, financialYearId: selectedFinancialYear?.id };
   const branchId = ctx.branchId;
   const financialYearId = ctx.financialYearId;
-
-  const headingFont = theme?.font_heading || "Righteous";
-  const bodyFont = theme?.font_body || "Montserrat";
 
   useEffect(() => {
     if (!examId || examId === "undefined") {
@@ -52,7 +46,6 @@ export default function EnterResults() {
   const [remarks, setRemarks] = useState({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [sendingEmail, setSendingEmail] = useState(false);
   const fileInputRef = useRef(null);
 
   const courseName = exam?.batches?.courses?.course_name || "—";
@@ -102,97 +95,6 @@ export default function EnterResults() {
     setRemarks((prev) => ({ ...prev, [studentId]: value }));
   }
 
-  // ─── Email Sending ──────────────────────────────────────────────────
-  async function sendResultsEmail() {
-    if (allStudents.length === 0) {
-      toast.error("No students in this batch.");
-      return;
-    }
-
-    setSendingEmail(true);
-    try {
-      // Fetch student emails
-      const studentIds = allStudents.map((s) => s.id);
-      const { data: studentEmails, error } = await supabase
-        .from("students")
-        .select("id, email, first_name, last_name")
-        .in("id", studentIds)
-        .eq("branch_id", branchId)
-        .eq("financial_year_id", financialYearId);
-
-      if (error) throw error;
-
-      // Build a map of student email by id
-      const emailMap = {};
-      studentEmails.forEach((s) => {
-        emailMap[s.id] = s.email;
-      });
-
-      // Fetch subject name
-      let subjectName = "";
-      if (exam.subject_id) {
-        const { data: subjectData } = await supabase
-          .from("subjects")
-          .select("subject_name")
-          .eq("id", exam.subject_id)
-          .single();
-        subjectName = subjectData?.subject_name || "";
-      }
-
-      const totalMarks = exam.total_marks || 0;
-      let sentCount = 0;
-
-      for (const student of allStudents) {
-        const studentEmail = emailMap[student.id];
-        if (!studentEmail) continue;
-
-        const marksObtained = parseFloat(marks[student.id]) || 0;
-        const remark = remarks[student.id] || "";
-
-        // Compute simple grade (optional)
-        let grade = "";
-        if (totalMarks > 0) {
-          const percentage = (marksObtained / totalMarks) * 100;
-          if (percentage >= 90) grade = "A+";
-          else if (percentage >= 80) grade = "A";
-          else if (percentage >= 70) grade = "B+";
-          else if (percentage >= 60) grade = "B";
-          else if (percentage >= 50) grade = "C";
-          else grade = "D";
-        }
-
-        const context = {
-          academyName: org?.company_name || "Academy",
-          student_name: `${student.first_name} ${student.last_name}`.trim(),
-          exam_name: exam.exam_name,
-          subject_name: subjectName,
-          marks_obtained: marksObtained,
-          total_marks: totalMarks,
-          grade: grade,
-          remarks: remark || "No remarks",
-        };
-
-        await sendTemplateEmail({
-          to: studentEmail,
-          organizationId: org?.id,
-          slug: "results_published",
-          context,
-          branchId,
-        });
-
-        sentCount++;
-      }
-
-      toast.success(`Results email sent to ${sentCount} student(s).`);
-    } catch (err) {
-      console.error("Email error:", err);
-      toast.error("Failed to send emails: " + err.message);
-    } finally {
-      setSendingEmail(false);
-    }
-  }
-
-  // ─── CSV Export/Import ─────────────────────────────────────────────
   function handleExportCSV() {
     const data = allStudents.map((s) => ({
       admission_no: s.admission_no,
@@ -281,6 +183,7 @@ export default function EnterResults() {
 
     setSaving(true);
     try {
+      // Pass context as third argument (branch & financial year)
       await saveResults(examId, resultsPayload, ctx);
       toast.success("Results saved");
       navigate("/results");
@@ -295,83 +198,64 @@ export default function EnterResults() {
 
   if (loading) {
     return (
-      <div className="p-8 text-center text-primary-dark/60" style={{ fontFamily: bodyFont }}>
-        Loading exam details…
-      </div>
+      <AdminLayout>
+        <div className="p-8 text-center text-secondary font-montserrat">
+          Loading exam details…
+        </div>
+      </AdminLayout>
     );
   }
 
   return (
-    <div className="space-y-6 px-4 sm:px-6 lg:px-0">
-      {/* Header */}
-      <div>
+    <AdminLayout>
+      <div className="mb-6">
         <button
           onClick={() => navigate("/results")}
-          className="flex items-center gap-2 text-primary-dark hover:text-primary mb-2 text-sm transition-colors"
-          style={{ fontFamily: bodyFont }}
+          className="flex items-center gap-2 text-secondary hover:text-primary-dark mb-2 font-montserrat text-sm transition"
         >
           <ArrowLeft size={18} />
           Back to Results
         </button>
-        <h1
-          className="text-2xl sm:text-3xl font-bold text-primary"
-          style={{ fontFamily: headingFont }}
-        >
-          Enter Results
-        </h1>
+        <h1 className="text-3xl font-righteous text-primary-dark">Enter Results</h1>
         {exam && (
-          <div className="flex flex-wrap gap-2 mt-2 text-sm">
-            <span
-              className="flex items-center gap-1 px-3 py-1 rounded-full bg-primary-light text-primary"
-            >
+          <div className="flex flex-wrap gap-2 mt-2 text-sm text-secondary-dark font-montserrat">
+            <span className="flex items-center gap-1 bg-primary-bg text-primary px-3 py-1 rounded-full">
               <FileText size={14} /> {exam.exam_name}
             </span>
-            <span
-              className="flex items-center gap-1 px-3 py-1 rounded-full bg-primary-light text-primary"
-            >
+            <span className="flex items-center gap-1 bg-primary-bg text-primary px-3 py-1 rounded-full">
               <Layers size={14} /> {exam.batches?.batch_name}
             </span>
             {mediumName && (
-              <span
-                className="flex items-center gap-1 px-3 py-1 rounded-full bg-accent-light text-accent text-xs"
-              >
+              <span className="flex items-center gap-1 bg-accent/10 text-accent px-3 py-1 rounded-full text-xs">
                 {mediumName}
               </span>
             )}
-            <span
-              className="flex items-center gap-1 px-3 py-1 rounded-full bg-primary-light text-primary"
-            >
+            <span className="flex items-center gap-1 bg-primary-bg text-primary px-3 py-1 rounded-full">
               <Calendar size={14} /> {exam.exam_date}
             </span>
-            <span
-              className="flex items-center gap-1 px-3 py-1 rounded-full bg-primary-light text-primary"
-            >
+            <span className="flex items-center gap-1 bg-primary-bg text-primary px-3 py-1 rounded-full">
               Total: {exam.total_marks || "N/A"}
             </span>
           </div>
         )}
       </div>
 
-      {/* Actions */}
-      <div className="flex flex-wrap items-end gap-3">
+      <div className="flex flex-wrap items-end gap-3 mb-4">
         <button
           onClick={handleExportCSV}
-          className="inline-flex items-center gap-2 px-4 py-2.5 border border-primary-bg bg-white text-primary-dark rounded-lg hover:bg-primary-bg transition-colors text-sm"
-          style={{ fontFamily: bodyFont }}
+          className="border border-secondary-light px-4 py-2.5 rounded-lg text-secondary-dark hover:bg-secondary-bg font-montserrat text-sm flex items-center gap-2"
         >
           <Download size={18} /> Export CSV
         </button>
         <button
           onClick={() => fileInputRef.current?.click()}
-          className="inline-flex items-center gap-2 px-4 py-2.5 border border-primary-bg bg-white text-primary-dark rounded-lg hover:bg-primary-bg transition-colors text-sm"
-          style={{ fontFamily: bodyFont }}
+          className="border border-secondary-light px-4 py-2.5 rounded-lg text-secondary-dark hover:bg-secondary-bg font-montserrat text-sm flex items-center gap-2"
         >
           <Upload size={18} /> Import CSV
         </button>
         <button
           onClick={handleDownloadTemplate}
-          className="inline-flex items-center gap-2 px-4 py-2.5 border border-primary-bg bg-white text-primary-dark rounded-lg hover:bg-primary-bg transition-colors text-sm"
-          style={{ fontFamily: bodyFont }}
+          className="border border-secondary-light px-4 py-2.5 rounded-lg text-secondary-dark hover:bg-secondary-bg font-montserrat text-sm flex items-center gap-2"
         >
           <FileDown size={18} /> Template
         </button>
@@ -384,72 +268,54 @@ export default function EnterResults() {
         />
       </div>
 
-      {/* Students Table */}
-      <div className="bg-white rounded-xl shadow-sm border border-primary-bg overflow-hidden">
-        <div className="p-4 border-b border-primary-bg flex justify-between items-center">
-          <h2
-            className="text-lg font-semibold flex items-center gap-2 text-primary"
-            style={{ fontFamily: headingFont }}
-          >
+      <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+        <div className="p-4 border-b border-secondary-light flex justify-between items-center">
+          <h2 className="text-lg font-semibold font-righteous text-primary-dark flex items-center gap-2">
             <User size={18} />
             Students ({allStudents.length})
           </h2>
-          {/* Send Results Email button */}
-          <button
-            onClick={sendResultsEmail}
-            disabled={sendingEmail || allStudents.length === 0}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-accent hover:bg-accent-dark text-white rounded-lg transition-colors text-sm font-medium disabled:opacity-50"
-            style={{ fontFamily: bodyFont }}
-          >
-            <Mail size={16} />
-            {sendingEmail ? "Sending..." : "Send Results Email"}
-          </button>
         </div>
 
         <div className="overflow-x-auto">
           <table className="w-full min-w-[600px]">
-            <thead className="bg-primary-bg border-b border-primary-bg">
+            <thead className="bg-slate-50 border-b border-secondary-light">
               <tr>
-                <th className="text-left p-3 text-xs font-medium text-primary-dark uppercase tracking-wider">
+                <th className="text-left p-3 text-sm font-montserrat text-secondary-dark">
                   <Hash size={14} className="inline mr-1" />
                   Admission No
                 </th>
-                <th className="text-left p-3 text-xs font-medium text-primary-dark uppercase tracking-wider">
+                <th className="text-left p-3 text-sm font-montserrat text-secondary-dark">
                   <User size={14} className="inline mr-1" />
                   Name
                 </th>
-                <th className="text-left p-3 text-xs font-medium text-primary-dark uppercase tracking-wider">
+                <th className="text-left p-3 text-sm font-montserrat text-secondary-dark">
                   Course
                 </th>
-                <th className="text-center p-3 text-xs font-medium text-primary-dark uppercase tracking-wider w-40">
+                <th className="text-center p-3 text-sm font-montserrat text-secondary-dark w-40">
                   Marks Obtained
                 </th>
-                <th className="text-left p-3 text-xs font-medium text-primary-dark uppercase tracking-wider w-48">
+                <th className="text-left p-3 text-sm font-montserrat text-secondary-dark w-48">
                   Remarks
                 </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-primary-bg">
+            <tbody>
               {allStudents.map((student) => (
                 <tr
                   key={student.id}
-                  className="hover:bg-primary-bg transition-colors"
+                  className="border-b border-secondary-light hover:bg-primary-bg transition"
                 >
-                  <td className="p-3 text-sm text-primary-dark">
-                    {student.admission_no}
-                  </td>
-                  <td className="p-3 text-sm font-medium text-primary" style={{ fontFamily: headingFont }}>
+                  <td className="p-3 text-sm">{student.admission_no}</td>
+                  <td className="p-3 text-sm font-medium">
                     {student.first_name} {student.last_name}
                   </td>
-                  <td className="p-3 text-sm text-primary-dark">
-                    {courseName}
-                  </td>
+                  <td className="p-3 text-sm">{courseName}</td>
                   <td className="p-3 text-center">
                     <input
                       type="number"
                       value={marks[student.id] ?? ""}
                       onChange={(e) => handleMarksChange(student.id, e.target.value)}
-                      className="border border-primary-bg bg-white text-primary-dark rounded p-2 w-24 text-center focus:ring-2 focus:ring-primary outline-none text-sm"
+                      className="border border-secondary-light rounded p-2 w-24 text-center focus:ring-1 focus:ring-primary focus:border-primary outline-none text-sm"
                       placeholder="0"
                     />
                   </td>
@@ -459,14 +325,14 @@ export default function EnterResults() {
                       placeholder="Remark..."
                       value={remarks[student.id] || ""}
                       onChange={(e) => handleRemarksChange(student.id, e.target.value)}
-                      className="border border-primary-bg bg-white text-primary-dark rounded p-2 w-full focus:ring-2 focus:ring-primary outline-none text-sm"
+                      className="border border-secondary-light rounded p-2 w-full focus:ring-1 focus:ring-primary focus:border-primary outline-none text-sm"
                     />
                   </td>
                 </tr>
               ))}
               {allStudents.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="p-6 text-center text-primary-dark/60 text-sm">
+                  <td colSpan={5} className="p-6 text-center text-secondary text-sm">
                     No students enrolled in this batch.
                   </td>
                 </tr>
@@ -475,25 +341,23 @@ export default function EnterResults() {
           </table>
         </div>
 
-        <div className="p-4 border-t border-primary-bg flex flex-col sm:flex-row justify-end gap-3">
+        <div className="p-4 border-t border-secondary-light flex flex-col sm:flex-row justify-end gap-3">
           <button
             onClick={() => navigate("/results")}
-            className="w-full sm:w-auto px-5 py-2.5 border border-primary-bg rounded-lg text-primary-dark hover:bg-primary-bg transition-colors text-sm"
-            style={{ fontFamily: bodyFont }}
+            className="w-full sm:w-auto px-5 py-2.5 border border-secondary-light rounded-lg text-secondary-dark hover:bg-secondary-bg font-montserrat text-sm transition"
           >
             Cancel
           </button>
           <button
             onClick={handleSave}
             disabled={saving}
-            className="w-full sm:w-auto px-6 py-2.5 bg-primary hover:bg-primary-light text-white rounded-lg transition-colors text-sm font-medium disabled:opacity-50 flex items-center justify-center gap-2"
-            style={{ fontFamily: bodyFont }}
+            className="w-full sm:w-auto px-6 py-2.5 bg-primary hover:bg-primary-light text-white rounded-lg font-montserrat text-sm transition disabled:opacity-50 flex items-center justify-center gap-2"
           >
             <Save size={18} />
             {saving ? "Saving..." : "Save Results"}
           </button>
         </div>
       </div>
-    </div>
+    </AdminLayout>
   );
 }

@@ -11,17 +11,12 @@ import {
 import { getBatchOptions, getMediumOptions } from "../services/examService";
 import { useOrgDarkLogo } from "../hooks/useOrgDarkLogo";
 import { useOrg } from "../context/OrganizationContext";
-import { useTheme } from "../context/ThemeContext";
 
 export default function ExamForm({ onSubmit, onClose, initialData = {} }) {
   const darkLogo = useOrgDarkLogo();
   const { branch, selectedFinancialYear } = useOrg();
-  const theme = useTheme();
   const branchId = branch?.id;
   const financialYearId = selectedFinancialYear?.id;
-
-  const headingFont = theme?.font_heading || "Righteous";
-  const bodyFont = theme?.font_body || "Montserrat";
 
   const [batches, setBatches] = useState([]);
   const [mediums, setMediums] = useState([]);
@@ -33,6 +28,7 @@ export default function ExamForm({ onSubmit, onClose, initialData = {} }) {
     total_marks: initialData.total_marks || "",
   });
 
+  // Load dropdowns only when branch & FY are available
   useEffect(() => {
     if (!branchId || !financialYearId) return;
     loadDropdowns();
@@ -41,8 +37,8 @@ export default function ExamForm({ onSubmit, onClose, initialData = {} }) {
   async function loadDropdowns() {
     try {
       const [batchData, mediumData] = await Promise.all([
-        getBatchOptions(branchId, financialYearId),
-        getMediumOptions(),
+        getBatchOptions(branchId, financialYearId),   // now scoped
+        getMediumOptions(),                            // org‑wide
       ]);
       setBatches(batchData);
       setMediums(mediumData);
@@ -55,6 +51,7 @@ export default function ExamForm({ onSubmit, onClose, initialData = {} }) {
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
   }
 
+  // Client‑side medium filter (requires batches to have medium_id)
   const filteredBatches = batches.filter((b) =>
     !selectedMediumId ? true : b.medium_id === parseInt(selectedMediumId)
   );
@@ -84,31 +81,31 @@ export default function ExamForm({ onSubmit, onClose, initialData = {} }) {
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl w-full max-w-lg shadow-xl border border-primary-bg">
+      <div className="bg-white rounded-xl w-full max-w-lg shadow-xl">
         {/* Header with logo */}
-        <div className="sticky top-0 bg-white border-b border-primary-bg px-6 py-4 flex items-center justify-between rounded-t-xl">
+        <div className="sticky top-0 bg-white border-b border-secondary-light px-6 py-4 flex items-center justify-between rounded-t-xl">
           <div className="flex items-center gap-3">
             <img
               src={darkLogo}
               alt="ShreeVidhya Academy"
               className="h-10 w-auto"
             />
-            <h2 className="text-xl font-bold text-primary" style={{ fontFamily: headingFont }}>
+            <h2 className="text-xl font-righteous text-primary-dark">
               {initialData.id ? "Edit Exam" : "New Exam"}
             </h2>
           </div>
           <button
             onClick={onClose}
-            className="p-2 hover:bg-primary-bg rounded-lg transition"
+            className="p-2 hover:bg-secondary-bg rounded-lg transition"
           >
-            <X size={20} className="text-primary-dark" />
+            <X size={20} className="text-secondary-dark" />
           </button>
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-5">
           {/* Exam Name */}
           <div>
-            <label className="block text-sm text-primary-dark mb-1" style={{ fontFamily: bodyFont }}>
+            <label className="block text-sm font-montserrat text-secondary-dark mb-1">
               <FileText size={14} className="inline mr-1" />
               Exam Name *
             </label>
@@ -117,15 +114,14 @@ export default function ExamForm({ onSubmit, onClose, initialData = {} }) {
               placeholder="e.g., Mid-Term, Final"
               value={form.exam_name}
               onChange={handleChange}
-              className="w-full border border-primary-bg bg-white text-primary-dark rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-primary-dark/40"
+              className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light"
               required
-              style={{ fontFamily: bodyFont }}
             />
           </div>
 
           {/* Medium Filter */}
           <div>
-            <label className="block text-sm text-primary-dark mb-1" style={{ fontFamily: bodyFont }}>
+            <label className="block text-sm font-montserrat text-secondary-dark mb-1">
               <Filter size={14} className="inline mr-1" />
               Medium
             </label>
@@ -133,10 +129,9 @@ export default function ExamForm({ onSubmit, onClose, initialData = {} }) {
               value={selectedMediumId}
               onChange={(e) => {
                 setSelectedMediumId(e.target.value);
-                setForm((prev) => ({ ...prev, batch_id: "" }));
+                setForm((prev) => ({ ...prev, batch_id: "" })); // reset batch
               }}
-              className="w-full border border-primary-bg bg-white text-primary-dark rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
-              style={{ fontFamily: bodyFont }}
+              className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
             >
               <option value="">All Mediums</option>
               {mediums.map((m) => (
@@ -149,7 +144,7 @@ export default function ExamForm({ onSubmit, onClose, initialData = {} }) {
 
           {/* Batch */}
           <div>
-            <label className="block text-sm text-primary-dark mb-1" style={{ fontFamily: bodyFont }}>
+            <label className="block text-sm font-montserrat text-secondary-dark mb-1">
               <Layers size={14} className="inline mr-1" />
               Batch *
             </label>
@@ -157,9 +152,8 @@ export default function ExamForm({ onSubmit, onClose, initialData = {} }) {
               name="batch_id"
               value={form.batch_id}
               onChange={handleChange}
-              className="w-full border border-primary-bg bg-white text-primary-dark rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
+              className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
               required
-              style={{ fontFamily: bodyFont }}
             >
               <option value="">Select Batch</option>
               {filteredBatches.map((b) => (
@@ -172,7 +166,7 @@ export default function ExamForm({ onSubmit, onClose, initialData = {} }) {
 
           {/* Exam Date */}
           <div>
-            <label className="block text-sm text-primary-dark mb-1" style={{ fontFamily: bodyFont }}>
+            <label className="block text-sm font-montserrat text-secondary-dark mb-1">
               <Calendar size={14} className="inline mr-1" />
               Exam Date *
             </label>
@@ -181,14 +175,14 @@ export default function ExamForm({ onSubmit, onClose, initialData = {} }) {
               name="exam_date"
               value={form.exam_date}
               onChange={handleChange}
-              className="w-full border border-primary-bg bg-white text-primary-dark rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
+              className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
               required
             />
           </div>
 
           {/* Total Marks */}
           <div>
-            <label className="block text-sm text-primary-dark mb-1" style={{ fontFamily: bodyFont }}>
+            <label className="block text-sm font-montserrat text-secondary-dark mb-1">
               <Award size={14} className="inline mr-1" />
               Total Marks
             </label>
@@ -198,8 +192,7 @@ export default function ExamForm({ onSubmit, onClose, initialData = {} }) {
               placeholder="e.g., 100"
               value={form.total_marks}
               onChange={handleChange}
-              className="w-full border border-primary-bg bg-white text-primary-dark rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-primary-dark/40"
-              style={{ fontFamily: bodyFont }}
+              className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light"
             />
           </div>
 
@@ -207,16 +200,14 @@ export default function ExamForm({ onSubmit, onClose, initialData = {} }) {
           <div className="flex flex-col sm:flex-row-reverse gap-3 pt-2">
             <button
               type="submit"
-              className="w-full sm:w-auto bg-primary hover:bg-primary-light text-white px-6 py-2.5 rounded-lg transition flex items-center justify-center gap-2"
-              style={{ fontFamily: bodyFont }}
+              className="w-full sm:w-auto bg-primary hover:bg-primary-light text-white px-6 py-2.5 rounded-lg font-montserrat transition flex items-center justify-center gap-2"
             >
               {initialData.id ? "Update Exam" : "Create Exam"}
             </button>
             <button
               type="button"
               onClick={onClose}
-              className="w-full sm:w-auto border border-primary-bg text-primary-dark hover:bg-primary-bg px-6 py-2.5 rounded-lg transition"
-              style={{ fontFamily: bodyFont }}
+              className="w-full sm:w-auto border border-secondary-light text-secondary-dark hover:bg-secondary-bg px-6 py-2.5 rounded-lg font-montserrat transition"
             >
               Cancel
             </button>

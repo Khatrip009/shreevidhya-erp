@@ -5,7 +5,7 @@ import {
   X, Users, BookOpen, Calendar, Layers, Plus, Trash2,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
-import { getTeacherOptions, getMediumOptions } from "../services/batchService";
+import { getCourseOptions, getTeacherOptions, getMediumOptions } from "../services/batchService";
 import { supabase } from "../api/supabase";
 import { useAuth } from "../context/AuthContext";
 import { useOrg } from "../context/OrganizationContext";
@@ -16,7 +16,6 @@ export default function BatchForm({ onSubmit, onClose, initialData = {} }) {
 
   const darkLogo = org?.logo_dark_url || "/ShreeVidhyaDark.png";
   const orgName = org?.company_name || "Academy";
-  const organizationId = org?.id;
 
   const isAdmin = profile?.role === "admin" || profile?.role === "super_admin";
 
@@ -42,25 +41,13 @@ export default function BatchForm({ onSubmit, onClose, initialData = {} }) {
 
   const DAY_OPTIONS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
-  // ✅ Fetch courses directly, filtering out soft‑deleted ones
+  // Dropdown data – now scoped appropriately
   const { data: courses = [] } = useQuery({
-    queryKey: ["courses-dropdown", organizationId],
-    queryFn: async () => {
-      if (!organizationId) return [];
-      const { data, error } = await supabase
-        .from("courses")
-        .select("id, course_name")
-        .eq("organization_id", organizationId)
-        .is("deleted_at", null)              // exclude soft‑deleted courses
-        .order("course_name", { ascending: true });
-      if (error) throw error;
-      return data || [];
-    },
-    enabled: !!organizationId,
+    queryKey: ["courses-dropdown"],
+    queryFn: getCourseOptions,   // organisation‑wide, no parameters
     staleTime: 10 * 60 * 1000,
   });
 
-  // Teachers – scoped by branch & FY (unchanged)
   const { data: teachers = [] } = useQuery({
     queryKey: ["teachers-dropdown", branchId, financialYearId],
     queryFn: () => getTeacherOptions(branchId, financialYearId),
@@ -68,14 +55,13 @@ export default function BatchForm({ onSubmit, onClose, initialData = {} }) {
     staleTime: 10 * 60 * 1000,
   });
 
-  // Mediums – organisation‑wide (unchanged)
   const { data: mediums = [] } = useQuery({
     queryKey: ["mediums-dropdown"],
-    queryFn: getMediumOptions,
+    queryFn: getMediumOptions,   // organisation‑wide
     staleTime: 10 * 60 * 1000,
   });
 
-  // Subjects for selected course – already scoped by branch & FY
+  // Subjects for selected course – now scoped
   const [subjects, setSubjects] = useState([]);
   const [loadingSubjects, setLoadingSubjects] = useState(false);
 
@@ -103,7 +89,7 @@ export default function BatchForm({ onSubmit, onClose, initialData = {} }) {
       .finally(() => setLoadingSubjects(false));
   }, [form.course_id, branchId, financialYearId]);
 
-  // Load existing assignments when editing – scoped
+  // Load existing assignments when editing – scoped (optional but safe)
   useEffect(() => {
     if (initialData.id && branchId && financialYearId) {
       supabase
@@ -186,17 +172,17 @@ export default function BatchForm({ onSubmit, onClose, initialData = {} }) {
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white dark:bg-accent rounded-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto shadow-xl border border-gray-200 dark:border-gray-700">
-        {/* Header */}
-        <div className="sticky top-0 bg-white dark:bg-accent border-b border-gray-200 dark:border-gray-700 px-6 py-4 flex items-center justify-between rounded-t-xl z-10">
+      <div className="bg-white rounded-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto shadow-xl">
+        {/* Header with dynamic logo */}
+        <div className="sticky top-0 bg-white border-b border-secondary-light px-6 py-4 flex items-center justify-between rounded-t-xl z-10">
           <div className="flex items-center gap-3">
             <img src={darkLogo} alt={orgName} className="h-10 w-auto" />
-            <h2 className="text-xl font-heading text-primary">
+            <h2 className="text-xl font-righteous text-primary-dark">
               {initialData.id ? "Edit Batch" : "New Batch"}
             </h2>
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition">
-            <X size={20} className="text-gray-600 dark:text-gray-400" />
+          <button onClick={onClose} className="p-2 hover:bg-secondary-bg rounded-lg transition">
+            <X size={20} className="text-secondary-dark" />
           </button>
         </div>
 
@@ -204,7 +190,7 @@ export default function BatchForm({ onSubmit, onClose, initialData = {} }) {
           {/* Course, Batch Name, Medium */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
             <div>
-              <label className="block text-sm font-body text-gray-700 dark:text-gray-300 mb-1">
+              <label className="block text-sm font-montserrat text-secondary-dark mb-1">
                 <BookOpen size={14} className="inline mr-1" />
                 Course *
               </label>
@@ -213,7 +199,7 @@ export default function BatchForm({ onSubmit, onClose, initialData = {} }) {
                 value={form.course_id}
                 onChange={handleChange}
                 required
-                className="w-full border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded p-2.5 focus:ring-2 focus:ring-primary outline-none"
+                className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
               >
                 <option value="">Select Course</option>
                 {courses.map((c) => (
@@ -224,7 +210,7 @@ export default function BatchForm({ onSubmit, onClose, initialData = {} }) {
               </select>
             </div>
             <div>
-              <label className="block text-sm font-body text-gray-700 dark:text-gray-300 mb-1">
+              <label className="block text-sm font-montserrat text-secondary-dark mb-1">
                 <Layers size={14} className="inline mr-1" />
                 Batch Name *
               </label>
@@ -234,11 +220,12 @@ export default function BatchForm({ onSubmit, onClose, initialData = {} }) {
                 onChange={handleChange}
                 placeholder="e.g., Morning Batch"
                 required
-                className="w-full border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded p-2.5 focus:ring-2 focus:ring-primary outline-none placeholder-gray-400 dark:placeholder-gray-500"
+                className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light"
               />
             </div>
+            {/* Medium Dropdown */}
             <div>
-              <label className="block text-sm font-body text-gray-700 dark:text-gray-300 mb-1">
+              <label className="block text-sm font-montserrat text-secondary-dark mb-1">
                 <Layers size={14} className="inline mr-1" />
                 Medium *
               </label>
@@ -247,7 +234,7 @@ export default function BatchForm({ onSubmit, onClose, initialData = {} }) {
                 value={form.medium_id}
                 onChange={handleChange}
                 required
-                className="w-full border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded p-2.5 focus:ring-2 focus:ring-primary outline-none"
+                className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
               >
                 <option value="">Select Medium</option>
                 {mediums.map((m) => (
@@ -262,7 +249,7 @@ export default function BatchForm({ onSubmit, onClose, initialData = {} }) {
           {/* Dates */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
             <div>
-              <label className="block text-sm font-body text-gray-700 dark:text-gray-300 mb-1">
+              <label className="block text-sm font-montserrat text-secondary-dark mb-1">
                 <Calendar size={14} className="inline mr-1" />
                 Start Date
               </label>
@@ -271,11 +258,11 @@ export default function BatchForm({ onSubmit, onClose, initialData = {} }) {
                 name="start_date"
                 value={form.start_date}
                 onChange={handleChange}
-                className="w-full border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded p-2.5 focus:ring-2 focus:ring-primary outline-none"
+                className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
               />
             </div>
             <div>
-              <label className="block text-sm font-body text-gray-700 dark:text-gray-300 mb-1">
+              <label className="block text-sm font-montserrat text-secondary-dark mb-1">
                 <Calendar size={14} className="inline mr-1" />
                 End Date
               </label>
@@ -284,7 +271,7 @@ export default function BatchForm({ onSubmit, onClose, initialData = {} }) {
                 name="end_date"
                 value={form.end_date}
                 onChange={handleChange}
-                className="w-full border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded p-2.5 focus:ring-2 focus:ring-primary outline-none"
+                className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
               />
             </div>
           </div>
@@ -292,7 +279,7 @@ export default function BatchForm({ onSubmit, onClose, initialData = {} }) {
           {/* Days & Time */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
             <div>
-              <label className="block text-sm font-body text-gray-700 dark:text-gray-300 mb-1">
+              <label className="block text-sm font-montserrat text-secondary-dark mb-1">
                 Days (comma separated)
               </label>
               <input
@@ -300,11 +287,11 @@ export default function BatchForm({ onSubmit, onClose, initialData = {} }) {
                 value={form.days}
                 onChange={handleChange}
                 placeholder="Mon,Wed,Fri"
-                className="w-full border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded p-2.5 focus:ring-2 focus:ring-primary outline-none placeholder-gray-400 dark:placeholder-gray-500"
+                className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light"
               />
             </div>
             <div>
-              <label className="block text-sm font-body text-gray-700 dark:text-gray-300 mb-1">
+              <label className="block text-sm font-montserrat text-secondary-dark mb-1">
                 Start Time
               </label>
               <input
@@ -312,11 +299,11 @@ export default function BatchForm({ onSubmit, onClose, initialData = {} }) {
                 name="start_time"
                 value={form.start_time}
                 onChange={handleChange}
-                className="w-full border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded p-2.5 focus:ring-2 focus:ring-primary outline-none"
+                className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
               />
             </div>
             <div>
-              <label className="block text-sm font-body text-gray-700 dark:text-gray-300 mb-1">
+              <label className="block text-sm font-montserrat text-secondary-dark mb-1">
                 End Time
               </label>
               <input
@@ -324,7 +311,7 @@ export default function BatchForm({ onSubmit, onClose, initialData = {} }) {
                 name="end_time"
                 value={form.end_time}
                 onChange={handleChange}
-                className="w-full border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded p-2.5 focus:ring-2 focus:ring-primary outline-none"
+                className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
               />
             </div>
           </div>
@@ -332,7 +319,7 @@ export default function BatchForm({ onSubmit, onClose, initialData = {} }) {
           {/* Capacity & Status */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
             <div>
-              <label className="block text-sm font-body text-gray-700 dark:text-gray-300 mb-1">
+              <label className="block text-sm font-montserrat text-secondary-dark mb-1">
                 <Users size={14} className="inline mr-1" />
                 Capacity
               </label>
@@ -342,18 +329,18 @@ export default function BatchForm({ onSubmit, onClose, initialData = {} }) {
                 value={form.capacity}
                 onChange={handleChange}
                 min={1}
-                className="w-full border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded p-2.5 focus:ring-2 focus:ring-primary outline-none"
+                className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
               />
             </div>
             <div>
-              <label className="block text-sm font-body text-gray-700 dark:text-gray-300 mb-1">
+              <label className="block text-sm font-montserrat text-secondary-dark mb-1">
                 Status
               </label>
               <select
                 name="status"
                 value={form.status}
                 onChange={handleChange}
-                className="w-full border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded p-2.5 focus:ring-2 focus:ring-primary outline-none"
+                className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
               >
                 <option value="active">Active</option>
                 <option value="inactive">Inactive</option>
@@ -361,28 +348,28 @@ export default function BatchForm({ onSubmit, onClose, initialData = {} }) {
             </div>
           </div>
 
-          {/* Teacher Assignments */}
-          <div className="border-t border-gray-200 dark:border-gray-700 pt-5">
-            <h3 className="text-lg font-heading text-primary mb-3 flex items-center gap-2">
+          {/* Teacher-Subject-Day Assignments Section */}
+          <div className="border-t border-secondary-light pt-5">
+            <h3 className="text-lg font-righteous text-primary-dark mb-3 flex items-center gap-2">
               <Users size={18} /> Teacher Assignments (Day‑wise)
             </h3>
-            {loadingSubjects && <p className="text-sm text-gray-500 dark:text-gray-400">Loading subjects…</p>}
+            {loadingSubjects && <p className="text-sm text-secondary">Loading subjects…</p>}
             {!loadingSubjects && form.course_id && subjects.length === 0 && (
-              <p className="text-sm text-yellow-600 dark:text-yellow-400">
+              <p className="text-sm text-yellow-600">
                 No subjects found for this course. Please add subjects first.
               </p>
             )}
 
             {assignments.map((a, idx) => (
-              <div key={idx} className="flex flex-wrap items-end gap-3 mb-3 p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
+              <div key={idx} className="flex flex-wrap items-end gap-3 mb-3 p-3 bg-gray-50 rounded-lg">
                 <div className="flex-1 min-w-[120px]">
-                  <label className="block text-xs font-body text-gray-700 dark:text-gray-300 mb-1">
+                  <label className="block text-xs font-montserrat text-secondary-dark mb-1">
                     Teacher
                   </label>
                   <select
                     value={a.teacher_id}
                     onChange={(e) => updateAssignment(idx, "teacher_id", e.target.value ? Number(e.target.value) : "")}
-                    className="w-full border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded p-2 text-sm focus:ring-2 focus:ring-primary outline-none"
+                    className="w-full border border-secondary-light rounded p-2 text-sm focus:ring-1 focus:ring-primary outline-none"
                   >
                     <option value="">Select</option>
                     {teachers.map((t) => (
@@ -393,13 +380,13 @@ export default function BatchForm({ onSubmit, onClose, initialData = {} }) {
                   </select>
                 </div>
                 <div className="flex-1 min-w-[120px]">
-                  <label className="block text-xs font-body text-gray-700 dark:text-gray-300 mb-1">
+                  <label className="block text-xs font-montserrat text-secondary-dark mb-1">
                     Subject
                   </label>
                   <select
                     value={a.subject_id}
                     onChange={(e) => updateAssignment(idx, "subject_id", e.target.value ? Number(e.target.value) : "")}
-                    className="w-full border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded p-2 text-sm focus:ring-2 focus:ring-primary outline-none"
+                    className="w-full border border-secondary-light rounded p-2 text-sm focus:ring-1 focus:ring-primary outline-none"
                     disabled={!form.course_id || subjects.length === 0}
                   >
                     <option value="">Select</option>
@@ -410,14 +397,15 @@ export default function BatchForm({ onSubmit, onClose, initialData = {} }) {
                     ))}
                   </select>
                 </div>
+                {/* Day dropdown */}
                 <div className="w-24 min-w-[80px]">
-                  <label className="block text-xs font-body text-gray-700 dark:text-gray-300 mb-1">
+                  <label className="block text-xs font-montserrat text-secondary-dark mb-1">
                     Day
                   </label>
                   <select
                     value={a.day || ""}
                     onChange={(e) => updateAssignment(idx, "day", e.target.value)}
-                    className="w-full border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded p-2 text-sm focus:ring-2 focus:ring-primary outline-none"
+                    className="w-full border border-secondary-light rounded p-2 text-sm focus:ring-1 focus:ring-primary outline-none"
                   >
                     <option value="">-</option>
                     {DAY_OPTIONS.map((d) => (
@@ -428,7 +416,7 @@ export default function BatchForm({ onSubmit, onClose, initialData = {} }) {
                 <button
                   type="button"
                   onClick={() => removeAssignment(idx)}
-                  className="text-accent-dark hover:text-accent-light p-2"
+                  className="text-red-500 hover:text-red-700 p-2"
                 >
                   <Trash2 size={16} />
                 </button>
@@ -448,14 +436,14 @@ export default function BatchForm({ onSubmit, onClose, initialData = {} }) {
           <div className="flex flex-col sm:flex-row-reverse gap-3 pt-2">
             <button
               type="submit"
-              className="w-full sm:w-auto bg-primary hover:bg-primary-light text-white px-6 py-2.5 rounded-lg font-body transition flex items-center justify-center gap-2"
+              className="w-full sm:w-auto bg-primary hover:bg-primary-light text-white px-6 py-2.5 rounded-lg font-montserrat transition flex items-center justify-center gap-2"
             >
               {initialData.id ? "Update Batch" : "Create Batch"}
             </button>
             <button
               type="button"
               onClick={onClose}
-              className="w-full sm:w-auto border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 px-6 py-2.5 rounded-lg font-body transition"
+              className="w-full sm:w-auto border border-secondary-light text-secondary-dark hover:bg-secondary-bg px-6 py-2.5 rounded-lg font-montserrat transition"
             >
               Cancel
             </button>

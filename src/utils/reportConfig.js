@@ -14,14 +14,16 @@ export const reportTypes = {
   /* =============================================================
    * 1. STUDENT ENROLLMENT REPORT
    * ============================================================= */
- student_enrollment: {
+  student_enrollment: {
     id: 'student_enrollment',
     title: 'Student Enrollment Report',
     description: 'Students enrolled within a date range, with course, batch & medium',
     useLetterhead: true,
     fields: ['start_date', 'end_date', 'course_id', 'batch_id', 'medium_id'],
-    // No default date filters – shows all enrollments until a date is picked
-    defaultFilters: () => ({}),
+    defaultFilters: () => ({
+      start_date: new Date(new Date().getFullYear(), 0, 1).toISOString().slice(0, 10),
+      end_date: new Date().toISOString().slice(0, 10),
+    }),
     queryBuilder: (filters, branchId, financialYearId) => {
       let q = supabase
         .from('student_batches')
@@ -34,14 +36,12 @@ export const reportTypes = {
             courses ( course_name ),
             mediums ( name )
           )
-        `);
+        `)
+        .gte('enrollment_date', filters.start_date)
+        .lte('enrollment_date', filters.end_date);
 
-      // Apply date filters only when provided
-      if (filters.start_date) q = q.gte('enrollment_date', filters.start_date);
-      if (filters.end_date) q = q.lte('enrollment_date', filters.end_date);
-
-      if (branchId) q = q.eq('branch_id', branchId);
-      if (financialYearId) q = q.eq('financial_year_id', financialYearId);
+      if (branchId) q = q.eq('branch_id', branchId);                // ← fixed
+      if (financialYearId) q = q.eq('financial_year_id', financialYearId); // ← fixed
 
       if (filters.batch_id) q = q.eq('batches.id', filters.batch_id);
       if (filters.course_id) q = q.eq('batches.course_id', filters.course_id);
@@ -50,14 +50,7 @@ export const reportTypes = {
       return q;
     },
     transform: (data) => data.map(r => ({
-      // Format date to dd-mm-yyyy or show placeholder
-      enrollment_date: r.enrollment_date
-        ? new Date(r.enrollment_date).toLocaleDateString('en-IN', {
-            day: '2-digit',
-            month: '2-digit',
-            year: 'numeric',
-          }).replace(/\//g, '-')
-        : '—',
+      enrollment_date: r.enrollment_date,
       admission_no: r.students.admission_no,
       name: `${r.students.first_name} ${r.students.last_name}`,
       mobile: r.students.mobile,
@@ -77,6 +70,7 @@ export const reportTypes = {
       { header: 'Status', accessor: 'status' },
     ],
   },
+
   /* =============================================================
    * 2. ACTIVE / INACTIVE STUDENT LIST
    * ============================================================= */
@@ -199,55 +193,41 @@ export const reportTypes = {
    * 5. INQUIRY CONVERSION REPORT
    * ============================================================= */
   inquiry_conversion: {
-  id: 'inquiry_conversion',
-  title: 'Inquiry Conversion Report',
-  description: 'Full inquiry list with conversion summary at top',
-  useLetterhead: true,
-  fields: ['status', 'source', 'start_date', 'end_date'],
-  defaultFilters: () => ({}),
-  queryBuilder: (filters, branchId, financialYearId) => {
-    let q = supabase
-      .from('inquiries')
-      .select('*')
-      .order('created_at', { ascending: false });
+    id: 'inquiry_conversion',
+    title: 'Inquiry Conversion Report',
+    description: 'Inquiries grouped by status or source',
+    useLetterhead: true,
+    fields: ['status', 'source', 'start_date', 'end_date'],
+    defaultFilters: () => ({
+      start_date: new Date(new Date().getFullYear(), 0, 1).toISOString().slice(0, 10),
+      end_date: new Date().toISOString().slice(0, 10),
+    }),
+    queryBuilder: (filters, branchId, financialYearId) => {
+      let q = supabase
+        .from('inquiries')
+        .select('*')
+        .gte('created_at', filters.start_date)
+        .lte('created_at', filters.end_date);
 
-    if (filters.startDate) q = q.gte('created_at', filters.startDate + 'T00:00:00');
-    if (filters.endDate) q = q.lte('created_at', filters.endDate + 'T23:59:59');
+      if (branchId) q = q.eq('branch_id', branchId);
+      if (financialYearId) q = q.eq('financial_year_id', financialYearId);
+      if (filters.status) q = q.eq('status', filters.status);
+      if (filters.source) q = q.eq('source', filters.source);
 
-    if (branchId) q = q.eq('branch_id', branchId);
-    if (financialYearId) q = q.eq('financial_year_id', financialYearId);
-    if (filters.status) q = q.eq('status', filters.status);
-    if (filters.source) q = q.eq('source', filters.source);
-
-    return q;
+      return q;
+    },
+    columns: [
+      { header: 'Inquiry No', accessor: 'inquiry_no' },
+      { header: 'Student Name', accessor: 'student_name' },
+      { header: 'Parent', accessor: 'parent_name' },
+      { header: 'Mobile', accessor: 'mobile' },
+      { header: 'Course', accessor: 'interested_course_id' },
+      { header: 'Source', accessor: 'source' },
+      { header: 'Status', accessor: 'status' },
+      { header: 'Follow‑up', accessor: 'followup_date' },
+    ],
   },
-  transform: (data) => data.map(row => ({
-    inquiry_no: row.inquiry_no,
-    created: row.created_at
-      ? new Date(row.created_at).toLocaleDateString('en-IN')
-      : '—',
-    student: row.student_name || '',
-    parent: row.parent_name || '',
-    mobile: row.mobile || '',
-    course: row.interested_course_id,   // will be an ID – you may want to join courses later
-    source: row.source || '',
-    status: row.status || '',
-    followup: row.followup_date
-      ? new Date(row.followup_date).toLocaleDateString('en-IN')
-      : '—',
-  })),
-  columns: [
-    { header: 'Inquiry No', accessor: 'inquiry_no' },
-    { header: 'Created', accessor: 'created' },
-    { header: 'Student', accessor: 'student' },
-    { header: 'Parent', accessor: 'parent' },
-    { header: 'Mobile', accessor: 'mobile' },
-    { header: 'Course', accessor: 'course' },
-    { header: 'Source', accessor: 'source' },
-    { header: 'Status', accessor: 'status' },
-    { header: 'Follow‑up', accessor: 'followup' },
-  ],
-},
+
   /* =============================================================
    * 6. STUDENT DOCUMENTS REPORT
    * ============================================================= */
@@ -325,7 +305,7 @@ export const reportTypes = {
         const bid = r.attendance_sessions.batch_id;
         if (!map[bid]) map[bid] = { batch_id: bid, total: 0, present: 0 };
         map[bid].total++;
-        if (r.status === 'present') map[bid].present++;
+        if (r.status === 'Present') map[bid].present++;
       });
       return Object.values(map).map(b => ({
         batch: `Batch ${b.batch_id}`,
@@ -390,7 +370,7 @@ export const reportTypes = {
           };
         }
         map[sid].total++;
-        if (r.status === 'present') map[sid].present++;
+        if (r.status === 'Present') map[sid].present++;
       });
       return Object.values(map).map(s => ({
         admission_no: s.admission_no,
@@ -664,56 +644,47 @@ export const reportTypes = {
   /* =============================================================
    * 14. PENDING FEES REPORT
    * ============================================================= */
-pending_fees: {
-  id: 'pending_fees',
-  title: 'Pending Fees Report',
-  description: 'Students with outstanding balance (status != Paid)',
-  useLetterhead: true,
-  fields: ['course_id'],
-  queryBuilder: (filters, branchId, financialYearId) => {
-    let q = supabase
-      .from('student_fees')
-      .select(`
-        final_fee, status,
-        students!inner( admission_no, first_name, last_name ),
-        fee_structures!inner(
-          courses( course_name )
-        ),
-        fee_payments( amount )   // ← add payments
-      `)
-      .neq('status', 'Paid')
-      .is('deleted_at', null);
+  pending_fees: {
+    id: 'pending_fees',
+    title: 'Pending Fees Report',
+    description: 'Students with outstanding balance (status != Paid)',
+    useLetterhead: true,
+    fields: ['course_id'],
+    queryBuilder: (filters, branchId, financialYearId) => {
+      let q = supabase
+        .from('student_fees')
+        .select(`
+          final_fee, status,
+          students!inner( admission_no, first_name, last_name ),
+          fee_structures!inner(
+            courses( course_name )
+          )
+        `)
+        .neq('status', 'Paid')
+        .is('deleted_at', null);
 
-    if (branchId) q = q.eq('branch_id', branchId);
-    if (financialYearId) q = q.eq('financial_year_id', financialYearId);
-    if (filters.course_id) q = q.eq('fee_structures.course_id', filters.course_id);
+      if (branchId) q = q.eq('branch_id', branchId);                // ← fixed
+      if (financialYearId) q = q.eq('financial_year_id', financialYearId); // ← fixed
+      if (filters.course_id) q = q.eq('fee_structures.course_id', filters.course_id);
 
-    return q;
-  },
-  transform: (data) => data.map(r => {
-    const paid = (r.fee_payments || []).reduce((s, p) => s + Number(p.amount || 0), 0);
-    const balance = Math.max(Number(r.final_fee || 0) - paid, 0);
-    return {
+      return q;
+    },
+    transform: (data) => data.map(r => ({
       admission_no: r.students.admission_no,
       student: `${r.students.first_name} ${r.students.last_name}`,
       course: r.fee_structures?.courses?.course_name || '',
       total_fee: r.final_fee,
-      paid,
-      balance,
       status: r.status,
-    };
-  }),
-  columns: [
-    { header: 'Admission No', accessor: 'admission_no' },
-    { header: 'Student', accessor: 'student' },
-    { header: 'Course', accessor: 'course' },
-    { header: 'Total Fee', accessor: 'total_fee', aggregate: 'sum' },
-    { header: 'Paid', accessor: 'paid', aggregate: 'sum' },
-    { header: 'Balance', accessor: 'balance', aggregate: 'sum' },
-    { header: 'Status', accessor: 'status' },
-  ],
-  aggregateRow: true,
-},
+    })),
+    columns: [
+      { header: 'Admission No', accessor: 'admission_no' },
+      { header: 'Student', accessor: 'student' },
+      { header: 'Course', accessor: 'course' },
+      { header: 'Total Fee', accessor: 'total_fee', aggregate: 'sum' },
+      { header: 'Status', accessor: 'status' },
+    ],
+    aggregateRow: true,
+  },
 
   /* =============================================================
    * 15. INCOME STATEMENT
@@ -797,46 +768,53 @@ pending_fees: {
   /* =============================================================
    * 17. PROFIT & LOSS (summary)
    * ============================================================= */
-profit_loss_summary: {
-  id: 'profit_loss_summary',
-  title: 'Profit & Loss Summary',
-  description: 'Total income vs expenses for a period',
-  useLetterhead: true,
-  fields: ['start_date', 'end_date'],
-  defaultFilters: () => ({
-    start_date: new Date(new Date().getFullYear(), 0, 1).toISOString().slice(0, 10),
-    end_date: new Date().toISOString().slice(0, 10),
-  }),
-  queryBuilder: async (filters, branchId, financialYearId) => {
-    // Helper to fetch the sum for a table and date column
-    const getSum = async (table, dateCol) => {
-      let query = supabase
-        .from(table)
-        .select('amount')
-        .gte(dateCol, filters.start_date)
-        .lte(dateCol, filters.end_date);
-
-      if (branchId) query = query.eq('branch_id', branchId);
-      if (financialYearId) query = query.eq('financial_year_id', financialYearId);
-
-      const { data } = await query;
-      return (data || []).reduce((sum, row) => sum + parseFloat(row.amount || 0), 0);
-    };
-
-    const [income, expense] = await Promise.all([
-      getSum('income', 'income_date'),
-      getSum('expenses', 'expense_date'),
-    ]);
-
-    return { income, expense, profit: income - expense };
+  profit_loss_summary: {
+    id: 'profit_loss_summary',
+    title: 'Profit & Loss Summary',
+    description: 'Total income vs expenses for a period',
+    useLetterhead: true,
+    fields: ['start_date', 'end_date'],
+    defaultFilters: () => ({
+      start_date: new Date(new Date().getFullYear(), 0, 1).toISOString().slice(0, 10),
+      end_date: new Date().toISOString().slice(0, 10),
+    }),
+    queryBuilder: (filters, branchId, financialYearId) =>
+      Promise.all([
+        supabase
+          .from('income')
+          .select('amount')
+          .gte('income_date', filters.start_date)
+          .lte('income_date', filters.end_date)
+          .then(({ data }) => {
+            let q = supabase.from('income').select('amount');
+            if (branchId) q = q.eq('branch_id', branchId);
+            if (financialYearId) q = q.eq('financial_year_id', financialYearId);
+            return q.gte('income_date', filters.start_date).lte('income_date', filters.end_date);
+          })
+          .then(({ data }) => data.reduce((s, r) => s + parseFloat(r.amount), 0)),
+        supabase
+          .from('expenses')
+          .select('amount')
+          .then(({ data }) => {
+            let q = supabase.from('expenses').select('amount');
+            if (branchId) q = q.eq('branch_id', branchId);
+            if (financialYearId) q = q.eq('financial_year_id', financialYearId);
+            return q.gte('expense_date', filters.start_date).lte('expense_date', filters.end_date);
+          })
+          .then(({ data }) => data.reduce((s, r) => s + parseFloat(r.amount), 0)),
+      ]).then(([income, expense]) => ({
+        income,
+        expense,
+        profit: income - expense,
+      })),
+    transform: (data) => [data],
+    columns: [
+      { header: 'Total Income', accessor: 'income' },
+      { header: 'Total Expenses', accessor: 'expense' },
+      { header: 'Profit', accessor: 'profit' },
+    ],
   },
-  transform: (data) => [data],
-  columns: [
-    { header: 'Total Income', accessor: 'income' },
-    { header: 'Total Expenses', accessor: 'expense' },
-    { header: 'Profit', accessor: 'profit' },
-  ],
-},
+
   /* =============================================================
    * 18. TAX COLLECTED REPORT
    * ============================================================= */
@@ -1231,87 +1209,58 @@ profit_loss_summary: {
   /* =============================================================
    * 26. ADMISSION PIPELINE
    * ============================================================= */
-admission_pipeline: {
-  id: 'admission_pipeline',
-  title: 'Admission Pipeline',
-  description: 'Lead pipeline with follow-up dates, source, status and interested course',
-  useLetterhead: true,
-  fields: ['status', 'source', 'start_date', 'end_date'],
-  defaultFilters: () => ({
-    start_date: new Date(new Date().getFullYear(), 0, 1).toISOString().slice(0, 10),
-    end_date: new Date().toISOString().slice(0, 10),
-  }),
-  queryBuilder: (filters, branchId, financialYearId) => {
-    let q = supabase
-      .from('inquiries')
-      .select(`
-        inquiry_no, student_name, parent_name, mobile, source, status,
-        followup_date, created_at,
-        courses(course_name)
-      `)
-      .is('deleted_at', null)
-      .order('followup_date', { ascending: true });
+  admission_pipeline: {
+    id: 'admission_pipeline',
+    title: 'Admission Pipeline',
+    description: 'Lead pipeline with follow-up dates, source, status and interested course',
+    useLetterhead: true,
+    fields: ['status', 'source', 'start_date', 'end_date'],
+    defaultFilters: () => ({
+      start_date: new Date(new Date().getFullYear(), 0, 1).toISOString().slice(0, 10),
+      end_date: new Date().toISOString().slice(0, 10),
+    }),
+    queryBuilder: (filters, branchId, financialYearId) => {
+      let q = supabase
+        .from('inquiries')
+        .select(`
+          inquiry_no, student_name, parent_name, mobile, source, status,
+          followup_date, created_at,
+          courses(course_name)
+        `)
+        .gte('created_at', filters.start_date)
+        .lte('created_at', filters.end_date)
+        .order('followup_date', { ascending: true });
 
-    if (filters.start_date) {
-      q = q.gte('created_at', filters.start_date + 'T00:00:00');
-    }
-    if (filters.end_date) {
-      q = q.lte('created_at', filters.end_date + 'T23:59:59');
-    }
+      if (branchId) q = q.eq('branch_id', branchId);
+      if (financialYearId) q = q.eq('financial_year_id', financialYearId);
+      if (filters.status) q = q.eq('status', filters.status);
+      if (filters.source) q = q.eq('source', filters.source);
 
-    if (branchId) q = q.eq('branch_id', branchId);
-    if (financialYearId) q = q.eq('financial_year_id', financialYearId);
-    if (filters.status) q = q.eq('status', filters.status);
-    if (filters.source) q = q.eq('source', filters.source);
-
-    return q;
+      return q;
+    },
+    transform: (data) => data.map((r) => ({
+      inquiry_no: r.inquiry_no,
+      created: r.created_at?.slice(0, 10) || '',
+      student: r.student_name,
+      parent: r.parent_name,
+      mobile: r.mobile,
+      course: r.courses?.course_name || '',
+      source: r.source,
+      status: r.status,
+      followup: r.followup_date,
+    })),
+    columns: [
+      { header: 'Inquiry No', accessor: 'inquiry_no' },
+      { header: 'Created', accessor: 'created' },
+      { header: 'Student', accessor: 'student' },
+      { header: 'Parent', accessor: 'parent' },
+      { header: 'Mobile', accessor: 'mobile' },
+      { header: 'Course', accessor: 'course' },
+      { header: 'Source', accessor: 'source' },
+      { header: 'Status', accessor: 'status' },
+      { header: 'Follow-up', accessor: 'followup' },
+    ],
   },
-  // ✅ Added transform to map raw fields to column accessors & format date
-  transform: (data) => data.map(row => {
-    // Format created_at to dd-mm-yyyy
-    let createdDate = '';
-    if (row.created_at) {
-      const date = new Date(row.created_at);
-      const day = String(date.getDate()).padStart(2, '0');
-      const month = String(date.getMonth() + 1).padStart(2, '0');
-      const year = date.getFullYear();
-      createdDate = `${day}-${month}-${year}`;
-    }
-
-    return {
-      inquiry_no: row.inquiry_no,
-      created: createdDate,                    // formatted date
-      student: row.student_name || '',
-      parent: row.parent_name || '',
-      mobile: row.mobile || '',
-      course: row.courses?.course_name || '',  // nested field
-      source: row.source || '',
-      status: row.status || '',
-      followup: row.followup_date || '',
-    };
-  }),
-  columns: [
-    { header: 'Inquiry No', accessor: 'inquiry_no' },
-    { header: 'Created', accessor: 'created' },
-    { header: 'Student', accessor: 'student' },
-    { header: 'Parent', accessor: 'parent' },
-    { header: 'Mobile', accessor: 'mobile' },
-    { header: 'Course', accessor: 'course' },
-    { header: 'Source', accessor: 'source' },
-    { header: 'Status', accessor: 'status' },
-    { header: 'Follow-up', accessor: 'followup' },
-  ],
-  pdfConfig: {
-    orientation: 'landscape',
-    includeLetterhead: false,
-    showHeader: true,
-    showFooter: true,
-    pageSize: 'a4',
-    fontSize: 8,
-    headerFontSize: 14,
-    footerFontSize: 8,
-  },
-},
 
   /* =============================================================
    * 27. FEE AGING ANALYSIS
@@ -1932,186 +1881,7 @@ admission_pipeline: {
       course_name: row.courses.course_name,
     }),
   },
-student_ledger: {
-  id: 'student_ledger',
-  title: 'Student Ledger',
-  description: 'Fee debits & payments with running balance',
-  useLetterhead: true,
-  fields: ['student_id', 'start_date', 'end_date'],
-  defaultFilters: () => ({
-    start_date: new Date(new Date().getFullYear(), 0, 1).toISOString().slice(0, 10),
-    end_date: new Date().toISOString().slice(0, 10),
-  }),
-  queryBuilder: (filters, branchId, financialYearId) => {
-    let feesQuery = supabase
-      .from('student_fees')
-      .select('id, final_fee, status, created_at, students!inner( admission_no, first_name, last_name )')
-      .is('deleted_at', null);
-    if (branchId) feesQuery = feesQuery.eq('branch_id', branchId);
-    if (financialYearId) feesQuery = feesQuery.eq('financial_year_id', financialYearId);
-    if (filters.student_id) feesQuery = feesQuery.eq('student_id', filters.student_id);
-    if (filters.start_date) feesQuery = feesQuery.gte('created_at', filters.start_date);
-    if (filters.end_date) feesQuery = feesQuery.lte('created_at', filters.end_date);
-
-    let paymentsQuery = supabase
-      .from('fee_payments')
-      .select('id, amount, payment_date, payment_mode, remarks, student_fees!inner( final_fee, students!inner( admission_no, first_name, last_name ) )');
-    if (branchId) paymentsQuery = paymentsQuery.eq('branch_id', branchId);
-    if (financialYearId) paymentsQuery = paymentsQuery.eq('financial_year_id', financialYearId);
-    if (filters.student_id) paymentsQuery = paymentsQuery.eq('student_fees.student_id', filters.student_id);
-    if (filters.start_date) paymentsQuery = paymentsQuery.gte('payment_date', filters.start_date);
-    if (filters.end_date) paymentsQuery = paymentsQuery.lte('payment_date', filters.end_date);
-
-    return Promise.all([
-      feesQuery.then(({ data }) => data || []),
-      paymentsQuery.then(({ data }) => data || []),
-    ]);
-  },
-  transform: (data) => {
-    const [fees, payments] = data;
-    const transactions = [];
-
-    fees.forEach(fee => {
-      transactions.push({
-        date: fee.created_at,
-        description: `Fee Assigned (${fee.status})`,
-        admission_no: fee.students?.admission_no || '',
-        student: `${fee.students?.first_name || ''} ${fee.students?.last_name || ''}`.trim(),
-        debit: Number(fee.final_fee || 0),
-        credit: 0,
-      });
-    });
-
-    payments.forEach(p => {
-      transactions.push({
-        date: p.payment_date,
-        description: `Payment (${p.payment_mode || 'N/A'})${p.remarks ? ` - ${p.remarks}` : ''}`,
-        admission_no: p.student_fees?.students?.admission_no || '',
-        student: `${p.student_fees?.students?.first_name || ''} ${p.student_fees?.students?.last_name || ''}`.trim(),
-        debit: 0,
-        credit: Number(p.amount || 0),
-      });
-    });
-
-    transactions.sort((a, b) => new Date(a.date) - new Date(b.date));
-
-    let running = 0;
-    return transactions.map(t => {
-      running += t.debit - t.credit;
-      return { ...t, balance: running };
-    });
-  },
-  columns: [
-    { header: 'Date', accessor: 'date' },
-    { header: 'Description', accessor: 'description' },
-    { header: 'Admission No', accessor: 'admission_no' },
-    { header: 'Student', accessor: 'student' },
-    { header: 'Debit', accessor: 'debit', aggregate: 'sum' },
-    { header: 'Credit', accessor: 'credit', aggregate: 'sum' },
-    { header: 'Balance', accessor: 'balance' },   // no aggregate, closing balance is the last row
-  ],
-  aggregateRow: true,
-},
-
-account_ledger: {
-  id: 'account_ledger',
-  title: 'Account Ledger',
-  description: 'Journal transactions for a selected account, with opening balance & total debit/credit',
-  useLetterhead: true,
-  fields: ['account_id', 'start_date', 'end_date'],
-  defaultFilters: () => ({
-    start_date: new Date(new Date().getFullYear(), 0, 1).toISOString().slice(0, 10),
-    end_date: new Date().toISOString().slice(0, 10),
-  }),
-  queryBuilder: async (filters, branchId, financialYearId) => {
-    if (!filters.account_id) {
-      // No account selected – return empty placeholder
-      return [{ date: '', reference: '', description: 'Select an account', debit: 0, credit: 0, balance: 0 }];
-    }
-
-    // 1. Fetch ALL journal lines for this account (scope by branch & FY)
-    let linesQuery = supabase
-      .from('journal_entry_lines')
-      .select(`
-        debit,
-        credit,
-        journal_entries ( entry_date, description, reference )
-      `)
-      .eq('account_id', filters.account_id);
-
-    if (branchId) linesQuery = linesQuery.eq('branch_id', branchId);
-    if (financialYearId) linesQuery = linesQuery.eq('financial_year_id', financialYearId);
-
-    const { data: allLines, error } = await linesQuery;
-    if (error) throw error;
-
-    const startDate = filters.start_date || '1900-01-01';
-    const endDate = filters.end_date || '2100-01-01';
-
-    // 2. Separate into opening balance (before start date) and current period
-    const openingLines = (allLines || []).filter(line => {
-      const date = line.journal_entries?.entry_date;
-      return date && date < startDate;
-    });
-
-    const periodLines = (allLines || []).filter(line => {
-      const date = line.journal_entries?.entry_date;
-      return date && date >= startDate && date <= endDate;
-    });
-
-    // 3. Sort period lines by date and id (ascending)
-    periodLines.sort((a, b) => {
-      const dateA = a.journal_entries?.entry_date || '';
-      const dateB = b.journal_entries?.entry_date || '';
-      if (dateA !== dateB) return dateA.localeCompare(dateB);
-      return (a.id || 0) - (b.id || 0);
-    });
-
-    // 4. Compute opening balance
-    const openingBalance = openingLines.reduce((sum, line) => {
-      return sum + Number(line.debit || 0) - Number(line.credit || 0);
-    }, 0);
-
-    // 5. Build rows
-    const rows = [{
-      date: startDate,
-      reference: '',
-      description: 'Opening Balance',
-      debit: openingBalance > 0 ? openingBalance : 0,
-      credit: openingBalance < 0 ? Math.abs(openingBalance) : 0,
-      balance: openingBalance,
-    }];
-
-    let running = openingBalance;
-    periodLines.forEach(line => {
-      const debit = Number(line.debit || 0);
-      const credit = Number(line.credit || 0);
-      running += debit - credit;
-      rows.push({
-        date: line.journal_entries?.entry_date || '',
-        reference: line.journal_entries?.reference || '',
-        description: line.journal_entries?.description || '',
-        debit,
-        credit,
-        balance: running,
-      });
-    });
-
-    return rows;
-  },
-  columns: [
-    { header: 'Date', accessor: 'date' },
-    { header: 'Reference', accessor: 'reference' },
-    { header: 'Description', accessor: 'description' },
-    { header: 'Debit', accessor: 'debit', aggregate: 'sum' },
-    { header: 'Credit', accessor: 'credit', aggregate: 'sum' },
-    { header: 'Balance', accessor: 'balance' },
-  ],
-  aggregateRow: true,
-},
 };
-
-
 
 export function getReportConfig(id) {
   return reportTypes[id];
