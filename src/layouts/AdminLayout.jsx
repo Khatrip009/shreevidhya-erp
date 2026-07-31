@@ -1,5 +1,5 @@
 // src/layouts/AdminLayout.jsx
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { Outlet, useLocation, Link } from "react-router-dom";
 import { Layout, Menu, Breadcrumb, Button, Modal, theme } from "antd";
 import {
@@ -211,7 +211,9 @@ export default function AdminLayout() {
   const isStudent = role === "student";
   const isTeacher = role === "teacher";
   const isAdmin = !isStudent && !isTeacher;
-  const menuItems = getMenuItems(role);
+
+  // ── Memoize menu items (stable reference) ──
+  const menuItems = useMemo(() => getMenuItems(role), [role]);
 
   // ── Keyboard Shortcuts ──────────────────────────────────
   const adminShortcuts = [
@@ -252,7 +254,13 @@ export default function AdminLayout() {
     { key: "?", ctrl: true, shift: true, description: "Show Help", handler: () => setShowHelp(true) },
   ];
 
-  const shortcuts = isAdmin ? adminShortcuts : isTeacher ? teacherShortcuts : studentShortcuts;
+  // ── Memoize shortcuts array ──
+  const shortcuts = useMemo(() => {
+    if (isAdmin) return adminShortcuts;
+    if (isTeacher) return teacherShortcuts;
+    return studentShortcuts;
+  }, [isAdmin, isTeacher]);
+
   useKeyboardShortcuts(shortcuts);
 
   // ── Breadcrumb generation ──

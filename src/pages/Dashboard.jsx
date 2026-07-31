@@ -139,7 +139,7 @@ export default function Dashboard() {
     refetchOnWindowFocus: false,
   });
 
-  const s = rawStats || {};
+  const s = (rawStats && rawStats[0]) || {};
   const safeFeeStatus = Array.isArray(s.feeStatusData)
     ? { paid: 0, pending: 0 }
     : s.feeStatusData || { paid: 0, pending: 0 };

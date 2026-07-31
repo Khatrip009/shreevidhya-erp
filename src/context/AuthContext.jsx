@@ -1,4 +1,12 @@
-import { createContext, useContext, useEffect, useState, useCallback } from "react";
+// src/context/AuthContext.jsx
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  useCallback,
+  useMemo,
+} from "react";
 import { supabase } from "../api/supabase";
 import toast from "react-hot-toast";
 import { useInactivityTimer } from "../hooks/useInactivityTimer";
@@ -45,7 +53,6 @@ export function AuthProvider({ children }) {
   }, []);
 
   // ── Auto logout after 15 minutes of inactivity ────────────
-  // ✅ Pass signOut directly (not () => signOut()) to keep a stable reference
   useInactivityTimer(signOut, 15 * 60 * 1000, !!user);
 
   useEffect(() => {
@@ -73,34 +80,46 @@ export function AuthProvider({ children }) {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (_event, session) => {
-  if (!session?.user) {
-    setUser(null);
-    setProfile(null);
-    setOrgAccessDenied(false);
-    setLoading(false);   // ← also reset loading here
-    return;
-  }
-
-  setUser(session.user);
-  setLoading(true);      // ← start loading while profile is fetched
-  const p = await fetchProfile(session.user.id);
-  if (p?.organization_id !== 1) {
-    toast.error("Access denied: Only organization ID 1 is allowed.");
-    await signOut();
-    setOrgAccessDenied(true);   // ← set denial flag (see point 2)
-    setProfile(null);
-    setUser(null);
-  } else {
-    setProfile(p);
-  }
-  setLoading(false);     // ← finished loading
-});
+      if (!session?.user) {
+        setUser(null);
+        setProfile(null);
+        setOrgAccessDenied(false);
+        setLoading(false);
+        return;
+      }
+      setUser(session.user);
+      setLoading(true);
+      const p = await fetchProfile(session.user.id);
+      if (p?.organization_id !== 1) {
+        toast.error("Access denied: Only organization ID 1 is allowed.");
+        await signOut();
+        setOrgAccessDenied(true);
+        setProfile(null);
+        setUser(null);
+        setLoading(false);
+        return;
+      }
+      setProfile(p);
+      setLoading(false);
+    });
 
     return () => subscription.unsubscribe();
   }, []);
 
+  // ── Memoize the context value to avoid unnecessary re-renders ──
+  const value = useMemo(
+    () => ({
+      user,
+      profile,
+      loading,
+      signOut,
+      orgAccessDenied,
+    }),
+    [user, profile, loading, signOut, orgAccessDenied]
+  );
+
   return (
-    <AuthContext.Provider value={{ user, profile, loading, signOut, orgAccessDenied }}>
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   );
@@ -108,4 +127,4 @@ export function AuthProvider({ children }) {
 
 export function useAuth() {
   return useContext(AuthContext);
-} 
+}

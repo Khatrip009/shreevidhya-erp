@@ -1,5 +1,5 @@
 // src/context/ScopeContext.jsx
-import { createContext, useContext, useEffect } from "react";
+import { createContext, useContext, useEffect, useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useOrg } from "./OrganizationContext";
 
@@ -23,15 +23,25 @@ export function ScopeProvider({ children }) {
     }
   }, [branch?.id, selectedFinancialYear?.id]);
 
-  // Provide the same values as before, so no other code breaks
-  const value = {
-    branch,
-    setBranch,
-    branches,
-    financialYears,
-    selectedFinancialYear,
-    switchFinancialYear,
-  };
+  // ── Memoize the context value to avoid unnecessary re-renders ──
+  const value = useMemo(
+    () => ({
+      branch,
+      setBranch,
+      branches,
+      financialYears,
+      selectedFinancialYear,
+      switchFinancialYear,
+    }),
+    [
+      branch,
+      setBranch,
+      branches,
+      financialYears,
+      selectedFinancialYear,
+      switchFinancialYear,
+    ]
+  );
 
   return (
     <ScopeContext.Provider value={value}>

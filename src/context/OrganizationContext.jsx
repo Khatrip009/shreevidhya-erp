@@ -1,5 +1,12 @@
 // src/context/OrganizationContext.jsx
-import { createContext, useContext, useState, useEffect, useCallback } from "react";
+import {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useCallback,
+  useMemo,
+} from "react";
 import { supabase } from "../api/supabase";
 import { useAuth } from "./AuthContext";
 
@@ -28,11 +35,19 @@ export function OrganizationProvider({ children }) {
 
       setOrg(orgData);
 
-      const [{ data: branchList }, { data: fys }, { data: mediumRows }] = await Promise.all([
-        supabase.from("branches").select("*").eq("organization_id", orgData.id),
-        supabase.from("financial_years").select("*").eq("organization_id", orgData.id).order("start_date", { ascending: false }),
-        supabase.from("organization_mediums").select("medium_id, mediums(name)").eq("org_id", orgData.id),
-      ]);
+      const [{ data: branchList }, { data: fys }, { data: mediumRows }] =
+        await Promise.all([
+          supabase.from("branches").select("*").eq("organization_id", orgData.id),
+          supabase
+            .from("financial_years")
+            .select("*")
+            .eq("organization_id", orgData.id)
+            .order("start_date", { ascending: false }),
+          supabase
+            .from("organization_mediums")
+            .select("medium_id, mediums(name)")
+            .eq("org_id", orgData.id),
+        ]);
 
       if (cancelled) return;
 
@@ -56,7 +71,12 @@ export function OrganizationProvider({ children }) {
           .eq("id", user.id)
           .single();
 
-        if (profile && (!profile.organization_id || !profile.branch_id || !profile.selected_financial_year_id)) {
+        if (
+          profile &&
+          (!profile.organization_id ||
+            !profile.branch_id ||
+            !profile.selected_financial_year_id)
+        ) {
           await supabase
             .from("profiles")
             .update({
@@ -70,7 +90,9 @@ export function OrganizationProvider({ children }) {
     }
 
     loadOrg();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [user]);
 
   const switchFinancialYear = useCallback(
@@ -86,22 +108,34 @@ export function OrganizationProvider({ children }) {
     [financialYears, user]
   );
 
+  // ── Memoize the context value to avoid re-renders ──
+  const value = useMemo(
+    () => ({
+      org,
+      branch,
+      setBranch,
+      branches,
+      financialYears,
+      selectedFinancialYear,
+      switchFinancialYear,
+      mediums,
+      organizationId: org?.id ?? null,
+    }),
+    [
+      org,
+      branch,
+      setBranch,
+      branches,
+      financialYears,
+      selectedFinancialYear,
+      switchFinancialYear,
+      mediums,
+      org?.id,
+    ]
+  );
+
   return (
-    <OrgContext.Provider
-      value={{
-        org,
-        branch,
-        setBranch,
-        branches,
-        financialYears,
-        selectedFinancialYear,
-        switchFinancialYear,
-        mediums,
-        organizationId: org?.id ?? null,
-      }}
-    >
-      {children}
-    </OrgContext.Provider>
+    <OrgContext.Provider value={value}>{children}</OrgContext.Provider>
   );
 }
 
