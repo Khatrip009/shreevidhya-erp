@@ -11,7 +11,7 @@ export default function ProtectedRoute({ children }) {
     return <Navigate to="/login" replace />;
   }
 
-  if (orgAccessDenied || profile.organization_id !== 1) {
+  if (orgAccessDenied || profile.organization_id !== 3) {
     return <Navigate to="/login" replace />;
   }
 

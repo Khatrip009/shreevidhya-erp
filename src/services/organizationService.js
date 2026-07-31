@@ -4,19 +4,19 @@ import { supabase } from "../api/supabase";
 const ORG_FIELDS = `
   id, company_name, phone, email, website, gstin, address, vision, mission,
   description, organization_key, is_active, domain, logo_light_url, logo_dark_url,
-  letterhead_url
+  letterhead_url, tagline
 `;
 
 /**
  * Fetch organization details + linked mediums for a given orgId.
  */
 export async function getOrganization(orgId) {
-  // Fetch organisation
- const { data: org } = await supabase
-  .from("organization")
-  .select("*")
-  .eq("id", org?.id)      // ✅ numeric ID
-  .single();
+  // Fetch organisation – use the passed orgId, not org?.id
+  const { data: org, error } = await supabase
+    .from("organization")
+    .select(ORG_FIELDS)          // only the fields we need
+    .eq("id", orgId)             // ✅ correct variable
+    .single();
   if (error) throw error;
 
   // Fetch theme
@@ -46,7 +46,7 @@ export async function getOrganization(orgId) {
 export async function updateOrganization(orgId, payload) {
   const { mediums, ...orgData } = payload;
 
-  // Update the organisation record (only known fields)
+  // Update the organisation record
   const { data: org, error } = await supabase
     .from("organization")
     .update(orgData)

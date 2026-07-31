@@ -19,7 +19,7 @@ import {
   Filter,
 } from "lucide-react";
 import Papa from "papaparse";
-import AdminLayout from "../layouts/AdminLayout";
+
 import CourseForm from "../components/CourseForm";
 import CourseLevelForm from "../components/CourseLevelForm";
 import { supabase } from "../api/supabase";
@@ -35,23 +35,24 @@ import {
   getMediumOptions,
 } from "../services/courseService";
 import { useOrg } from "../context/OrganizationContext";
+import { useTheme } from "../context/ThemeContext"; // ✅ dynamic theme
 
 export default function Courses() {
   const queryClient = useQueryClient();
 
-  // ── Branch & Financial Year context ──
-  const { branch, selectedFinancialYear } = useOrg();
-  const branchId = branch?.id;
+  const { branch, selectedFinancialYear, org } = useOrg();
+  const theme = useTheme();
+  const organizationId = org?.id;
   const financialYearId = selectedFinancialYear?.id;
+  const ctx = { organizationId, financialYearId };
 
-  const ctx = { branchId, financialYearId };
+  const headingFont = theme?.font_heading || "Righteous";
+  const bodyFont = theme?.font_body || "Montserrat";
 
-  // Search & filters
   const [search, setSearch] = useState("");
   const [mediumFilter, setMediumFilter] = useState("");
   const filters = { search, medium_id: mediumFilter };
 
-  // Infinite query – now scoped with branch & FY
   const {
     data,
     isLoading: coursesLoading,
@@ -59,19 +60,24 @@ export default function Courses() {
     hasNextPage,
     isFetchingNextPage,
   } = useInfiniteQuery({
-    queryKey: ["courses", filters, branchId, financialYearId],
+    queryKey: ["courses", filters, organizationId, financialYearId],
     queryFn: async ({ pageParam = 0 }) => {
+      if (!organizationId) throw new Error("Organization ID is required");
+
       const from = pageParam * 20;
       const to = from + 19;
 
       let query = supabase
         .from("courses")
         .select("*, mediums(name)", { count: "exact" })
-        .eq("branch_id", branchId)
-        .eq("financial_year_id", financialYearId)
+        .eq("organization_id", organizationId)
+        .is("deleted_at", null)
         .order("course_name", { ascending: true })
         .range(from, to);
 
+      if (financialYearId) {
+        query = query.eq("financial_year_id", financialYearId);
+      }
       if (search) {
         query = query.or(`course_name.ilike.%${search}%,description.ilike.%${search}%`);
       }
@@ -97,20 +103,18 @@ export default function Courses() {
       return undefined;
     },
     initialPageParam: 0,
-    enabled: !!branchId && !!financialYearId,
+    enabled: !!organizationId && !!financialYearId,
     staleTime: 5 * 60 * 1000,
   });
 
   const courses = data?.pages.flatMap((page) => page.data) || [];
 
-  // Mediums (org‑wide)
   const { data: mediums = [] } = useQuery({
     queryKey: ["mediumsDropdown"],
     queryFn: getMediumOptions,
     staleTime: 10 * 60 * 1000,
   });
 
-  // ── Mutations (already use context) ──
   const createMutation = useMutation({
     mutationFn: (payload) => createCourse(payload, ctx),
     onSuccess: () => {
@@ -118,10 +122,7 @@ export default function Courses() {
       queryClient.invalidateQueries({ queryKey: ["courses"] });
       setShowForm(false);
     },
-    onError: (err) => {
-      console.error("Create course error:", err);
-      toast.error("Failed to create course");
-    },
+    onError: () => toast.error("Failed to create course"),
   });
 
   const updateMutation = useMutation({
@@ -143,7 +144,6 @@ export default function Courses() {
     onError: () => toast.error("Delete failed"),
   });
 
-  // CSV Import – scoped via context
   async function handleCSVImport(event) {
     const file = event.target.files[0];
     if (!file) return;
@@ -174,14 +174,13 @@ export default function Courses() {
     });
   }
 
-  // CSV Export – now scoped, corrected signature
   async function handleCSVExport() {
     try {
-      const allData = await getAllCoursesForExport(
+      const allData = await getAllCoursesForExport({
         filters,
-        branchId,
-        financialYearId
-      );
+        organizationId,
+        financialYearId,
+      });
       const csv = Papa.unparse(
         allData.map((c) => ({
           course_name: c.course_name,
@@ -203,15 +202,14 @@ export default function Courses() {
     }
   }
 
-  // ── Level management (scoped) ──
   const [expandedCourseId, setExpandedCourseId] = useState(null);
   const [levelForm, setLevelForm] = useState(null);
   const [levelsMap, setLevelsMap] = useState({});
 
   async function loadLevels(courseId) {
-    if (!branchId || !financialYearId) return;
+    if (!organizationId || !financialYearId) return;
     try {
-      const levels = await getCourseLevels(courseId, branchId, financialYearId);
+      const levels = await getCourseLevels(courseId, organizationId, financialYearId);
       setLevelsMap((prev) => ({ ...prev, [courseId]: levels }));
     } catch {
       toast.error("Failed to load levels");
@@ -248,7 +246,7 @@ export default function Courses() {
   });
 
   const deleteLevelMutation = useMutation({
-    mutationFn: (id) => deleteCourseLevel(id, branchId, financialYearId),
+    mutationFn: (id) => deleteCourseLevel(id, ctx),
     onSuccess: () => {
       toast.success("Level deleted");
       if (expandedCourseId) loadLevels(expandedCourseId);
@@ -256,7 +254,6 @@ export default function Courses() {
     onError: () => toast.error("Delete failed"),
   });
 
-  // ── UI state ──
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
   const fileInputRef = useRef(null);
@@ -275,31 +272,42 @@ export default function Courses() {
   }
 
   return (
-    <AdminLayout>
+    <div className="space-y-6 px-4 sm:px-6 lg:px-0">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h1 className="text-3xl font-righteous text-primary-dark">Courses</h1>
-          <p className="text-sm text-secondary-dark font-montserrat mt-1">
+          <h1
+            className="text-2xl sm:text-3xl font-bold text-primary"
+            style={{ fontFamily: headingFont }}
+          >
+            Courses
+          </h1>
+          <p
+            className="text-sm text-primary-dark mt-1"
+            style={{ fontFamily: bodyFont }}
+          >
             Manage courses and levels
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <button
             onClick={() => setShowForm(true)}
-            className="bg-primary hover:bg-primary-light text-white px-5 py-2.5 rounded-lg transition font-montserrat text-sm flex items-center gap-2"
+            className="inline-flex items-center gap-2 px-4 py-2.5 bg-primary hover:bg-primary-light text-white rounded-lg transition-colors text-sm font-medium"
+            style={{ fontFamily: bodyFont }}
           >
             <BookOpen size={18} /> Add Course
           </button>
           <button
             onClick={handleCSVExport}
-            className="border border-secondary-light px-4 py-2.5 rounded-lg text-secondary-dark hover:bg-secondary-bg font-montserrat text-sm flex items-center gap-2"
+            className="inline-flex items-center gap-2 px-4 py-2.5 border border-primary-bg bg-white text-primary-dark rounded-lg hover:bg-primary-bg transition-colors text-sm"
+            style={{ fontFamily: bodyFont }}
           >
             <Download size={18} /> Export
           </button>
           <button
             onClick={() => fileInputRef.current?.click()}
-            className="border border-secondary-light px-4 py-2.5 rounded-lg text-secondary-dark hover:bg-secondary-bg font-montserrat text-sm flex items-center gap-2"
+            className="inline-flex items-center gap-2 px-4 py-2.5 border border-primary-bg bg-white text-primary-dark rounded-lg hover:bg-primary-bg transition-colors text-sm"
+            style={{ fontFamily: bodyFont }}
           >
             <Upload size={18} /> Import
           </button>
@@ -314,24 +322,26 @@ export default function Courses() {
       </div>
 
       {/* Search & Medium Filter */}
-      <div className="flex flex-col sm:flex-row gap-3 mb-6">
+      <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1">
           <Search
             size={18}
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-secondary"
+            className="absolute left-3 top-1/2 -translate-y-1/2 text-primary-dark/60"
           />
           <input
             type="text"
             placeholder="Search courses..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full border border-secondary-light rounded-lg pl-10 pr-4 py-2.5 text-sm focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light"
+            className="w-full border border-primary-bg bg-white text-primary-dark rounded-lg pl-10 pr-4 py-2.5 text-sm"
+            style={{ fontFamily: bodyFont }}
           />
         </div>
         <select
           value={mediumFilter}
           onChange={(e) => setMediumFilter(e.target.value)}
-          className="border border-secondary-light rounded-lg p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none"
+          className="border border-primary-bg bg-white text-primary-dark rounded-lg p-2.5 text-sm"
+          style={{ fontFamily: bodyFont }}
         >
           <option value="">All Mediums</option>
           {mediums.map((m) => (
@@ -341,30 +351,42 @@ export default function Courses() {
       </div>
 
       {/* Courses Table */}
-      <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+      <div className="bg-white rounded-xl shadow-sm border border-primary-bg overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[600px]">
-            <thead className="bg-slate-100 border-b border-secondary-light">
+            <thead className="bg-primary-bg">
               <tr>
-                <th className="p-3 text-left text-sm font-montserrat text-secondary-dark">Course Name</th>
-                <th className="text-left text-sm font-montserrat text-secondary-dark">Medium</th>
-                <th className="text-left text-sm font-montserrat text-secondary-dark">Duration</th>
-                <th className="text-left text-sm font-montserrat text-secondary-dark">Description</th>
-                <th className="text-left text-sm font-montserrat text-secondary-dark">Actions</th>
+                <th className="p-3 text-left text-xs font-medium text-primary-dark uppercase tracking-wider">
+                  Course Name
+                </th>
+                <th className="p-3 text-left text-xs font-medium text-primary-dark uppercase tracking-wider">
+                  Medium
+                </th>
+                <th className="p-3 text-left text-xs font-medium text-primary-dark uppercase tracking-wider">
+                  Duration
+                </th>
+                <th className="p-3 text-left text-xs font-medium text-primary-dark uppercase tracking-wider">
+                  Description
+                </th>
+                <th className="p-3 text-left text-xs font-medium text-primary-dark uppercase tracking-wider">
+                  Actions
+                </th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="divide-y divide-primary-bg">
               {coursesLoading ? (
                 <tr>
-                  <td colSpan={5} className="p-6 text-center text-secondary">Loading courses…</td>
+                  <td colSpan={5} className="p-6 text-center text-primary-dark/60">
+                    Loading courses…
+                  </td>
                 </tr>
               ) : courses.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="p-6 text-center text-secondary">
+                  <td colSpan={5} className="p-6 text-center text-primary-dark/60">
                     <div className="flex flex-col items-center gap-2">
-                      <BookOpen size={32} className="text-secondary-light" />
+                      <BookOpen size={32} className="text-primary-dark/40" />
                       <span>No courses found</span>
-                      <span className="text-xs text-secondary-light">
+                      <span className="text-xs">
                         {search || mediumFilter ? "Try adjusting your filters" : "Add a new course to get started"}
                       </span>
                     </div>
@@ -373,22 +395,30 @@ export default function Courses() {
               ) : (
                 courses.map((course) => (
                   <React.Fragment key={course.id}>
-                    <tr className="border-b border-secondary-light hover:bg-primary-bg transition">
-                      <td className="p-3 text-sm font-medium">{course.course_name}</td>
-                      <td className="text-sm">{course.medium_name || "-"}</td>
-                      <td className="text-sm">{course.duration_months ? `${course.duration_months} Months` : "-"}</td>
-                      <td className="text-sm text-secondary-dark">{course.description || "-"}</td>
+                    <tr className="hover:bg-primary-bg transition-colors">
+                      <td className="p-3 text-sm font-medium text-primary">
+                        {course.course_name}
+                      </td>
+                      <td className="text-sm text-primary-dark">
+                        {course.medium_name || "-"}
+                      </td>
+                      <td className="text-sm text-primary-dark">
+                        {course.duration_months ? `${course.duration_months} Months` : "-"}
+                      </td>
+                      <td className="text-sm text-primary-dark">
+                        {course.description || "-"}
+                      </td>
                       <td className="text-sm">
                         <div className="flex gap-2">
-                          <button onClick={() => setEditing(course)} className="text-blue-600 hover:underline">
+                          <button onClick={() => setEditing(course)} className="text-primary hover:underline">
                             <Edit3 size={15} />
                           </button>
-                          <button onClick={() => handleDelete(course.id)} className="text-red-600 hover:underline">
+                          <button onClick={() => handleDelete(course.id)} className="text-accent hover:underline">
                             <Trash2 size={15} />
                           </button>
                           <button
                             onClick={() => toggleLevels(course.id)}
-                            className="text-indigo-600 hover:underline flex items-center gap-1"
+                            className="text-primary hover:underline flex items-center gap-1"
                           >
                             <Layers size={15} /> Levels
                           </button>
@@ -397,26 +427,30 @@ export default function Courses() {
                     </tr>
                     {/* Level sub-table */}
                     {expandedCourseId === course.id && (
-                      <tr className="bg-secondary-bg">
+                      <tr className="bg-primary-bg">
                         <td colSpan={5} className="p-4">
                           <div className="flex justify-between items-center mb-3">
-                            <h4 className="font-semibold text-primary-dark font-righteous text-sm">
+                            <h4
+                              className="font-semibold text-sm text-primary"
+                              style={{ fontFamily: headingFont }}
+                            >
                               Levels for {course.course_name}
                             </h4>
                             <button
                               onClick={() => setLevelForm({ courseId: course.id, initialData: null })}
-                              className="bg-primary hover:bg-primary-light text-white px-3 py-1 rounded text-xs font-montserrat"
+                              className="bg-primary hover:bg-primary-light text-white px-3 py-1 rounded text-xs font-medium"
+                              style={{ fontFamily: bodyFont }}
                             >
                               + Add Level
                             </button>
                           </div>
                           {!levelsMap[course.id] || levelsMap[course.id].length === 0 ? (
-                            <p className="text-sm text-secondary">No levels defined yet.</p>
+                            <p className="text-sm text-primary-dark/60">No levels defined yet.</p>
                           ) : (
                             <div className="overflow-x-auto">
-                              <table className="w-full bg-white rounded border border-secondary-light">
-                                <thead className="bg-slate-50">
-                                  <tr className="text-left text-xs font-montserrat text-secondary-dark">
+                              <table className="w-full bg-white rounded border border-primary-bg">
+                                <thead className="bg-primary-bg">
+                                  <tr className="text-left text-xs font-medium text-primary-dark uppercase">
                                     <th className="p-2">#</th>
                                     <th className="p-2">Name</th>
                                     <th className="p-2">Duration</th>
@@ -424,25 +458,27 @@ export default function Courses() {
                                     <th className="p-2">Actions</th>
                                   </tr>
                                 </thead>
-                                <tbody>
+                                <tbody className="divide-y divide-primary-bg">
                                   {levelsMap[course.id].map((level) => (
-                                    <tr key={level.id} className="border-t border-secondary-light">
-                                      <td className="p-2 text-sm">{level.level_number}</td>
-                                      <td className="p-2 text-sm">{level.level_name}</td>
-                                      <td className="p-2 text-sm">
+                                    <tr key={level.id} className="hover:bg-primary-bg">
+                                      <td className="p-2 text-sm text-primary-dark">{level.level_number}</td>
+                                      <td className="p-2 text-sm text-primary-dark">{level.level_name}</td>
+                                      <td className="p-2 text-sm text-primary-dark">
                                         {level.duration_months ? `${level.duration_months}mo` : "-"}
                                       </td>
-                                      <td className="p-2 text-sm">{level.certificate_eligible ? "Yes" : "No"}</td>
+                                      <td className="p-2 text-sm text-primary-dark">
+                                        {level.certificate_eligible ? "Yes" : "No"}
+                                      </td>
                                       <td className="p-2 text-sm space-x-2">
                                         <button
                                           onClick={() => setLevelForm({ courseId: course.id, initialData: level })}
-                                          className="text-blue-600 hover:underline"
+                                          className="text-primary hover:underline"
                                         >
                                           <Edit3 size={14} />
                                         </button>
                                         <button
                                           onClick={() => deleteLevelMutation.mutate(level.id)}
-                                          className="text-red-600 hover:underline"
+                                          className="text-accent hover:underline"
                                         >
                                           <Trash2 size={14} />
                                         </button>
@@ -470,17 +506,16 @@ export default function Courses() {
           <button
             onClick={() => fetchNextPage()}
             disabled={isFetchingNextPage}
-            className="bg-primary hover:bg-primary-light text-white px-6 py-2.5 rounded-lg font-montserrat text-sm transition disabled:opacity-60"
+            className="bg-primary hover:bg-primary-light text-white px-6 py-2.5 rounded-lg text-sm font-medium transition disabled:opacity-60"
+            style={{ fontFamily: bodyFont }}
           >
             {isFetchingNextPage ? "Loading more…" : "Load More"}
           </button>
         </div>
       )}
 
-      {/* Course Form Modal */}
       {showForm && <CourseForm onSubmit={handleCreate} onClose={() => setShowForm(false)} />}
       {editing && <CourseForm initialData={editing} onSubmit={handleUpdate} onClose={() => setEditing(null)} />}
-      {/* Level Form Modal */}
       {levelForm && (
         <CourseLevelForm
           courseId={levelForm.courseId}
@@ -495,6 +530,6 @@ export default function Courses() {
           onClose={() => setLevelForm(null)}
         />
       )}
-    </AdminLayout>
+    </div>
   );
 }

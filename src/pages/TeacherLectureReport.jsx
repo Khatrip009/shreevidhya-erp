@@ -1,21 +1,20 @@
 // src/pages/TeacherLectureReport.jsx
-import { useState, useMemo, useEffect, useCallback } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState, useMemo, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { supabase } from "../api/supabase";
 import { useAuth } from "../context/AuthContext";
 import { generateTeacherLectureReportPDF } from "../utils/teacherLectureReportPdf";
 import toast from "react-hot-toast";
-import AdminLayout from "../layouts/AdminLayout";
 import { Calendar, Download } from "lucide-react";
-import { useOrg } from "../context/OrganizationContext";   // NEW
+import { useOrg } from "../context/OrganizationContext";
+import { useTheme } from "../context/ThemeContext";
 
 export default function TeacherLectureReport() {
   const { profile } = useAuth();
   const isAdmin = profile?.role === "admin" || profile?.role === "super_admin";
-  const queryClient = useQueryClient();
 
-  // ── Branch & Financial Year context ──
-  const { org: currentOrg, branch, selectedFinancialYear } = useOrg();   // NEW
+  const { org: currentOrg, branch, selectedFinancialYear } = useOrg();
+  const { theme } = useTheme();  // dynamic theme
   const branchId = branch?.id;
   const financialYearId = selectedFinancialYear?.id;
 
@@ -32,10 +31,8 @@ export default function TeacherLectureReport() {
         .from("teachers")
         .select("id, first_name, last_name, employee_code")
         .order("first_name");
-
       if (branchId) query = query.eq("branch_id", branchId);
       if (financialYearId) query = query.eq("financial_year_id", financialYearId);
-
       const { data } = await query;
       return data || [];
     },
@@ -43,7 +40,7 @@ export default function TeacherLectureReport() {
     staleTime: 10 * 60 * 1000,
   });
 
-  // If user is a teacher, automatically select their own ID – scoped
+  // If user is a teacher, get own id – scoped
   const { data: ownTeacherId } = useQuery({
     queryKey: ["my-teacher-id", profile?.id, branchId, financialYearId],
     queryFn: async () => {
@@ -59,96 +56,72 @@ export default function TeacherLectureReport() {
     },
     enabled: !!profile?.id && !isAdmin && !!branchId && !!financialYearId,
   });
-
-  // Auto‑set teacherId for teacher users
   useEffect(() => {
-    if (!isAdmin && ownTeacherId) {
-      setTeacherId(ownTeacherId);
-    }
+    if (!isAdmin && ownTeacherId) setTeacherId(ownTeacherId);
   }, [ownTeacherId, isAdmin]);
 
-  // Fetch batches that the selected teacher is assigned to – scoped
+  // Fetch batches assigned to selected teacher – scoped
   const { data: teacherBatches = [] } = useQuery({
     queryKey: ["teacher-batches", teacherId, branchId, financialYearId],
     queryFn: async () => {
       if (!teacherId || !branchId || !financialYearId) return [];
       let query = supabase
         .from("batch_teachers")
-        .select("batch_id, batches(batch_name)")
+        .select(`id, batch_id`)
         .eq("teacher_id", teacherId);
-
       if (branchId) query = query.eq("branch_id", branchId);
       if (financialYearId) query = query.eq("financial_year_id", financialYearId);
-
       const { data } = await query;
       return data || [];
     },
     enabled: !!teacherId && !!branchId && !!financialYearId,
   });
-
   const batchIds = teacherBatches.map((bt) => bt.batch_id);
 
   // Fetch sessions for those batches within the date range – scoped
   const { data: sessions = [], isLoading } = useQuery({
     queryKey: ["teacher-sessions", batchIds, startDate, endDate, branchId, financialYearId],
     queryFn: async () => {
-      if (!batchIds.length || !branchId || !financialYearId) return [];
+      if (batchIds.length === 0 || !branchId || !financialYearId) return [];
       let query = supabase
         .from("attendance_sessions")
-        .select("id, batch_id, attendance_date, topic_covered, batches(batch_name)")
+        .select(`id, attendance_date, topic_covered, batches(batch_name)`)
         .in("batch_id", batchIds)
-        .order("attendance_date", { ascending: false });
-
-      if (startDate) query = query.gte("attendance_date", startDate);
-      if (endDate) query = query.lte("attendance_date", endDate);
+        .gte("attendance_date", startDate)
+        .lte("attendance_date", endDate)
+        .order("attendance_date");
       if (branchId) query = query.eq("branch_id", branchId);
       if (financialYearId) query = query.eq("financial_year_id", financialYearId);
-
       const { data } = await query;
       return data || [];
     },
-    enabled: batchIds.length > 0 && !!startDate && !!endDate && !!branchId && !!financialYearId,
+    enabled: batchIds.length > 0 && !!teacherId && !!branchId && !!financialYearId,
   });
 
-  // Fetch attendance counts for each session (scoped) – using a separate query
+  // Fetch attendance counts for each session – scoped
   const sessionIds = sessions.map((s) => s.id);
   const { data: attendanceCounts = {} } = useQuery({
     queryKey: ["session-attendance-counts", sessionIds, branchId, financialYearId],
     queryFn: async () => {
-      if (!sessionIds.length) return {};
-      // Fetch all attendance rows for these sessions – scoped
-      let attendanceQuery = supabase
+      if (sessionIds.length === 0) return {};
+      let query = supabase
         .from("student_attendance")
         .select("session_id, status")
         .in("session_id", sessionIds);
-
-      if (branchId) attendanceQuery = attendanceQuery.eq("branch_id", branchId);
-      if (financialYearId) attendanceQuery = attendanceQuery.eq("financial_year_id", financialYearId);
-
-      const { data: rows } = await attendanceQuery;
-
-      const counts = {};
-      rows?.forEach((row) => {
-        if (!counts[row.session_id]) {
-          counts[row.session_id] = { present: 0, total: 0 };
-        }
-        counts[row.session_id].total++;
-        if (row.status === "Present") {
-          counts[row.session_id].present++;
+      if (branchId) query = query.eq("branch_id", branchId);
+      if (financialYearId) query = query.eq("financial_year_id", financialYearId);
+      const { data } = await query;
+      const map = {};
+      sessionIds.forEach((id) => { map[id] = { present: 0, total: 0 }; });
+      (data || []).forEach((row) => {
+        if (map[row.session_id]) {
+          map[row.session_id].total++;
+          if (row.status === "Present") map[row.session_id].present++;
         }
       });
-
-      // Ensure we have entries for all sessions even if no attendance rows exist
-      sessionIds.forEach((id) => {
-        if (!counts[id]) {
-          counts[id] = { present: 0, total: 0 };
-        }
-      });
-
-      return counts;
+      return map;
     },
     enabled: sessionIds.length > 0 && !!branchId && !!financialYearId,
-    staleTime: 0, // we want fresh counts when sessions change
   });
 
   // Build report data
@@ -173,39 +146,40 @@ export default function TeacherLectureReport() {
     ? `${teachers.find((t) => t.id == teacherId).first_name} ${teachers.find((t) => t.id == teacherId).last_name}`
     : "All";
 
+  // ── PDF Export – uses context values ──
   const handleExportPDF = async () => {
     if (reportData.length === 0) {
       toast.error("No data to export");
       return;
     }
-    // Fetch org info using the current org id from context
-    const { data: org } = await supabase
-      .from("organization")
-      .select("*")
-      .eq("id", currentOrg?.id)   // now uses current org
-      .single();
-
-    const doc = await generateTeacherLectureReportPDF(
-      reportData,
-      selectedTeacherName,
-      startDate,
-      endDate,
-      org || {}
-    );
-    doc.save(`Teacher_Lecture_Report_${startDate}_to_${endDate}.pdf`);
-    toast.success("PDF downloaded");
+    try {
+      const doc = await generateTeacherLectureReportPDF(
+        reportData,
+        selectedTeacherName,
+        startDate,
+        endDate,
+        { org: currentOrg, branch, theme }
+      );
+      doc.save(`Teacher_Lecture_Report_${startDate}_to_${endDate}.pdf`);
+      toast.success("PDF downloaded");
+    } catch (err) {
+      toast.error("Failed to generate PDF");
+      console.error(err);
+    }
   };
 
   return (
-    <AdminLayout>
+    <div className="space-y-6 px-4 sm:px-6 lg:px-0">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6">
-        <h1 className="text-3xl font-righteous text-primary-dark">Teacher Lecture Report</h1>
+        <h1 className="text-3xl font-heading text-primary">
+          Teacher Lecture Report
+        </h1>
         <div className="flex flex-wrap gap-3 mt-2 sm:mt-0">
           {isAdmin && (
             <select
               value={teacherId}
               onChange={(e) => setTeacherId(e.target.value)}
-              className="border rounded p-2 text-sm"
+              className="border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded p-2 text-sm focus:ring-2 focus:ring-primary outline-none"
             >
               <option value="">Select Teacher</option>
               {teachers.map((t) => (
@@ -216,24 +190,24 @@ export default function TeacherLectureReport() {
             </select>
           )}
           <div className="flex items-center gap-2">
-            <Calendar className="text-secondary-light w-4 h-4" />
+            <Calendar className="text-gray-400 dark:text-gray-500 w-4 h-4" />
             <input
               type="date"
               value={startDate}
               onChange={(e) => setStartDate(e.target.value)}
-              className="border rounded p-2 text-sm"
+              className="border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded p-2 text-sm focus:ring-2 focus:ring-primary outline-none"
             />
-            <span className="text-sm">to</span>
+            <span className="text-sm text-gray-600 dark:text-gray-400">to</span>
             <input
               type="date"
               value={endDate}
               onChange={(e) => setEndDate(e.target.value)}
-              className="border rounded p-2 text-sm"
+              className="border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded p-2 text-sm focus:ring-2 focus:ring-primary outline-none"
             />
           </div>
           <button
             onClick={handleExportPDF}
-            className="bg-primary text-white px-4 py-2 rounded-lg text-sm flex items-center gap-2"
+            className="bg-primary hover:bg-primary-light text-white px-4 py-2 rounded-lg text-sm flex items-center gap-2 transition-colors"
           >
             <Download size={16} /> Export PDF
           </button>
@@ -241,46 +215,50 @@ export default function TeacherLectureReport() {
       </div>
 
       {isLoading ? (
-        <div className="text-center py-8 text-secondary">Loading…</div>
+        <div className="text-center py-8 text-gray-500 dark:text-gray-400">Loading…</div>
       ) : !teacherId ? (
-        <div className="text-center py-8 text-secondary">Please select a teacher.</div>
+        <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+          Please select a teacher.
+        </div>
       ) : reportData.length === 0 ? (
-        <div className="text-center py-8 text-secondary">No sessions found for the selected period.</div>
+        <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+          No sessions found for the selected period.
+        </div>
       ) : (
-        <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+        <div className="bg-white dark:bg-accent rounded-xl shadow-sm overflow-hidden border border-gray-200 dark:border-gray-700">
           <div className="overflow-x-auto">
             <table className="w-full min-w-[700px]">
-              <thead className="bg-slate-50 border-b">
+              <thead className="bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600">
                 <tr>
-                  <th className="px-4 py-3 text-left text-sm font-medium text-secondary-dark">Date</th>
-                  <th className="px-4 py-3 text-left text-sm font-medium text-secondary-dark">Batch</th>
-                  <th className="px-4 py-3 text-left text-sm font-medium text-secondary-dark">Topic</th>
-                  <th className="px-4 py-3 text-center text-sm font-medium text-secondary-dark">Present</th>
-                  <th className="px-4 py-3 text-center text-sm font-medium text-secondary-dark">Absent</th>
-                  <th className="px-4 py-3 text-center text-sm font-medium text-secondary-dark">Total</th>
-                  <th className="px-4 py-3 text-center text-sm font-medium text-secondary-dark">%</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Date</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Batch</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Topic</th>
+                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Present</th>
+                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Absent</th>
+                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Total</th>
+                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">%</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
                 {reportData.map((row, idx) => (
-                  <tr key={idx} className="border-t hover:bg-gray-50 transition">
-                    <td className="px-4 py-3 text-sm">{row.date}</td>
-                    <td className="px-4 py-3 text-sm">{row.batch_name}</td>
-                    <td className="px-4 py-3 text-sm">{row.topic || "—"}</td>
-                    <td className="px-4 py-3 text-sm text-center text-green-600">{row.present_count}</td>
-                    <td className="px-4 py-3 text-sm text-center text-red-600">{row.absent_count}</td>
-                    <td className="px-4 py-3 text-sm text-center">{row.total_students}</td>
-                    <td className="px-4 py-3 text-sm text-center font-medium">{row.percentage}%</td>
+                  <tr key={idx} className="hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+                    <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-200">{row.date}</td>
+                    <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-200">{row.batch_name}</td>
+                    <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-200">{row.topic || "—"}</td>
+                    <td className="px-4 py-3 text-sm text-center text-accent">{row.present_count}</td>
+                    <td className="px-4 py-3 text-sm text-center text-accent-dark">{row.absent_count}</td>
+                    <td className="px-4 py-3 text-sm text-center text-primary">{row.total_students}</td>
+                    <td className="px-4 py-3 text-sm text-center font-medium text-primary">{row.percentage}%</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-          <div className="px-4 py-2 text-xs text-secondary-light border-t">
+          <div className="px-4 py-2 text-xs text-gray-500 dark:text-gray-400 border-t border-gray-200 dark:border-gray-700">
             Teacher: {selectedTeacherName} | {reportData.length} sessions | {startDate} to {endDate}
           </div>
         </div>
       )}
-    </AdminLayout>
+    </div>
   );
 }

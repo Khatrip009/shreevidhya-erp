@@ -2,197 +2,250 @@
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 
+// ─── Helper: load image as base64 (only for logo) ──────────
 async function loadImageAsBase64(url) {
-  const response = await fetch(url);
-  const blob = await response.blob();
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onloadend = () => resolve(reader.result);
-    reader.onerror = reject;
-    reader.readAsDataURL(blob);
-  });
-}
-
-// ─── Content‑aware column widths ──────────────────────────────
-function computeColumnWidths(doc, headers, rows, pageWidth, sideMargin) {
-  const availableWidth = pageWidth - 2 * sideMargin;
-  const maxWidths = headers.map((header, colIdx) => {
-    let max = doc.getTextWidth(header) + 6;
-    rows.forEach(row => {
-      const text = row[colIdx] || '';
-      max = Math.max(max, doc.getTextWidth(text) + 6);
+  try {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const blob = await response.blob();
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
     });
-    return max;
-  });
-
-  const total = maxWidths.reduce((a, b) => a + b, 0);
-  if (total <= availableWidth) return maxWidths;
-
-  const minWidth = 15;
-  let scaled = maxWidths.map(w => Math.max(w * (availableWidth / total), minWidth));
-  const totalScaled = scaled.reduce((a, b) => a + b, 0);
-  const diff = availableWidth - totalScaled;
-  if (Math.abs(diff) > 0.1) {
-    scaled = scaled.map(w => w + (w / totalScaled) * diff);
+  } catch (err) {
+    console.warn("Could not load image:", err);
+    return null;
   }
-  return scaled;
 }
 
-// ─── Main PDF generator ───────────────────────────────────────
-export async function generateReportPdf(reportConfig, filters = {}, org = null) {
-  const letterheadEnabled = reportConfig.useLetterhead !== false;
-  const letterheadUrl = org?.letterhead_url || null;
-  const companyName = org?.company_name || 'ShreeVidhya Academy';
+// ─── Helper: resolve path with fallback aliases ──────────
+function resolvePath(obj, path) {
+  if (!obj || !path) return '';
 
-  let letterheadBase64 = null;
-  if (letterheadEnabled && letterheadUrl) {
-    try {
-      letterheadBase64 = await loadImageAsBase64(letterheadUrl);
-    } catch (e) {
-      console.warn("Letterhead load failed", e);
+  if (path.includes('.')) {
+    const value = path.split('.').reduce((acc, part) => acc?.[part], obj);
+    return value !== undefined && value !== null ? String(value) : '';
+  }
+
+  let value = obj[path];
+  if (value === undefined || value === null) {
+    const aliases = {
+      'created': ['created_at', 'createdAt', 'CreationDate'],
+      'student': ['student_name', 'studentName', 'full_name', 'name'],
+      'parent': ['parent_name', 'parentName', 'guardian_name'],
+      'inquiry_no': ['inquiry_number', 'inquiryNo'],
+      'followup': ['followup_date', 'followUpDate'],
+      'course': ['course_name', 'courseName'],
+      'source': ['lead_source', 'leadSource'],
+      'status': ['current_status', 'leadStatus'],
+    };
+    const possibleKeys = aliases[path] || [];
+    for (const key of possibleKeys) {
+      if (obj[key] !== undefined && obj[key] !== null) {
+        value = obj[key];
+        break;
+      }
     }
   }
 
-  // Fetch data
-  const queryPromise = reportConfig.queryBuilder(filters);
-  const result = await queryPromise;
-  if (result?.error) throw result.error;
-  let rows = result?.data !== undefined ? result.data : result;
-  if (reportConfig.transform) rows = reportConfig.transform(rows);
-  if (!Array.isArray(rows)) rows = [rows];
+  return value !== undefined && value !== null ? String(value) : '';
+}
 
-  // ─── PDF Setup (A4 portrait) ─────────────────────────────────
-  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+// ─── Main PDF generator ──────────────────────────────────
+export async function generateReportPdf(config, data, filters, org, theme = {}, options = {}) {
+  const safeData = Array.isArray(data) ? data : [];
+
+  const TOP_MARGIN = 35;
+
+  const pdfConfig = {
+    orientation: 'landscape',
+    pageSize: 'a4',
+    showHeader: true,
+    showFooter: true,
+    fontSize: 8,
+    headerFontSize: 14,
+    footerFontSize: 8,
+    topMargin: TOP_MARGIN,
+    ...(config.pdfConfig || {}),
+    ...options,
+  };
+
+  const {
+    orientation,
+    pageSize,
+    showHeader,
+    showFooter,
+    fontSize,
+    headerFontSize,
+    footerFontSize,
+    topMargin,
+  } = pdfConfig;
+
+  const primaryColor = "#000000";
+  const fontHeading = theme?.font_heading || "Righteous";
+  const fontBody = theme?.font_body || "Montserrat";
+
+  const doc = new jsPDF({ orientation, unit: 'mm', format: pageSize });
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
 
-  const topMargin = 55;
-  const bottomMargin = 20;
-  const sideMargin = 16;
+  let logoBase64 = null;
+  if (org?.logo_dark_url) {
+    logoBase64 = await loadImageAsBase64(org.logo_dark_url);
+  }
 
-  // Helper to draw letterhead on any page
-  const drawLetterhead = () => {
-    if (letterheadBase64) {
-      doc.addImage(letterheadBase64, "PNG", 0, 0, pageWidth, pageHeight);
+  // ── Header ──
+  const drawHeader = (doc, pageWidth, org, startY) => {
+    if (!showHeader) return startY || 12;
+    const logoWidth = 35;
+    const logoHeight = 14;
+    let y = startY || 12;
+    if (logoBase64) {
+      doc.addImage(logoBase64, "PNG", 14, y, logoWidth, logoHeight);
     }
+    const textX = logoBase64 ? 14 + logoWidth + 4 : 14;
+    const textY = y + 1;
+    const companyName = org?.company_name || "ShreeVidhya Academy";
+    const address = org?.address || "";
+    const gstin = org?.gstin || "";
+    const phone = org?.phone || "";
+    const email = org?.email || "";
+
+    doc.setFont(fontHeading, "bold");
+    doc.setFontSize(headerFontSize);
+    doc.setTextColor("#000000");
+    doc.text(companyName, textX, textY);
+
+    doc.setFont(fontBody, "normal");
+    doc.setFontSize(7);
+    doc.setTextColor("#000000");
+    let detailY = textY + 4.5;
+    if (address) {
+      const addrLines = doc.splitTextToSize(address, pageWidth - textX - 14 - 10);
+      doc.text(addrLines, textX, detailY);
+      detailY += addrLines.length * 3.5 + 1;
+    }
+    if (gstin) {
+      doc.text(`GSTIN: ${gstin}`, textX, detailY);
+      detailY += 4;
+    }
+    if (phone) {
+      doc.text(`Phone: ${phone}`, textX, detailY);
+      detailY += 4;
+    }
+    if (email) {
+      doc.text(`Email: ${email}`, textX, detailY);
+      detailY += 4;
+    }
+
+    const headerHeight = Math.max(logoHeight + 4, detailY - textY + 4);
+    y += headerHeight + 4;
+    doc.setDrawColor("#000000");
+    doc.setLineWidth(0.4);
+    doc.line(14, y, pageWidth - 14, y);
+    y += 6;
+    return y;
   };
 
-  // Draw letterhead for the first page
-  drawLetterhead();
+  // ── Footer ──
+  const drawFooter = (doc, pageWidth, pageHeight, pageNumber, totalPages) => {
+    if (!showFooter) return;
+    const dateStr = new Date().toLocaleString();
+    doc.setFont(fontBody, "italic");
+    doc.setFontSize(footerFontSize);
+    doc.setTextColor("#000000");
+    doc.text(
+      `Generated on ${dateStr} | Page ${pageNumber} of ${totalPages}`,
+      pageWidth / 2,
+      pageHeight - 10,
+      { align: "center" }
+    );
+  };
 
-  let y = topMargin;
+  // ─── First page ──
+  let y = drawHeader(doc, pageWidth, org, 12);
 
-  // ── Title bar (blue with white text) ──
-  const titleBarHeight = 16;
-  doc.setFillColor("#0D47A1");
-  doc.rect(sideMargin, y - 6, pageWidth - 2 * sideMargin, titleBarHeight, 'F');
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(18);
-  doc.setTextColor("#FFFFFF");
-  doc.text(reportConfig.title, pageWidth / 2, y + 3, { align: "center" });
-  y += titleBarHeight + 4;
+  // Title
+  const title = config.title || "Report";
+  doc.setFont(fontHeading, "bold");
+  doc.setFontSize(16);
+  doc.setTextColor("#000000");
+  doc.text(title, pageWidth / 2, y, { align: "center" });
+  y += 8;
 
-  // ── Subtitle bar (light grey with dark text) ──
-  if (filters.start_date || filters.end_date) {
-    const period = `${filters.start_date || '?'} – ${filters.end_date || '?'}`;
-    const subtitleBarHeight = 9;
-    doc.setFillColor("#F0F0F0");
-    doc.rect(sideMargin, y - 3, pageWidth - 2 * sideMargin, subtitleBarHeight, 'F');
-    doc.setFont("helvetica", "normal");
+  // Subtitle
+  let subtitle = "";
+  if (filters.start_date && filters.end_date) {
+    subtitle = `${filters.start_date} to ${filters.end_date}`;
+  } else if (filters.start_date) {
+    subtitle = `From ${filters.start_date}`;
+  } else if (filters.end_date) {
+    subtitle = `Until ${filters.end_date}`;
+  }
+  if (subtitle) {
+    doc.setFont(fontBody, "normal");
     doc.setFontSize(10);
-    doc.setTextColor("#333333");
-    doc.text(period, pageWidth / 2, y + 1.5, { align: "center" });
-    y += subtitleBarHeight + 6;
-  }
-  y += 4;
-
-  // ── Empty state ─────────────────────────────────────────────
-  if (rows.length === 0) {
-    doc.setFontSize(12);
-    doc.setTextColor("#333");
-    doc.text("No data available.", sideMargin, y);
-    return doc;
+    doc.setTextColor("#000000");
+    doc.text(subtitle, pageWidth / 2, y, { align: "center" });
+    y += 6;
   }
 
-  // Build table
-  const columns = reportConfig.columns || [];
-  const headers = columns.map(col => col.header);
-  const body = rows.map(row =>
-    columns.map(col => {
-      let val = row[col.accessor];
-      return val === undefined || val === null ? '—' : String(val);
-    })
+  y = Math.max(y, topMargin);
+
+  // ─── Table columns and data ──
+  const columns = config.columns || [];
+  const head = [columns.map((col) => col.header)];
+  const body = safeData.map((row) =>
+    columns.map((col) => resolvePath(row, col.accessor))
   );
 
-  const columnWidths = computeColumnWidths(doc, headers, body, pageWidth, sideMargin);
+  // Column width overrides
   const columnStyles = {};
-  columnWidths.forEach((w, idx) => {
-    columnStyles[idx] = { cellWidth: w };
+  columns.forEach((col, idx) => {
+    if (['inquiry_no', 'student', 'parent', 'course', 'source', 'status'].includes(col.accessor)) {
+      columnStyles[idx] = { cellWidth: 'auto' };
+    } else if (['created', 'followup'].includes(col.accessor)) {
+      columnStyles[idx] = { cellWidth: 25 };
+    } else if (['mobile'].includes(col.accessor)) {
+      columnStyles[idx] = { cellWidth: 30 };
+    }
   });
 
-  // Reset to black for the table
-  doc.setTextColor("#000000");
-
+  // ─── Generate table with borders, transparent background ──
   autoTable(doc, {
-    startY: y,
-    head: [headers],
+    head,
     body,
-    theme: "grid",
+    startY: y,
+    margin: { top: topMargin, left: 14, right: 14 },
     styles: {
-      fontSize: 10,
-      cellPadding: 3,
-      textColor: "#000000",
-      fillColor: "#FFFFFF",
-      lineColor: "#cccccc",
-      lineWidth: 0.5,
+      fontSize,
+      cellPadding: 2,
+      font: fontBody || "helvetica",
+      textColor: [0, 0, 0],
+      fillColor: [255, 255, 255],       // white background for all cells
+      lineWidth: 0.2,                   // thin border
+      lineColor: [0, 0, 0],             // black border
     },
     headStyles: {
-      fillColor: "#0D47A1",
-      textColor: "#FFFFFF",
+      fillColor: [255, 255, 255],       // transparent header
+      textColor: [0, 0, 0],
       fontStyle: "bold",
-      fontSize: 11,
-      cellPadding: 3,
+      font: fontHeading || "helvetica",
+      lineWidth: 0.2,                   // ✅ FULL border for header cells (all sides)
+      lineColor: [0, 0, 0],
     },
     alternateRowStyles: {
-      fillColor: "#F5F8FF",
-      textColor: "#000000",
-    },
-    margin: {
-      top: topMargin,
-      left: sideMargin,
-      bottom: bottomMargin,
-      right: sideMargin,
+      fillColor: [255, 255, 255],       // no alternate row color
     },
     columnStyles,
-    didParseCell: (data) => {
-      if (data.row.section === 'body') {
-        data.cell.styles.textColor = "#000000";
-      } else if (data.row.section === 'head') {
-        data.cell.styles.textColor = "#FFFFFF";
-      }
-    },
-    willDrawPage: (data) => {
-      // Redraw letterhead for every subsequent page (page 2 and beyond)
-      if (data.pageNumber > 1) {
-        drawLetterhead();
-      }
-    },
     didDrawPage: (data) => {
-      const pgNum = doc.internal.getCurrentPageInfo().pageNumber;
-      doc.setFontSize(7);
-      doc.setTextColor("#aaa");
-      doc.text(`Page ${pgNum}`, pageWidth - sideMargin, pageHeight - 10, { align: "right" });
+      drawHeader(doc, pageWidth, org, 12);
+      const totalPages = doc.internal.getNumberOfPages();
+      drawFooter(doc, pageWidth, pageHeight, data.pageNumber, totalPages);
     },
   });
-
-  // Final page numbers
-  const totalPages = doc.getNumberOfPages();
-  for (let i = 1; i <= totalPages; i++) {
-    doc.setPage(i);
-    doc.setFontSize(7);
-    doc.setTextColor("#aaa");
-    doc.text(`Page ${i} of ${totalPages}`, pageWidth - sideMargin, pageHeight - 10, { align: "right" });
-  }
 
   return doc;
 }

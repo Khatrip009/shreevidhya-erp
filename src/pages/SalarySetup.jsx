@@ -1,22 +1,20 @@
+// src/pages/SalarySetup.jsx
 import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getActiveTeachers, updateTeacherSalary } from "../services/teacherService";
 import toast from "react-hot-toast";
-import AdminLayout from "../layouts/AdminLayout";
 import { Search, Save, RefreshCw } from "lucide-react";
-import { useOrg } from "../context/OrganizationContext";   // NEW
+import { useOrg } from "../context/OrganizationContext";
 
 export default function SalarySetup() {
   const qc = useQueryClient();
   const [search, setSearch] = useState("");
 
-  // ── Branch & Financial Year context ──
   const { branch, selectedFinancialYear } = useOrg();
   const branchId = branch?.id;
   const financialYearId = selectedFinancialYear?.id;
   const ctx = { branchId, financialYearId };
 
-  // Fetch active teachers – scoped to branch & FY
   const { data: teachers = [], isLoading } = useQuery({
     queryKey: ["active-teachers-salary", branchId, financialYearId],
     queryFn: () => getActiveTeachers(branchId, financialYearId),
@@ -35,7 +33,7 @@ export default function SalarySetup() {
   }, [teachers, search]);
 
   const mutation = useMutation({
-    mutationFn: ({ id, payload }) => updateTeacherSalary(id, payload, ctx),   // pass context
+    mutationFn: ({ id, payload }) => updateTeacherSalary(id, payload, ctx),
     onSuccess: () => {
       toast.success("Salary settings updated");
       qc.invalidateQueries(["active-teachers-salary"]);
@@ -48,54 +46,72 @@ export default function SalarySetup() {
   };
 
   return (
-    <AdminLayout>
+    <div className="space-y-6 px-4 sm:px-6 lg:px-0">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6">
-        <h1 className="text-3xl font-righteous text-primary-dark">Salary Setup</h1>
+        <h1 className="text-3xl font-heading text-primary">
+          Salary Setup
+        </h1>
         <div className="relative mt-2 sm:mt-0">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-secondary-light w-4 h-4" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500 w-4 h-4" />
           <input
             type="text"
             placeholder="Search teacher..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="pl-9 pr-4 py-2 border rounded-lg text-sm w-full sm:w-64 focus:ring-1 focus:ring-primary"
+            className="pl-9 pr-4 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded-lg text-sm w-full sm:w-64 focus:ring-2 focus:ring-primary focus:border-primary outline-none placeholder-gray-400 dark:placeholder-gray-500"
           />
         </div>
       </div>
 
-      <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+      <div className="bg-white dark:bg-accent rounded-xl shadow-sm overflow-hidden border border-gray-200 dark:border-gray-700">
         <div className="overflow-x-auto">
           <table className="w-full">
-            <thead className="bg-slate-50 border-b">
+            <thead className="bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600">
               <tr>
-                <th className="px-4 py-3 text-left text-sm font-medium text-secondary-dark">Teacher</th>
-                <th className="px-4 py-3 text-left text-sm font-medium text-secondary-dark">Type</th>
-                <th className="px-4 py-3 text-left text-sm font-medium text-secondary-dark">Monthly Salary</th>
-                <th className="px-4 py-3 text-left text-sm font-medium text-secondary-dark">Per Lecture</th>
-                <th className="px-4 py-3 text-left text-sm font-medium text-secondary-dark">TDS %</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                  Teacher
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                  Type
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                  Monthly Salary
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                  Per Lecture
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                  TDS %
+                </th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
               {isLoading ? (
                 <tr>
-                  <td colSpan={5} className="text-center py-8 text-secondary">Loading teachers...</td>
+                  <td colSpan={5} className="text-center py-8 text-gray-500 dark:text-gray-400">
+                    Loading teachers...
+                  </td>
                 </tr>
               ) : filteredTeachers.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="text-center py-8 text-secondary">No active teachers found.</td>
+                  <td colSpan={5} className="text-center py-8 text-gray-500 dark:text-gray-400">
+                    No active teachers found.
+                  </td>
                 </tr>
               ) : (
                 filteredTeachers.map((t) => (
-                  <tr key={t.id} className="border-t hover:bg-gray-50 transition">
-                    <td className="px-4 py-3 text-sm">
+                  <tr key={t.id} className="hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+                    <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-200">
                       <div className="font-medium">{t.first_name} {t.last_name}</div>
-                      <div className="text-xs text-secondary-light">{t.employee_code}</div>
+                      <div className="text-xs text-gray-400 dark:text-gray-500">
+                        {t.employee_code}
+                      </div>
                     </td>
                     <td className="px-4 py-3 text-sm">
                       <select
                         value={t.salary_type || "fixed"}
                         onChange={(e) => handleChange(t.id, "salary_type", e.target.value)}
-                        className="border rounded p-1.5 text-sm bg-white focus:ring-1 focus:ring-primary"
+                        className="border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded p-1.5 text-sm focus:ring-2 focus:ring-primary outline-none"
                       >
                         <option value="fixed">Fixed</option>
                         <option value="lecture_based">Lecture</option>
@@ -108,7 +124,7 @@ export default function SalarySetup() {
                         step="100"
                         value={t.monthly_salary || ""}
                         onChange={(e) => handleChange(t.id, "monthly_salary", e.target.value)}
-                        className="w-28 border rounded p-1.5 text-sm focus:ring-1 focus:ring-primary"
+                        className="w-28 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded p-1.5 text-sm focus:ring-2 focus:ring-primary outline-none"
                         placeholder="0"
                       />
                     </td>
@@ -119,7 +135,7 @@ export default function SalarySetup() {
                         step="10"
                         value={t.per_lecture_rate || ""}
                         onChange={(e) => handleChange(t.id, "per_lecture_rate", e.target.value)}
-                        className="w-28 border rounded p-1.5 text-sm focus:ring-1 focus:ring-primary"
+                        className="w-28 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded p-1.5 text-sm focus:ring-2 focus:ring-primary outline-none"
                         placeholder="0"
                       />
                     </td>
@@ -131,7 +147,7 @@ export default function SalarySetup() {
                         step="0.1"
                         value={t.tds_percentage || "10.00"}
                         onChange={(e) => handleChange(t.id, "tds_percentage", e.target.value)}
-                        className="w-20 border rounded p-1.5 text-sm focus:ring-1 focus:ring-primary"
+                        className="w-20 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded p-1.5 text-sm focus:ring-2 focus:ring-primary outline-none"
                       />
                     </td>
                   </tr>
@@ -141,11 +157,11 @@ export default function SalarySetup() {
           </table>
         </div>
         {filteredTeachers.length > 0 && (
-          <div className="px-4 py-2 text-xs text-secondary-light border-t">
+          <div className="px-4 py-2 text-xs text-gray-500 dark:text-gray-400 border-t border-gray-200 dark:border-gray-700">
             Showing {filteredTeachers.length} of {teachers.length} teachers
           </div>
         )}
       </div>
-    </AdminLayout>
+    </div>
   );
 }

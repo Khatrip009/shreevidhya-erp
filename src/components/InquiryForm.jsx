@@ -2,7 +2,7 @@
 import { useState, useEffect } from "react";
 import toast from "react-hot-toast";
 import {
-  X, User, Phone, Mail, FileText, BookOpen, Calendar, Tag, Layers,
+  X, User, Phone, Mail, BookOpen, Calendar, Tag, Layers,
 } from "lucide-react";
 import {
   getCourseOptions,
@@ -10,13 +10,18 @@ import {
 } from "../services/inquiryService";
 import { useOrgDarkLogo } from "../hooks/useOrgDarkLogo";
 import { useOrg } from "../context/OrganizationContext";
+import { useTheme } from "../context/ThemeContext";               // ✅ dynamic theme
 
 export default function InquiryForm({ onSubmit, onClose, initialData = {} }) {
   const darkLogo = useOrgDarkLogo();
   const { org, branch, selectedFinancialYear } = useOrg();
+  const theme = useTheme();                                     // ✅ theme hook
   const orgName = org?.company_name || "Academy";
   const branchId = branch?.id;
   const financialYearId = selectedFinancialYear?.id;
+
+  const headingFont = theme?.font_heading || "Righteous";
+  const bodyFont = theme?.font_body || "Montserrat";
 
   const [form, setForm] = useState({
     student_name: initialData.student_name || "",
@@ -28,33 +33,22 @@ export default function InquiryForm({ onSubmit, onClose, initialData = {} }) {
     source: initialData.source || "",
     remarks: initialData.remarks || "",
     followup_date: initialData.followup_date || "",
-    status: initialData.status || "New",
     medium_id: initialData.medium_id || "",
   });
 
   const [courses, setCourses] = useState([]);
   const [mediums, setMediums] = useState([]);
 
-  // Wait until both branch and financial year are loaded
-  if (!branchId || !financialYearId) {
-    return (
-      <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-        <div className="bg-white rounded-xl p-8 shadow-xl">
-          <p className="text-secondary font-montserrat">Loading organisation data…</p>
-        </div>
-      </div>
-    );
-  }
-
   useEffect(() => {
+    if (!branchId || !financialYearId) return;
     loadDropdowns();
   }, [branchId, financialYearId]);
 
   async function loadDropdowns() {
     try {
       const [courseData, mediumData] = await Promise.all([
-        getCourseOptions(),          // organisation‑wide, no parameters
-        getMediumOptions(),          // organisation‑wide
+        getCourseOptions(),
+        getMediumOptions(),
       ]);
       setCourses(courseData);
       setMediums(mediumData);
@@ -69,112 +63,94 @@ export default function InquiryForm({ onSubmit, onClose, initialData = {} }) {
 
   async function handleSubmit(e) {
     e.preventDefault();
-
     if (!form.student_name || !form.mobile) {
       toast.error("Student name and mobile are required");
       return;
     }
-
-    const context = {
-      branchId: branchId,
-      financialYearId: financialYearId,
-    };
-
+    const context = { branchId, financialYearId };
     await onSubmit({ ...form, medium_id: form.medium_id || null }, context);
   }
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl w-full max-w-2xl shadow-xl max-h-[90vh] overflow-y-auto">
-        {/* Header with dynamic logo */}
-        <div className="sticky top-0 bg-white border-b border-secondary-light px-6 py-4 flex items-center justify-between rounded-t-xl z-10">
+      <div className="bg-white rounded-xl w-full max-w-2xl shadow-xl max-h-[90vh] overflow-y-auto border border-primary-bg">
+        <div className="sticky top-0 bg-white border-b border-primary-bg px-6 py-4 flex items-center justify-between rounded-t-xl z-10">
           <div className="flex items-center gap-3">
-            <img
-              src={darkLogo}
-              alt={orgName}
-              className="h-10 w-auto"
-            />
-            <h2 className="text-xl font-righteous text-primary-dark">
+            <img src={darkLogo} alt={orgName} className="h-10 w-auto" />
+            <h2 className="text-xl font-bold text-primary" style={{ fontFamily: headingFont }}>
               {initialData.id ? "Edit Inquiry" : "New Inquiry"}
             </h2>
           </div>
-          <button
-            onClick={onClose}
-            className="p-2 hover:bg-secondary-bg rounded-lg transition"
-          >
-            <X size={20} className="text-secondary-dark" />
+          <button onClick={onClose} className="p-2 hover:bg-primary-bg rounded-lg transition">
+            <X size={20} className="text-primary-dark" />
           </button>
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-5">
-          {/* Student & Parent Name */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-montserrat text-secondary-dark mb-1">
-                <User size={14} className="inline mr-1" />
-                Student Name *
+              <label className="block text-sm text-primary-dark mb-1" style={{ fontFamily: bodyFont }}>
+                <User size={14} className="inline mr-1" /> Student Name *
               </label>
               <input
                 name="student_name"
                 placeholder="Full name"
                 value={form.student_name}
                 onChange={handleChange}
-                className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light"
+                className="w-full border border-primary-bg bg-white text-primary-dark rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-primary-dark/40"
                 required
+                style={{ fontFamily: bodyFont }}
               />
             </div>
             <div>
-              <label className="block text-sm font-montserrat text-secondary-dark mb-1">
-                <User size={14} className="inline mr-1" />
-                Parent Name
+              <label className="block text-sm text-primary-dark mb-1" style={{ fontFamily: bodyFont }}>
+                <User size={14} className="inline mr-1" /> Parent Name
               </label>
               <input
                 name="parent_name"
                 placeholder="Father / Mother"
                 value={form.parent_name}
                 onChange={handleChange}
-                className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light"
+                className="w-full border border-primary-bg bg-white text-primary-dark rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-primary-dark/40"
+                style={{ fontFamily: bodyFont }}
               />
             </div>
           </div>
 
-          {/* Mobile & WhatsApp */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-montserrat text-secondary-dark mb-1">
-                <Phone size={14} className="inline mr-1" />
-                Mobile *
+              <label className="block text-sm text-primary-dark mb-1" style={{ fontFamily: bodyFont }}>
+                <Phone size={14} className="inline mr-1" /> Mobile *
               </label>
               <input
                 name="mobile"
                 placeholder="Phone number"
                 value={form.mobile}
                 onChange={handleChange}
-                className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light"
+                className="w-full border border-primary-bg bg-white text-primary-dark rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-primary-dark/40"
                 required
+                style={{ fontFamily: bodyFont }}
               />
             </div>
             <div>
-              <label className="block text-sm font-montserrat text-secondary-dark mb-1">
-                <Phone size={14} className="inline mr-1" />
-                WhatsApp
+              <label className="block text-sm text-primary-dark mb-1" style={{ fontFamily: bodyFont }}>
+                <Phone size={14} className="inline mr-1" /> WhatsApp
               </label>
               <input
                 name="whatsapp"
                 placeholder="WhatsApp number"
                 value={form.whatsapp}
                 onChange={handleChange}
-                className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light"
+                className="w-full border border-primary-bg bg-white text-primary-dark rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-primary-dark/40"
+                style={{ fontFamily: bodyFont }}
               />
             </div>
           </div>
 
-          {/* Email & Course */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-montserrat text-secondary-dark mb-1">
-                <Mail size={14} className="inline mr-1" />
-                Email
+              <label className="block text-sm text-primary-dark mb-1" style={{ fontFamily: bodyFont }}>
+                <Mail size={14} className="inline mr-1" /> Email
               </label>
               <input
                 type="email"
@@ -182,106 +158,79 @@ export default function InquiryForm({ onSubmit, onClose, initialData = {} }) {
                 placeholder="Email address"
                 value={form.email}
                 onChange={handleChange}
-                className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light"
+                className="w-full border border-primary-bg bg-white text-primary-dark rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-primary-dark/40"
+                style={{ fontFamily: bodyFont }}
               />
             </div>
             <div>
-              <label className="block text-sm font-montserrat text-secondary-dark mb-1">
-                <BookOpen size={14} className="inline mr-1" />
-                Interested Course
+              <label className="block text-sm text-primary-dark mb-1" style={{ fontFamily: bodyFont }}>
+                <BookOpen size={14} className="inline mr-1" /> Interested Course
               </label>
               <select
                 name="interested_course_id"
                 value={form.interested_course_id}
                 onChange={handleChange}
-                className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
+                className="w-full border border-primary-bg bg-white text-primary-dark rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
+                style={{ fontFamily: bodyFont }}
               >
                 <option value="">Select Course</option>
                 {courses.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.course_name}
-                  </option>
+                  <option key={c.id} value={c.id}>{c.course_name}</option>
                 ))}
               </select>
             </div>
           </div>
 
-          {/* Medium & Source */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-montserrat text-secondary-dark mb-1">
-                <Layers size={14} className="inline mr-1" />
-                Medium
+              <label className="block text-sm text-primary-dark mb-1" style={{ fontFamily: bodyFont }}>
+                <Layers size={14} className="inline mr-1" /> Medium
               </label>
               <select
                 name="medium_id"
                 value={form.medium_id}
                 onChange={handleChange}
-                className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
+                className="w-full border border-primary-bg bg-white text-primary-dark rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
+                style={{ fontFamily: bodyFont }}
               >
                 <option value="">Select Medium</option>
                 {mediums.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.name}
-                  </option>
+                  <option key={m.id} value={m.id}>{m.name}</option>
                 ))}
               </select>
             </div>
             <div>
-              <label className="block text-sm font-montserrat text-secondary-dark mb-1">
-                <Tag size={14} className="inline mr-1" />
-                Source
+              <label className="block text-sm text-primary-dark mb-1" style={{ fontFamily: bodyFont }}>
+                <Tag size={14} className="inline mr-1" /> Source
               </label>
               <input
                 name="source"
-                placeholder="e.g., Walk-in, Reference, Online"
+                placeholder="e.g., Walk-in, Reference"
                 value={form.source}
                 onChange={handleChange}
-                className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light"
+                className="w-full border border-primary-bg bg-white text-primary-dark rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-primary-dark/40"
+                style={{ fontFamily: bodyFont }}
               />
             </div>
           </div>
 
-          {/* Follow-up Date & Status */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-montserrat text-secondary-dark mb-1">
-                <Calendar size={14} className="inline mr-1" />
-                Follow-up Date
+              <label className="block text-sm text-primary-dark mb-1" style={{ fontFamily: bodyFont }}>
+                <Calendar size={14} className="inline mr-1" /> Follow-up Date
               </label>
               <input
                 type="date"
                 name="followup_date"
                 value={form.followup_date}
                 onChange={handleChange}
-                className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
+                className="w-full border border-primary-bg bg-white text-primary-dark rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
               />
-            </div>
-            <div>
-              <label className="block text-sm font-montserrat text-secondary-dark mb-1">
-                <FileText size={14} className="inline mr-1" />
-                Status
-              </label>
-              <select
-                name="status"
-                value={form.status}
-                onChange={handleChange}
-                className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
-              >
-                <option>New</option>
-                <option>Contacted</option>
-                <option>Demo Scheduled</option>
-                <option>Interested</option>
-                <option>Joined</option>
-                <option>Closed</option>
-              </select>
             </div>
           </div>
 
-          {/* Remarks */}
-          <div className="sm:col-span-2">
-            <label className="block text-sm font-montserrat text-secondary-dark mb-1">
-              <FileText size={14} className="inline mr-1" />
+          <div>
+            <label className="block text-sm text-primary-dark mb-1" style={{ fontFamily: bodyFont }}>
               Remarks
             </label>
             <textarea
@@ -290,22 +239,24 @@ export default function InquiryForm({ onSubmit, onClose, initialData = {} }) {
               value={form.remarks}
               onChange={handleChange}
               rows={3}
-              className="w-full border border-secondary-light rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-secondary-light resize-none"
+              className="w-full border border-primary-bg bg-white text-primary-dark rounded p-2.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none placeholder-primary-dark/40 resize-none"
+              style={{ fontFamily: bodyFont }}
             />
           </div>
 
-          {/* Buttons */}
           <div className="flex flex-col sm:flex-row-reverse gap-3 pt-2">
             <button
               type="submit"
-              className="w-full sm:w-auto bg-primary hover:bg-primary-light text-white px-6 py-2.5 rounded-lg font-montserrat transition flex items-center justify-center gap-2"
+              className="w-full sm:w-auto bg-primary hover:bg-primary-light text-white px-6 py-2.5 rounded-lg transition flex items-center justify-center gap-2"
+              style={{ fontFamily: bodyFont }}
             >
               {initialData.id ? "Update Inquiry" : "Create Inquiry"}
             </button>
             <button
               type="button"
               onClick={onClose}
-              className="w-full sm:w-auto border border-secondary-light text-secondary-dark hover:bg-secondary-bg px-6 py-2.5 rounded-lg font-montserrat transition"
+              className="w-full sm:w-auto border border-primary-bg text-primary-dark hover:bg-primary-bg px-6 py-2.5 rounded-lg transition"
+              style={{ fontFamily: bodyFont }}
             >
               Cancel
             </button>

@@ -2,31 +2,167 @@
 import { useState, useRef } from "react";
 import { useInfiniteQuery, useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import toast from "react-hot-toast";
-import { Search, Plus, Edit3, Trash2, Download, Upload, X } from "lucide-react";
+import { Table, Button, Input, Select, Space, Tag, Popconfirm, message, Drawer } from "antd";
+import { PlusOutlined, SearchOutlined, EditOutlined, DeleteOutlined, DownloadOutlined, UploadOutlined, FilePdfOutlined, MailOutlined } from "@ant-design/icons";
 import Papa from "papaparse";
-import AdminLayout from "../layouts/AdminLayout";
-import ConfirmDialog from "../components/ConfirmDialog";
-import BackButton from "../components/BackButton";
 import StudentForm from "../components/StudentForm";
-import { getStudents, createStudent, updateStudent, deleteStudent, getMediumOptions } from "../services/studentService";
+import { getStudents, createStudent, updateStudent, deleteStudent, getMediumOptions, getAllStudentsForExport } from "../services/studentService";
 import { useOrg } from "../context/OrganizationContext";
+import { useTheme } from "../context/ThemeContext"; // 👈 import theme
+import { generateReportPdf } from "../utils/generateReportPdf";
+import { supabase } from "../api/supabase";
+import { sendEmail, sendTemplateEmail } from "../services/emailService";
 
 export default function Students() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
-  const [filterMedium, setFilterMedium] = useState("");
-  const [showModal, setShowModal] = useState(false);
+  const [filterMedium, setFilterMedium] = useState(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingStudent, setEditingStudent] = useState(null);
-  const [confirmDelete, setConfirmDelete] = useState(null);
-  const fileInputRef = useRef(null);
+  const [exporting, setExporting] = useState(false);
+  const [sendingEmailId, setSendingEmailId] = useState(null);
+  const fileInputRef = useRef();
 
-  // ── Organisation / Branch / Financial Year context ──
-  const { branch, selectedFinancialYear } = useOrg();
+  const { branch, selectedFinancialYear, org } = useOrg(); // 👈 removed theme from here
+  const theme = useTheme(); // 👈 get theme colours
   const branchId = branch?.id;
   const financialYearId = selectedFinancialYear?.id;
   const ctx = { branchId, financialYearId };
 
+  // ─── Helper: get admin emails ──────────────────────────────────────
+  const getAdminEmails = async () => {
+    if (!org?.id) return [];
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("email")
+      .eq("organization_id", org.id)
+      .in("role", ["admin", "super_admin", "organization_admin"])
+      .eq("is_active", true);
+    if (error) {
+      console.error("Failed to fetch admin emails:", error);
+      return [];
+    }
+    return data?.map(p => p.email).filter(Boolean) || [];
+  };
+
+  // ─── Send Report Email ─────────────────────────────────────────────
+  const sendReportEmail = async () => {
+    if (students.length === 0) {
+      alert("No students to send.");
+      return;
+    }
+
+    try {
+      const adminEmails = await getAdminEmails();
+      if (adminEmails.length === 0) {
+        alert("No admin emails found.");
+        return;
+      }
+
+      // Build HTML table rows – use theme colours
+      let tableRows = students.map((s) => `
+        <tr>
+          <td style="padding:4px 8px;border:1px solid #ddd;">${s.admission_no || '—'}</td>
+          <td style="padding:4px 8px;border:1px solid #ddd;">${s.first_name || ''} ${s.last_name || ''}</td>
+          <td style="padding:4px 8px;border:1px solid #ddd;">${s.medium_name || '—'}</td>
+          <td style="padding:4px 8px;border:1px solid #ddd;">${s.mobile || '—'}</td>
+          <td style="padding:4px 8px;border:1px solid #ddd;">${s.status || 'Active'}</td>
+        </tr>
+      `).join('');
+
+      const htmlBody = `
+        <div style="font-family:Arial,sans-serif;max-width:800px;margin:0 auto;">
+          <h2 style="color:${theme.primary_color};">Student List Report</h2>
+          <p><strong>Branch:</strong> ${branch?.branch_name || 'N/A'}</p>
+          <p><strong>Filters:</strong> ${search ? `Search: "${search}"` : 'None'} ${filterMedium ? `, Medium: ${mediums.find(m => m.id === filterMedium)?.name || ''}` : ''}</p>
+          <p><strong>Total Students:</strong> ${students.length}</p>
+          <hr />
+          <table style="width:100%;border-collapse:collapse;font-size:11px;border:1px solid #ddd;">
+            <thead style="background:${theme.primary_light_color || '#e3f2fd'};">
+              <tr>
+                <th style="padding:4px 8px;border:1px solid #ddd;text-align:left;">Admission No</th>
+                <th style="padding:4px 8px;border:1px solid #ddd;text-align:left;">Name</th>
+                <th style="padding:4px 8px;border:1px solid #ddd;text-align:left;">Medium</th>
+                <th style="padding:4px 8px;border:1px solid #ddd;text-align:left;">Mobile</th>
+                <th style="padding:4px 8px;border:1px solid #ddd;text-align:left;">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${tableRows}
+            </tbody>
+          </table>
+          <p style="color:#888;font-size:10px;margin-top:20px;">Computer‑generated report from ${org?.company_name || 'Academy'}</p>
+        </div>
+      `;
+
+      await sendEmail({
+        to: adminEmails,
+        subject: `Student List Report - ${new Date().toLocaleDateString()}`,
+        html: htmlBody,
+      });
+
+      alert("Report sent to admins.");
+    } catch (err) {
+      console.error("Failed to send report:", err);
+      alert("Failed to send report. Check console for details.");
+    }
+  };
+
+  // ─── Resend Welcome Email to Student ──────────────────────────────
+  const resendWelcomeEmail = async (student) => {
+    setSendingEmailId(student.id);
+    try {
+      let recipientEmail = student.email;
+      if (!recipientEmail) {
+        const { data: freshStudent, error } = await supabase
+          .from("students")
+          .select("email")
+          .eq("id", student.id)
+          .single();
+        if (error) throw error;
+        recipientEmail = freshStudent?.email;
+      }
+      if (!recipientEmail) {
+        message.warning("No email address for this student.");
+        setSendingEmailId(null);
+        return;
+      }
+
+      const { data: parent, error: parentError } = await supabase
+        .from("student_parents")
+        .select("parents!inner(email)")
+        .eq("student_id", student.id)
+        .maybeSingle();
+      if (!parentError && parent && parent.parents?.email) {
+        recipientEmail = parent.parents.email;
+      }
+
+      const fullName = `${student.first_name || ''} ${student.last_name || ''}`.trim() || 'Student';
+      const context = {
+        academyName: org?.company_name || "Academy",
+        full_name: fullName,
+        role: 'Student',
+        login_link: `${window.location.origin}/login`,
+      };
+
+      await sendTemplateEmail({
+        to: recipientEmail,
+        organizationId: org?.id,
+        slug: "account_welcome",
+        context,
+        branchId,
+      });
+
+      message.success(`Welcome email sent to ${recipientEmail}`);
+    } catch (err) {
+      console.error("Resend welcome error:", err);
+      message.error("Failed to send welcome email.");
+    } finally {
+      setSendingEmailId(null);
+    }
+  };
+
+  // ─── Data fetching ──────────────────────────────────────────────────
   const { data: mediums = [] } = useQuery({
     queryKey: ["mediums-dropdown"],
     queryFn: getMediumOptions,
@@ -54,39 +190,75 @@ export default function Students() {
 
   const students = data?.pages.flatMap((page) => page.data) || [];
 
-  // Mutations – now pass context
+  // ─── Mutations ──────────────────────────────────────────────────────
   const deleteMutation = useMutation({
     mutationFn: (id) => deleteStudent(id, ctx),
     onSuccess: () => {
-      toast.success("Student deleted");
-      queryClient.invalidateQueries(["students"]);
+      message.success("Student deleted");
+      queryClient.invalidateQueries({ queryKey: ["students"] });
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err) => message.error(err.message),
   });
 
-  const createMutation = useMutation({
-    mutationFn: (payload) => createStudent(payload, ctx),
-    onSuccess: () => {
-      toast.success("Student added");
-      queryClient.invalidateQueries(["students"]);
-      setShowModal(false);
-      setEditingStudent(null);
-    },
-    onError: (err) => toast.error(err.message || "Failed to add student"),
-  });
+  // ─── PDF Export ─────────────────────────────────────────────────────
+  const handleExportPDF = async () => {
+    setExporting(true);
+    try {
+      const allStudents = await getAllStudentsForExport({
+        filters: { search, medium_id: filterMedium },
+        branchId,
+        financialYearId,
+      });
 
-  const updateMutation = useMutation({
-    mutationFn: ({ id, payload }) => updateStudent(id, payload, ctx),
-    onSuccess: () => {
-      toast.success("Student updated");
-      queryClient.invalidateQueries(["students"]);
-      setShowModal(false);
-      setEditingStudent(null);
-    },
-    onError: (err) => toast.error(err.message || "Failed to update student"),
-  });
+      if (!allStudents.length) {
+        message.warning("No students to export");
+        setExporting(false);
+        return;
+      }
 
-  // CSV import – now passes context to createStudent
+      const rows = allStudents.map((s) => ({
+        admission_no: s.admission_no || "-",
+        name: `${s.first_name || ""} ${s.last_name || ""}`.trim() || "-",
+        medium: s.medium_name || "-",
+        mobile: s.mobile || "-",
+        status: s.status || "Active",
+      }));
+
+      const config = {
+        title: "Student List",
+        description: `Filtered students${search ? ` (search: "${search}")` : ""}${filterMedium ? `, Medium: ${mediums.find(m => m.id === filterMedium)?.name || ''}` : ""}`,
+        columns: [
+          { header: "Admission No", accessor: "admission_no" },
+          { header: "Name", accessor: "name" },
+          { header: "Medium", accessor: "medium" },
+          { header: "Mobile", accessor: "mobile" },
+          { header: "Status", accessor: "status" },
+        ],
+        pdfConfig: {
+          orientation: "landscape",
+          includeLetterhead: false,
+          showHeader: true,
+          showFooter: true,
+          pageSize: "a4",
+          fontSize: 8,
+          headerFontSize: 14,
+          footerFontSize: 8,
+        },
+      };
+
+      const filters = { start_date: null, end_date: null };
+      const doc = await generateReportPdf(config, rows, filters, org, theme); // uses theme from useTheme
+      doc.save(`students_${new Date().toISOString().slice(0, 10)}.pdf`);
+      message.success("PDF exported successfully");
+    } catch (err) {
+      console.error(err);
+      message.error("Failed to export PDF: " + err.message);
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  // ─── CSV Import ─────────────────────────────────────────────────────
   const handleImport = (event) => {
     const file = event.target.files[0];
     if (!file) return;
@@ -116,176 +288,183 @@ export default function Students() {
             console.error(err);
           }
         }
-        toast.success(`${successCount} students imported`);
-        queryClient.invalidateQueries(["students"]);
+        message.success(`${successCount} students imported`);
+        queryClient.invalidateQueries({ queryKey: ["students"] });
       },
-      error: () => toast.error("CSV parsing error"),
+      error: () => message.error("CSV parsing error"),
     });
   };
 
-  // Submit handler for StudentForm (create or update)
-  const handleFormSubmit = async (payload, formContext) => {
-    if (editingStudent) {
-      await updateMutation.mutateAsync({ id: editingStudent.id, payload });
-    } else {
-      await createMutation.mutateAsync(payload);
-    }
-  };
+  // ─── Columns ────────────────────────────────────────────────────────
+  const columns = [
+    {
+      title: "Admission No",
+      dataIndex: "admission_no",
+      sorter: true,
+      width: 120,
+    },
+    {
+      title: "Name",
+      render: (_, record) => (
+        <Link to={`/students/${record.id}`} style={{ fontWeight: 500 }}>
+          {record.first_name} {record.last_name}
+        </Link>
+      ),
+      sorter: (a, b) => `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`),
+    },
+    {
+      title: "Medium",
+      dataIndex: "medium_name",
+      filters: mediums.map((m) => ({ text: m.name, value: m.id })),
+      onFilter: (value, record) => record.medium_id === value,
+    },
+    {
+      title: "Mobile",
+      dataIndex: "mobile",
+    },
+    {
+      title: "Status",
+      dataIndex: "status",
+      render: (status) => {
+        const color = status === "Active" ? "green" : status === "Inactive" ? "volcano" : "default";
+        return <Tag color={color}>{status || "Active"}</Tag>;
+      },
+      filters: [
+        { text: "Active", value: "Active" },
+        { text: "Inactive", value: "Inactive" },
+      ],
+      onFilter: (value, record) => record.status === value,
+    },
+    {
+      title: "Actions",
+      width: 150,
+      render: (_, record) => (
+        <Space>
+          <Button
+            type="link"
+            size="small"
+            icon={<MailOutlined />}
+            onClick={() => resendWelcomeEmail(record)}
+            disabled={sendingEmailId === record.id}
+            title="Resend welcome email"
+          />
+          <Button
+            type="link"
+            size="small"
+            icon={<EditOutlined />}
+            onClick={() => {
+              setEditingStudent(record);
+              setDrawerOpen(true);
+            }}
+          />
+          <Popconfirm
+            title="Delete this student?"
+            onConfirm={() => deleteMutation.mutate(record.id)}
+          >
+            <Button type="link" size="small" danger icon={<DeleteOutlined />} />
+          </Popconfirm>
+        </Space>
+      ),
+    },
+  ];
 
   return (
-    <AdminLayout>
-      <BackButton to="/admissions-hub" label="Admissions Hub" />
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
-        <h1 className="text-3xl font-righteous text-primary-dark">Students</h1>
-        <div className="flex flex-wrap gap-2">
-          <button
-            onClick={() => { setEditingStudent(null); setShowModal(true); }}
-            className="bg-primary text-white px-4 py-2 rounded-lg text-sm flex items-center gap-2"
-          >
-            <Plus size={16} /> Add Student
-          </button>
-          <button
-            onClick={() => toast("Export functionality coming soon")}
-            className="border px-4 py-2 rounded-lg text-sm flex items-center gap-2"
-          >
-            <Download size={16} /> Export
-          </button>
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            className="border px-4 py-2 rounded-lg text-sm flex items-center gap-2"
-          >
-            <Upload size={16} /> Import
-          </button>
-          <input
-            type="file"
-            ref={fileInputRef}
-            className="hidden"
-            accept=".csv"
-            onChange={handleImport}
-          />
-        </div>
-      </div>
-
-      {/* Search & Filters */}
-      <div className="flex flex-col sm:flex-row gap-3 mb-4">
-        <div className="relative flex-1">
-          <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-secondary" />
-          <input
-            type="text"
-            placeholder="Search by name, admission no..."
+    <div>
+      <div style={{ marginBottom: 16, display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+        <Space>
+          <Input
+            placeholder="Search by name or admission no"
+            prefix={<SearchOutlined />}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-10 pr-4 py-2.5 border rounded-lg text-sm"
+            style={{ width: 280 }}
+            allowClear
           />
-        </div>
-        <select
-          value={filterMedium}
-          onChange={(e) => setFilterMedium(e.target.value)}
-          className="border rounded-lg px-4 py-2.5 text-sm"
-        >
-          <option value="">All Mediums</option>
-          {mediums.map((m) => (
-            <option key={m.id} value={m.id}>{m.name}</option>
-          ))}
-        </select>
+          <Select
+            allowClear
+            placeholder="All Mediums"
+            value={filterMedium}
+            onChange={(val) => setFilterMedium(val)}
+            style={{ width: 150 }}
+            options={mediums.map((m) => ({ label: m.name, value: m.id }))}
+          />
+        </Space>
+        <Space>
+          {/* 👇 Send Report button – theme aware */}
+          <Button icon={<MailOutlined />} onClick={sendReportEmail}>
+            Send Report
+          </Button>
+          <Button icon={<FilePdfOutlined />} onClick={handleExportPDF} loading={exporting}>
+            PDF
+          </Button>
+          <Button icon={<DownloadOutlined />}>Export</Button>
+          <Button icon={<UploadOutlined />} onClick={() => fileInputRef.current?.click()}>Import</Button>
+          <input type="file" ref={fileInputRef} hidden accept=".csv" onChange={handleImport} />
+          <Button
+            type="primary"
+            icon={<PlusOutlined />}
+            onClick={() => {
+              setEditingStudent(null);
+              setDrawerOpen(true);
+            }}
+          >
+            Add Student
+          </Button>
+        </Space>
       </div>
 
-      {/* Table */}
-      <div className="bg-white rounded-xl shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[700px]">
-            <thead className="bg-slate-100">
-              <tr>
-                <th className="p-3 text-left text-sm">Admission No</th>
-                <th className="p-3 text-left text-sm">Name</th>
-                <th className="p-3 text-left text-sm">Medium</th>
-                <th className="p-3 text-left text-sm">Mobile</th>
-                <th className="p-3 text-left text-sm">Status</th>
-                <th className="p-3 text-left text-sm">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {isLoading ? (
-                <tr><td colSpan={6} className="p-6 text-center text-secondary">Loading…</td></tr>
-              ) : students.length === 0 ? (
-                <tr><td colSpan={6} className="p-6 text-center text-secondary">No students found.</td></tr>
-              ) : (
-                students.map((student) => (
-                  <tr key={student.id} className="border-t hover:bg-gray-50 transition">
-                    <td className="p-3 text-sm">{student.admission_no || "—"}</td>
-                    <td className="p-3 text-sm font-medium">
-                      <Link to={`/students/${student.id}`} className="hover:text-primary">
-                        {student.first_name} {student.last_name}
-                      </Link>
-                    </td>
-                    <td className="p-3 text-sm">{student.medium_name || "—"}</td>
-                    <td className="p-3 text-sm">{student.mobile || "—"}</td>
-                    <td className="p-3 text-sm">
-                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                        student.status === "Active" ? "bg-green-100 text-green-700" :
-                        student.status === "Inactive" ? "bg-red-100 text-red-700" :
-                        "bg-gray-100 text-gray-700"
-                      }`}>{student.status || "Active"}</span>
-                    </td>
-                    <td className="p-3 text-sm">
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => { setEditingStudent(student); setShowModal(true); }}
-                          className="text-blue-600 hover:underline"
-                        >
-                          <Edit3 size={15} />
-                        </button>
-                        <button
-                          onClick={() => setConfirmDelete(student.id)}
-                          className="text-red-600 hover:underline"
-                        >
-                          <Trash2 size={15} />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <Table
+        columns={columns}
+        dataSource={students}
+        loading={isLoading}
+        rowKey="id"
+        pagination={false}
+        scroll={{ x: 700 }}
+      />
 
       {hasNextPage && (
-        <div className="flex justify-center mt-4">
-          <button
+        <div style={{ textAlign: "center", marginTop: 16 }}>
+          <Button
             onClick={() => fetchNextPage()}
-            className="bg-primary text-white px-4 py-2 rounded-lg text-sm"
+            loading={isFetchingNextPage}
+            disabled={isFetchingNextPage}
           >
-            {isFetchingNextPage ? "Loading…" : "Load More"}
-          </button>
+            {isFetchingNextPage ? "Loading more…" : "Load More"}
+          </Button>
         </div>
       )}
 
-      {/* Student Form Modal (Add / Edit) */}
-      {showModal && (
+      {/* Drawer for Add / Edit */}
+      <Drawer
+        title={editingStudent ? "Edit Student" : "Add Student"}
+        width={640}
+        open={drawerOpen}
+        onClose={() => {
+          setDrawerOpen(false);
+          setEditingStudent(null);
+        }}
+        destroyOnClose
+      >
         <StudentForm
           initialData={editingStudent || {}}
-          onSubmit={handleFormSubmit}
+          onSubmit={async (payload) => {
+            if (editingStudent) {
+              await updateStudent(editingStudent.id, payload, ctx);
+            } else {
+              await createStudent(payload, ctx);
+            }
+          }}
           onSuccess={() => {
-            queryClient.invalidateQueries(["students"]);
-            setShowModal(false);
+            queryClient.invalidateQueries({ queryKey: ["students"] });
+            setDrawerOpen(false);
             setEditingStudent(null);
           }}
           onClose={() => {
-            setShowModal(false);
+            setDrawerOpen(false);
             setEditingStudent(null);
           }}
         />
-      )}
-
-      {confirmDelete && (
-        <ConfirmDialog
-          message="Are you sure you want to delete this student?"
-          onConfirm={() => { deleteMutation.mutate(confirmDelete); setConfirmDelete(null); }}
-          onCancel={() => setConfirmDelete(null)}
-        />
-      )}
-    </AdminLayout>
+      </Drawer>
+    </div>
   );
 }
